@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, Keyboa
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import { Colors } from '../constants/Colors';
+import { Ionicons } from '@expo/vector-icons';
 
 export default function AuthScreen() {
   const [isLogin, setIsLogin] = useState(true);
