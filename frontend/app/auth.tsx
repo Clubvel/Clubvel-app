@@ -31,7 +31,11 @@ export default function AuthScreen() {
       const result = await register(fullName, phoneNumber, password, role);
       setTempPhone(phoneNumber);
       setIsOTPScreen(true);
-      Alert.alert('Success', `OTP sent to ${phoneNumber}. Use code: ${result.otp}`);
+      Alert.alert(
+        '✅ Registration Successful!', 
+        'For testing, the OTP is always: 1234\n\nNo SMS will be sent - this is a demo environment.',
+        [{ text: 'OK, Got It!' }]
+      );
     } catch (error: any) {
       Alert.alert('Error', error.message);
     } finally {
@@ -89,13 +93,24 @@ export default function AuthScreen() {
           </View>
 
           <View style={styles.form}>
+            {/* DEMO NOTICE */}
+            <View style={styles.demoNotice}>
+              <Ionicons name="information-circle" size={24} color={Colors.gold} />
+              <View style={styles.demoNoticeText}>
+                <Text style={styles.demoNoticeTitle}>Demo Mode - No SMS Sent</Text>
+                <Text style={styles.demoNoticeBody}>
+                  For testing, always use OTP: <Text style={styles.demoOTP}>1234</Text>
+                </Text>
+              </View>
+            </View>
+
             <Text style={styles.otpInfo}>
-              We sent a verification code to {tempPhone}
+              Enter the verification code
             </Text>
 
             <TextInput
               style={styles.input}
-              placeholder="Enter OTP"
+              placeholder="Enter OTP (use: 1234)"
               value={otp}
               onChangeText={setOtp}
               keyboardType="number-pad"
@@ -357,5 +372,36 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     marginBottom: 24,
     lineHeight: 24,
+  },
+  demoNotice: {
+    flexDirection: 'row',
+    backgroundColor: Colors.lightGold,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 2,
+    borderColor: Colors.gold,
+    marginBottom: 24,
+    alignItems: 'center',
+    gap: 12,
+  },
+  demoNoticeText: {
+    flex: 1,
+  },
+  demoNoticeTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: Colors.textPrimary,
+    marginBottom: 4,
+  },
+  demoNoticeBody: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    lineHeight: 20,
+  },
+  demoOTP: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.gold,
+    letterSpacing: 2,
   },
 });
