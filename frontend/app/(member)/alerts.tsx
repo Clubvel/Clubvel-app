@@ -1,34 +1,83 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator } from 'react-native';
+import { useAuth } from '../../contexts/AuthContext';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
+import axios from 'axios';
 import { format } from 'date-fns';
 
-const mockAlerts = [
-  {
-    id: '1',
-    type: 'payment_due',
-    message: 'Your Mamelodi Burial Society payment of R300 is due in 3 days.',
-    time: new Date(),
-    read: false,
-  },
-  {
-    id: '2',
-    type: 'payment_confirmed',
-    message: 'Your R500 payment for Soshanguve Savings Club has been confirmed by your treasurer.',
-    time: new Date(Date.now() - 86400000),
-    read: true,
-  },
-  {
-    id: '3',
-    type: 'claim_upcoming',
-    message: 'Great news! Your Soshanguve Savings Club claim of R5,000 is coming up on 23 August.',
-    time: new Date(Date.now() - 172800000),
-    read: true,
-  },
-];
+interface Alert {
+  id: string;
+  user_id: string;
+  group_id: string | null;
+  alert_type: string;
+  alert_message: string;
+  created_at: string;
+  read_status: boolean;
+  action_url: string | null;
+}
 
 export default function AlertsScreen() {
+  const { user } = useAuth();
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+
+  const fetchAlerts = async () => {
+    try {
+      // Mock alerts for now - in production this would be an API call
+      const mockAlerts: Alert[] = [
+        {
+          id: '1',
+          user_id: user?.id || '',
+          group_id: 'group2',
+          alert_type: 'payment_due',
+          alert_message: 'Your Mamelodi Burial Society payment of R300 is due in 3 days.',
+          created_at: new Date().toISOString(),
+          read_status: false,
+          action_url: '/member/club/group2',
+        },
+        {
+          id: '2',
+          user_id: user?.id || '',
+          group_id: 'group1',
+          alert_type: 'payment_confirmed',
+          alert_message: 'Your R500 payment for Soshanguve Savings Club has been confirmed by your treasurer.',
+          created_at: new Date(Date.now() - 86400000).toISOString(),
+          read_status: true,
+          action_url: '/member/club/group1',
+        },
+        {
+          id: '3',
+          user_id: user?.id || '',
+          group_id: 'group1',
+          alert_type: 'claim_upcoming',
+          alert_message: 'Great news! Your Soshanguve Savings Club claim of R5,000 is coming up on 23 August.',
+          created_at: new Date(Date.now() - 172800000).toISOString(),
+          read_status: true,
+          action_url: '/member/claims',
+        },
+      ];
+      setAlerts(mockAlerts);
+    } catch (error) {
+      console.error('Error fetching alerts:', error);
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    fetchAlerts();
+  }, []);
+
+  const onRefresh = () => {
+    setRefreshing(true);
+    fetchAlerts();
+  };
+
   const getAlertIcon = (type: string) => {
     switch (type) {
       case 'payment_due':
@@ -46,16 +95,16 @@ export default function AlertsScreen() {
   };
 
   const groupByDate = () => {
-    const today: any[] = [];
-    const yesterday: any[] = [];
-    const earlier: any[] = [];
+    const today: Alert[] = [];
+    const yesterday: Alert[] = [];
+    const earlier: Alert[] = [];
 
     const now = new Date();
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const yesterdayStart = new Date(todayStart.getTime() - 86400000);
 
-    mockAlerts.forEach((alert) => {
-      const alertDate = new Date(alert.time);
+    alerts.forEach((alert) => {
+      const alertDate = new Date(alert.created_at);
       if (alertDate >= todayStart) {
         today.push(alert);
       } else if (alertDate >= yesterdayStart) {
@@ -68,17 +117,25 @@ export default function AlertsScreen() {
     return { today, yesterday, earlier };
   };
 
+  if (loading) {
+    return (
+      <View style={styles.loadingContainer}>
+        <ActivityIndicator size="large" color={Colors.mediumGreen} />
+      </View>
+    );
+  }
+
   const { today, yesterday, earlier } = groupByDate();
 
-  const renderAlert = (alert: any) => {
-    const icon = getAlertIcon(alert.type);
+  const renderAlert = (alert: Alert) => {
+    const icon = getAlertIcon(alert.alert_type);
     return (
-      <View key={alert.id} style={[styles.alertCard, !alert.read && styles.alertCardUnread]}>
+      <View key={alert.id} style={[styles.alertCard, !alert.read_status && styles.alertCardUnread]}>
         <View style={[styles.alertDot, { backgroundColor: icon.color }]} />
         <Ionicons name={icon.name} size={24} color={icon.color} style={styles.alertIcon} />
         <View style={styles.alertContent}>
-          <Text style={styles.alertMessage}>{alert.message}</Text>
-          <Text style={styles.alertTime}>{format(alert.time, 'h:mm a')}</Text>
+          <Text style={styles.alertMessage}>{alert.alert_message}</Text>
+          <Text style={styles.alertTime}>{format(new Date(alert.created_at), 'h:mm a')}</Text>
         </View>
       </View>
     );
@@ -91,7 +148,12 @@ export default function AlertsScreen() {
         <Text style={styles.headerTitle}>Alerts</Text>
       </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView
+        style={styles.content}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
         {today.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Today</Text>
@@ -139,6 +201,12 @@ export default function AlertsScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
+    backgroundColor: Colors.lightBackground,
+  },
+  loadingContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
     backgroundColor: Colors.lightBackground,
   },
   header: {

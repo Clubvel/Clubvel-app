@@ -77,7 +77,10 @@ export default function ProfileScreen() {
             <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => router.push('/(member)/trust-score')}
+          >
             <View style={styles.menuItemLeft}>
               <Ionicons name="trophy" size={24} color={Colors.gold} />
               <Text style={styles.menuItemText}>Trust Score</Text>
