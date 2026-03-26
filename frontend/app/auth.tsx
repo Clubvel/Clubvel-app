@@ -73,7 +73,14 @@ export default function AuthScreen() {
     setLoading(true);
     try {
       await login(phoneNumber, password);
-      // Navigation will be handled by the splash screen via auth context
+      
+      // Get the user role from auth context
+      // Navigation will be handled by auth context and splash screen
+      // But we can add a small delay to ensure state is updated
+      setTimeout(() => {
+        router.replace('/');
+      }, 100);
+      
     } catch (error: any) {
       console.error('Login error:', error);
       
