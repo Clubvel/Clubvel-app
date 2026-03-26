@@ -74,7 +74,17 @@ export default function AuthScreen() {
       await login(phoneNumber, password);
       // Navigation will be handled by the splash screen via auth context
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      console.error('Login error:', error);
+      
+      // Provide more helpful error messages
+      if (error.message.includes('Invalid phone number or password')) {
+        Alert.alert(
+          'Login Failed',
+          'Invalid phone number or password.\n\nIf you just registered, make sure you verified your OTP first.\n\nTry demo account:\nPhone: 0821234567\nPassword: password123'
+        );
+      } else {
+        Alert.alert('Error', error.message || 'Login failed. Please try again.');
+      }
     } finally {
       setLoading(false);
     }
@@ -229,6 +239,17 @@ export default function AuthScreen() {
           {isLogin && (
             <>
               <Text style={styles.sectionTitle}>Sign In</Text>
+              
+              {/* Demo Account Info */}
+              <View style={styles.demoAccountInfo}>
+                <Ionicons name="information-circle-outline" size={20} color={Colors.mediumGreen} />
+                <View style={styles.demoAccountText}>
+                  <Text style={styles.demoAccountTitle}>Try Demo Accounts:</Text>
+                  <Text style={styles.demoAccountDetail}>Member: 0821234567</Text>
+                  <Text style={styles.demoAccountDetail}>Treasurer: 0829876543</Text>
+                  <Text style={styles.demoAccountDetail}>Password: password123</Text>
+                </View>
+              </View>
               
               <TextInput
                 style={styles.input}
@@ -403,5 +424,29 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: Colors.gold,
     letterSpacing: 2,
+  },
+  demoAccountInfo: {
+    flexDirection: 'row',
+    backgroundColor: '#E8F5E9',
+    padding: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.mediumGreen,
+    marginBottom: 16,
+    gap: 10,
+  },
+  demoAccountText: {
+    flex: 1,
+  },
+  demoAccountTitle: {
+    fontSize: 13,
+    fontWeight: 'bold',
+    color: Colors.mediumGreen,
+    marginBottom: 4,
+  },
+  demoAccountDetail: {
+    fontSize: 11,
+    color: Colors.textSecondary,
+    lineHeight: 16,
   },
 });
