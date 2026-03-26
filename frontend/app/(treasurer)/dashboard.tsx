@@ -420,7 +420,7 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     flex: 1,
   },
-  latebadge: {
+  lateBadge: {
     backgroundColor: Colors.statusLate,
     paddingHorizontal: 10,
     paddingVertical: 4,
