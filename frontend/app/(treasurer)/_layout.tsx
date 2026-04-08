@@ -2,6 +2,7 @@ import React from 'react';
 import { Tabs } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/Colors';
+import { Platform } from 'react-native';
 
 export default function TreasurerLayout() {
   return (
@@ -15,12 +16,13 @@ export default function TreasurerLayout() {
           borderTopWidth: 1,
           borderTopColor: Colors.cardBorder,
           paddingTop: 8,
-          paddingBottom: 8,
-          height: 60,
+          paddingBottom: Platform.OS === 'ios' ? 20 : 8,
+          height: Platform.OS === 'ios' ? 88 : 68,
         },
         tabBarLabelStyle: {
           fontSize: 12,
           fontWeight: '600',
+          marginBottom: Platform.OS === 'ios' ? 0 : 4,
         },
       }}
     >

@@ -81,7 +81,7 @@ export default function MemberHomeScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View>
-          <Text style={styles.greeting}>Sawubona {dashboardData?.user.first_name}</Text>
+          <Text style={styles.greeting}>Hello {dashboardData?.user.first_name}</Text>
         </View>
         <View style={styles.avatar}>
           <Text style={styles.avatarText}>
