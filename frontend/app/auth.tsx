@@ -65,24 +65,34 @@ export default function AuthScreen() {
   };
 
   const handleLogin = async () => {
+    console.log('🎯 handleLogin called');
+    console.log('📞 Phone number:', phoneNumber);
+    console.log('🔑 Password length:', password?.length);
+    
     if (!phoneNumber || !password) {
       Alert.alert('Error', 'Please enter phone number and password');
       return;
     }
 
     setLoading(true);
+    console.log('⏳ Loading state set to true');
+    
     try {
+      console.log('📡 Calling login function from AuthContext...');
       await login(phoneNumber, password);
+      
+      console.log('✅ Login successful, navigating...');
       
       // Get the user role from auth context
       // Navigation will be handled by auth context and splash screen
       // But we can add a small delay to ensure state is updated
       setTimeout(() => {
+        console.log('🧭 Navigating to root...');
         router.replace('/');
       }, 100);
       
     } catch (error: any) {
-      console.error('Login error:', error);
+      console.error('❌ Login error in handleLogin:', error);
       
       // Provide more helpful error messages
       if (error.message.includes('Invalid phone number or password')) {
@@ -94,6 +104,7 @@ export default function AuthScreen() {
         Alert.alert('Error', error.message || 'Login failed. Please try again.');
       }
     } finally {
+      console.log('✅ Loading state set to false');
       setLoading(false);
     }
   };

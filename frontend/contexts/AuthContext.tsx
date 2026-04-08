@@ -29,6 +29,15 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
+  // Debug: Log API URL on mount
+  useEffect(() => {
+    console.log('🔐 AuthContext initialized');
+    console.log('📡 API_URL:', API_URL);
+    if (!API_URL) {
+      console.error('❌ EXPO_PUBLIC_BACKEND_URL is not defined!');
+    }
+  }, []);
+
   useEffect(() => {
     // Load stored auth data on mount
     loadStoredAuth();
@@ -80,11 +89,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const login = async (phone: string, password: string) => {
+    console.log('🔐 Login function called');
+    console.log('📞 Phone:', phone);
+    console.log('📡 API_URL:', API_URL);
+    
     try {
+      console.log('🚀 Making API request to:', `${API_URL}/api/auth/login`);
+      
       const response = await axios.post(`${API_URL}/api/auth/login`, {
         phone_number: phone,
         password
       });
+      
+      console.log('✅ Login API response received');
       
       const { access_token, user: userData } = response.data;
       
@@ -94,7 +111,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       
       setToken(access_token);
       setUser(userData);
+      
+      console.log('✅ Login successful, user:', userData.full_name);
     } catch (error: any) {
+      console.error('❌ Login error:', error);
+      console.error('❌ Error details:', error.response?.data);
       throw new Error(error.response?.data?.detail || 'Login failed');
     }
   };
