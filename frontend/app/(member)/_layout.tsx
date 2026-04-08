@@ -32,7 +32,7 @@ export default function MemberLayout() {
       <Tabs.Screen
         name="home"
         options={{
-          title: 'Home',
+          title: 'Member',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="home" size={size} color={color} />
           ),
@@ -57,6 +57,15 @@ export default function MemberLayout() {
         }}
       />
       <Tabs.Screen
+        name="proofs"
+        options={{
+          title: 'Proof of Payments',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="document" size={size} color={color} />
+          ),
+        }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           title: 'Profile',
@@ -67,6 +76,12 @@ export default function MemberLayout() {
       />
       <Tabs.Screen
         name="club/[id]"
+        options={{
+          href: null, // Hide from tab bar
+        }}
+      />
+      <Tabs.Screen
+        name="trust-score"
         options={{
           href: null, // Hide from tab bar
         }}
