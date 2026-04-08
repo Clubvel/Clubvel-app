@@ -264,6 +264,17 @@ export default function TreasurerDashboardScreen() {
           </View>
         </View>
       )}
+
+      {/* Advertisement */}
+      <View style={styles.adContainer}>
+        <Text style={styles.adLabel}>Sponsored</Text>
+        <View style={styles.adCard}>
+          <Text style={styles.adTitle}>Grow your stokvel with TymeBank</Text>
+          <Text style={styles.adBody}>
+            Earn up to 10% interest on your group savings. No monthly fees. Free group account setup.
+          </Text>
+        </View>
+      </View>
     </ScrollView>
   );
 }
@@ -510,6 +521,34 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyStateText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
+  adContainer: {
+    paddingHorizontal: 24,
+    paddingTop: 24,
+    paddingBottom: 32,
+  },
+  adLabel: {
+    fontSize: 10,
+    color: Colors.textMuted,
+    marginBottom: 8,
+    textTransform: 'uppercase',
+  },
+  adCard: {
+    backgroundColor: Colors.lightGold,
+    padding: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.gold,
+  },
+  adTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: Colors.textPrimary,
+    marginBottom: 4,
+  },
+  adBody: {
     fontSize: 14,
     color: Colors.textSecondary,
   },
