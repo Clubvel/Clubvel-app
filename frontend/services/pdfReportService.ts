@@ -5,7 +5,6 @@
 
 import * as Print from 'expo-print';
 import * as Sharing from 'expo-sharing';
-import * as FileSystem from 'expo-file-system';
 import { Platform } from 'react-native';
 
 export interface ContributionData {
@@ -319,20 +318,10 @@ export const generatePDFReport = async (data: ReportData): Promise<{ success: bo
       base64: false,
     });
 
-    // Create a more descriptive filename
-    const filename = `Clubvel_${data.reportType}_Report_${data.period.replace(/\s/g, '_')}.pdf`;
-    const newUri = `${FileSystem.documentDirectory}${filename}`;
-
-    // Move to documents directory with proper name
-    await FileSystem.moveAsync({
-      from: uri,
-      to: newUri,
-    });
-
     return {
       success: true,
       message: 'Report generated successfully',
-      uri: newUri,
+      uri: uri,
     };
   } catch (error) {
     console.error('PDF generation error:', error);

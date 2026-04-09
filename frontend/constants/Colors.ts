@@ -4,6 +4,7 @@ export const Colors = {
   mediumGreen: '#16603A',
   lightBackground: '#F3F7F4',
   cardBorder: '#ddeadd',
+  cardBackground: '#FFFFFF',
   gold: '#C8880A',
   lightGold: '#FDF4E0',
   
