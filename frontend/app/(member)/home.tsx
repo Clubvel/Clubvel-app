@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { StatusPill } from '../../components/StatusPill';
@@ -33,13 +33,31 @@ interface DashboardData {
 }
 
 export default function MemberHomeScreen() {
-  const { user } = useAuth();
+  const { user, logout } = useAuth();
   const router = useRouter();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+
+  const handleLogout = () => {
+    Alert.alert(
+      'Sign Out',
+      'Are you sure you want to sign out?',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Sign Out',
+          style: 'destructive',
+          onPress: async () => {
+            await logout();
+            router.replace('/');
+          },
+        },
+      ]
+    );
+  };
 
   const fetchDashboard = async () => {
     try {
@@ -84,10 +102,15 @@ export default function MemberHomeScreen() {
         <View>
           <Text style={styles.greeting}>Hello {dashboardData?.user.first_name}</Text>
         </View>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>
-            {dashboardData?.user.first_name.charAt(0)}
-          </Text>
+        <View style={styles.headerRight}>
+          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
+            <Ionicons name="log-out-outline" size={24} color={Colors.white} />
+          </TouchableOpacity>
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>
+              {dashboardData?.user.first_name.charAt(0)}
+            </Text>
+          </View>
         </View>
       </View>
 
@@ -188,6 +211,14 @@ const styles = StyleSheet.create({
     fontSize: 28,
     fontWeight: 'bold',
     color: Colors.white,
+  },
+  headerRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  logoutButton: {
+    padding: 4,
   },
   avatar: {
     width: 48,
