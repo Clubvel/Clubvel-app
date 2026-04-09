@@ -6,15 +6,23 @@ import { Colors } from '../constants/Colors';
 const MOCK_ADS = [
   {
     title: 'Grow Your Savings',
-    body: 'Join thousands of South Africans building wealth together.',
+    body: 'Join thousands of South Africans building wealth together with community savings.',
   },
   {
     title: 'FNB Business Account',
-    body: 'Open a business account for your stokvel. Zero monthly fees.',
+    body: 'Open a business account for your stokvel. Zero monthly fees for 6 months.',
   },
   {
     title: 'Capitec Save & Invest',
-    body: 'Earn up to 11% interest on your stokvel funds.',
+    body: 'Earn up to 11% interest on your stokvel funds. Start today!',
+  },
+  {
+    title: 'Old Mutual Funeral Cover',
+    body: 'Protect your family. Funeral cover from R50/month for your burial society.',
+  },
+  {
+    title: 'Standard Bank Money Market',
+    body: 'Grow your group savings with competitive interest rates.',
   },
 ];
 
@@ -27,9 +35,11 @@ export const AdBanner: React.FC<AdBannerProps> = ({ size = 'banner', style }) =>
   const [mockAd, setMockAd] = useState(MOCK_ADS[0]);
 
   useEffect(() => {
+    // Random initial ad
     const randomAd = MOCK_ADS[Math.floor(Math.random() * MOCK_ADS.length)];
     setMockAd(randomAd);
 
+    // Rotate ads every 30 seconds
     const interval = setInterval(() => {
       const newAd = MOCK_ADS[Math.floor(Math.random() * MOCK_ADS.length)];
       setMockAd(newAd);
@@ -38,9 +48,18 @@ export const AdBanner: React.FC<AdBannerProps> = ({ size = 'banner', style }) =>
     return () => clearInterval(interval);
   }, []);
 
+  const handleAdPress = () => {
+    // In production with AdMob, this would track clicks
+    console.log('[Ad] Banner clicked:', mockAd.title);
+  };
+
   return (
     <View style={[styles.container, style]}>
-      <TouchableOpacity style={styles.mockAdContainer} activeOpacity={0.9}>
+      <TouchableOpacity 
+        style={styles.mockAdContainer}
+        onPress={handleAdPress}
+        activeOpacity={0.9}
+      >
         <View style={styles.adLabelContainer}>
           <Text style={styles.adLabel}>Ad</Text>
           <Text style={styles.mockLabel}> (Demo)</Text>
@@ -55,6 +74,38 @@ export const AdBanner: React.FC<AdBannerProps> = ({ size = 'banner', style }) =>
       </TouchableOpacity>
     </View>
   );
+};
+
+// Hooks for future AdMob integration (interstitial and rewarded ads)
+export const useInterstitialAd = () => {
+  const [isLoaded, setIsLoaded] = useState(true); // Mock: always loaded
+
+  const showInterstitial = async (): Promise<boolean> => {
+    console.log('[Mock] Interstitial ad would show here');
+    return true;
+  };
+
+  const loadInterstitial = async () => {
+    setIsLoaded(true);
+  };
+
+  return { isLoaded, showInterstitial, loadInterstitial };
+};
+
+export const useRewardedAd = (onReward?: (amount: number, type: string) => void) => {
+  const [isLoaded, setIsLoaded] = useState(true); // Mock: always loaded
+
+  const showRewardedAd = async (): Promise<boolean> => {
+    console.log('[Mock] Rewarded ad would show here - granting mock reward');
+    onReward?.(10, 'coins');
+    return true;
+  };
+
+  const loadRewardedAd = async () => {
+    setIsLoaded(true);
+  };
+
+  return { isLoaded, showRewardedAd, loadRewardedAd };
 };
 
 const styles = StyleSheet.create({

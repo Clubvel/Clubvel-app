@@ -13,7 +13,8 @@
       "bundleIdentifier": "com.clubvel.app",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Upload payment proof from your gallery",
-        "NSCameraUsageDescription": "Take photos of payment receipts"
+        "NSCameraUsageDescription": "Take photos of payment receipts",
+        "NSUserTrackingUsageDescription": "This allows Clubvel to show you relevant ads"
       }
     },
     "android": {
@@ -52,6 +53,13 @@
     ],
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "admob": {
+        "androidAppId": "ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY",
+        "iosAppId": "ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY",
+        "note": "Replace with your actual AdMob App IDs when ready for production"
+      }
     }
   }
 }
