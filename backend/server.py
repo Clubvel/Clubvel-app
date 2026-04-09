@@ -20,6 +20,11 @@ from services.notification_service import (
     format_phone_number
 )
 
+# Import bank feed service
+from services.bank_feed_service import (
+    bank_feed_service, get_bank_feed_status
+)
+
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
@@ -883,6 +888,89 @@ async def send_late_payment_alert_endpoint(member_id: str):
         "mock": notification_result.get('mock', True),
         "success": notification_result.get('success', False)
     }
+
+# ==================== BANK FEED ROUTES ====================
+
+@api_router.get("/bank-feed/status")
+async def get_bank_feed_service_status():
+    """Get current bank feed service configuration status"""
+    return await get_bank_feed_status()
+
+
+@api_router.get("/bank-feed/accounts")
+async def get_linked_bank_accounts():
+    """Get all linked bank accounts"""
+    return await bank_feed_service.get_linked_accounts()
+
+
+@api_router.get("/bank-feed/accounts/{account_id}/balance")
+async def get_account_balance_endpoint(account_id: str):
+    """Get balance for a specific bank account"""
+    result = await bank_feed_service.get_account_balance(account_id)
+    if not result.get('success'):
+        raise HTTPException(status_code=404, detail=result.get('error', 'Account not found'))
+    return result
+
+
+@api_router.get("/bank-feed/accounts/{account_id}/transactions")
+async def get_account_transactions(account_id: str, days_back: int = 30):
+    """Get transactions for a specific bank account"""
+    return await bank_feed_service.get_transactions(account_id, days_back=days_back)
+
+
+@api_router.post("/bank-feed/sync")
+async def sync_all_bank_transactions(days_back: int = 30):
+    """Sync transactions from all linked bank accounts"""
+    return await bank_feed_service.sync_all_transactions(days_back=days_back)
+
+
+class AutoMatchRequest(BaseModel):
+    contributions: List[dict]
+    account_id: Optional[str] = None
+
+
+@api_router.post("/bank-feed/auto-match")
+async def auto_match_payments(request: AutoMatchRequest):
+    """
+    Automatically match bank transactions to contributions
+    
+    Request body:
+    {
+        "contributions": [
+            {"member_name": "Thabo Mokoena", "amount": 500.0, "due_date": "2026-04-10"},
+            {"member_name": "Sipho Dlamini", "amount": 500.0, "due_date": "2026-04-10"}
+        ],
+        "account_id": "acc_001"  // Optional - if not provided, matches against all accounts
+    }
+    """
+    # Parse due dates
+    for contribution in request.contributions:
+        if isinstance(contribution.get('due_date'), str):
+            contribution['due_date'] = datetime.fromisoformat(contribution['due_date'].replace('Z', ''))
+        elif not contribution.get('due_date'):
+            contribution['due_date'] = datetime.utcnow()
+    
+    return await bank_feed_service.auto_match_contributions(
+        request.contributions,
+        account_id=request.account_id
+    )
+
+
+@api_router.post("/bank-feed/match-transaction")
+async def match_single_transaction(
+    transaction_id: str,
+    member_name: str,
+    expected_amount: float,
+    due_date: str
+):
+    """Match a specific transaction to a contribution"""
+    due_dt = datetime.fromisoformat(due_date.replace('Z', ''))
+    return await bank_feed_service.match_payment(
+        transaction_id,
+        member_name,
+        expected_amount,
+        due_dt
+    )
 
 # ==================== SEED DATA ROUTE ====================
 

@@ -1,15 +1,145 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
+import { useAuth } from '../../contexts/AuthContext';
+import { 
+  generatePDFReport, 
+  sharePDFReport, 
+  printPDFReport,
+  generateSampleReportData,
+  ReportData 
+} from '../../services/pdfReportService';
 
 export default function ReportsScreen() {
-  const handleExportPDF = (reportType: string) => {
-    Alert.alert('Export Report', `${reportType} will be exported as PDF and can be shared via WhatsApp or email.`);
+  const { user } = useAuth();
+  const [isGenerating, setIsGenerating] = useState(false);
+  const [generatingType, setGeneratingType] = useState<string | null>(null);
+
+  const handleExportPDF = async (reportType: 'monthly' | 'quarterly' | 'annual' | 'member') => {
+    setIsGenerating(true);
+    setGeneratingType(reportType);
+
+    try {
+      // Generate report data (in production, fetch from API)
+      const reportData: ReportData = {
+        ...generateSampleReportData(user?.full_name || 'Treasurer'),
+        reportType,
+      };
+
+      // Update period based on report type
+      const now = new Date();
+      const monthNames = ['January', 'February', 'March', 'April', 'May', 'June', 
+                          'July', 'August', 'September', 'October', 'November', 'December'];
+      
+      switch (reportType) {
+        case 'monthly':
+          reportData.period = `${monthNames[now.getMonth()]} ${now.getFullYear()}`;
+          break;
+        case 'quarterly':
+          const quarter = Math.floor(now.getMonth() / 3) + 1;
+          reportData.period = `Q${quarter} ${now.getFullYear()}`;
+          break;
+        case 'annual':
+          reportData.period = `${now.getFullYear()}`;
+          break;
+        case 'member':
+          reportData.period = `Jan - ${monthNames[now.getMonth()]} ${now.getFullYear()}`;
+          break;
+      }
+
+      // Generate PDF
+      const result = await generatePDFReport(reportData);
+
+      if (result.success && result.uri) {
+        Alert.alert(
+          'Report Generated',
+          'Your PDF report is ready. What would you like to do?',
+          [
+            { text: 'Share', onPress: () => sharePDFReport(result.uri!) },
+            { text: 'Done', style: 'cancel' },
+          ]
+        );
+      } else {
+        Alert.alert('Error', result.message);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to generate report. Please try again.');
+    } finally {
+      setIsGenerating(false);
+      setGeneratingType(null);
+    }
   };
 
-  const handleShareWhatsApp = (reportType: string) => {
-    Alert.alert('Share via WhatsApp', `Sending ${reportType} to group members...`);
+  const handlePrintReport = async (reportType: 'monthly' | 'quarterly' | 'annual' | 'member') => {
+    setIsGenerating(true);
+    setGeneratingType(reportType);
+
+    try {
+      const reportData: ReportData = {
+        ...generateSampleReportData(user?.full_name || 'Treasurer'),
+        reportType,
+      };
+
+      const result = await printPDFReport(reportData);
+
+      if (!result.success) {
+        Alert.alert('Error', result.message);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to print report. Please try again.');
+    } finally {
+      setIsGenerating(false);
+      setGeneratingType(null);
+    }
+  };
+
+  const handleShareWhatsApp = async (reportType: 'monthly' | 'quarterly' | 'annual' | 'member') => {
+    setIsGenerating(true);
+    setGeneratingType(reportType);
+
+    try {
+      const reportData: ReportData = {
+        ...generateSampleReportData(user?.full_name || 'Treasurer'),
+        reportType,
+      };
+
+      const result = await generatePDFReport(reportData);
+
+      if (result.success && result.uri) {
+        await sharePDFReport(result.uri);
+      } else {
+        Alert.alert('Error', result.message);
+      }
+    } catch (error) {
+      Alert.alert('Error', 'Failed to share report. Please try again.');
+    } finally {
+      setIsGenerating(false);
+      setGeneratingType(null);
+    }
+  };
+
+  const renderActionButton = (
+    reportType: 'monthly' | 'quarterly' | 'annual' | 'member',
+    icon: string,
+    color: string,
+    onPress: () => void
+  ) => {
+    const isLoading = isGenerating && generatingType === reportType;
+    
+    return (
+      <TouchableOpacity
+        style={styles.actionButton}
+        onPress={onPress}
+        disabled={isGenerating}
+      >
+        {isLoading ? (
+          <ActivityIndicator size="small" color={color} />
+        ) : (
+          <Ionicons name={icon as any} size={20} color={color} />
+        )}
+      </TouchableOpacity>
+    );
   };
 
   return (
@@ -60,18 +190,8 @@ export default function ReportsScreen() {
               </Text>
             </View>
             <View style={styles.reportActions}>
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() => handleExportPDF('Monthly Report')}
-              >
-                <Ionicons name="download" size={20} color={Colors.mediumGreen} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() => handleShareWhatsApp('Monthly Report')}
-              >
-                <Ionicons name="logo-whatsapp" size={20} color="#25D366" />
-              </TouchableOpacity>
+              {renderActionButton('monthly', 'download', Colors.mediumGreen, () => handleExportPDF('monthly'))}
+              {renderActionButton('monthly', 'logo-whatsapp', '#25D366', () => handleShareWhatsApp('monthly'))}
             </View>
           </View>
 
@@ -87,18 +207,8 @@ export default function ReportsScreen() {
               </Text>
             </View>
             <View style={styles.reportActions}>
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() => handleExportPDF('Annual Report')}
-              >
-                <Ionicons name="download" size={20} color={Colors.mediumGreen} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() => handleShareWhatsApp('Annual Report')}
-              >
-                <Ionicons name="logo-whatsapp" size={20} color="#25D366" />
-              </TouchableOpacity>
+              {renderActionButton('annual', 'download', Colors.mediumGreen, () => handleExportPDF('annual'))}
+              {renderActionButton('annual', 'logo-whatsapp', '#25D366', () => handleShareWhatsApp('annual'))}
             </View>
           </View>
 
@@ -114,12 +224,8 @@ export default function ReportsScreen() {
               </Text>
             </View>
             <View style={styles.reportActions}>
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() => Alert.alert('Select Member', 'Choose a member to generate their statement')}
-              >
-                <Ionicons name="arrow-forward" size={20} color={Colors.mediumGreen} />
-              </TouchableOpacity>
+              {renderActionButton('member', 'download', Colors.mediumGreen, () => handleExportPDF('member'))}
+              {renderActionButton('member', 'logo-whatsapp', '#25D366', () => handleShareWhatsApp('member'))}
             </View>
           </View>
 
@@ -135,37 +241,39 @@ export default function ReportsScreen() {
               </Text>
             </View>
             <View style={styles.reportActions}>
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() => handleExportPDF('Defaulters Report')}
-              >
-                <Ionicons name="download" size={20} color={Colors.mediumGreen} />
-              </TouchableOpacity>
-              <TouchableOpacity
-                style={styles.actionButton}
-                onPress={() => handleShareWhatsApp('Defaulters Report')}
-              >
-                <Ionicons name="logo-whatsapp" size={20} color="#25D366" />
-              </TouchableOpacity>
+              {renderActionButton('monthly', 'download', Colors.mediumGreen, () => handleExportPDF('monthly'))}
+              {renderActionButton('monthly', 'logo-whatsapp', '#25D366', () => handleShareWhatsApp('monthly'))}
             </View>
           </View>
         </View>
 
         {/* Share Options */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Share Report Via</Text>
+          <Text style={styles.sectionTitle}>Quick Actions</Text>
           <View style={styles.shareButtons}>
-            <TouchableOpacity style={[styles.shareButton, styles.whatsappButton]}>
+            <TouchableOpacity 
+              style={[styles.shareButton, styles.whatsappButton]}
+              onPress={() => handleShareWhatsApp('monthly')}
+              disabled={isGenerating}
+            >
               <Ionicons name="logo-whatsapp" size={24} color={Colors.white} />
-              <Text style={styles.shareButtonText}>WhatsApp</Text>
+              <Text style={styles.shareButtonText}>Share via WhatsApp</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.shareButton, styles.pdfButton]}>
+            <TouchableOpacity 
+              style={[styles.shareButton, styles.pdfButton]}
+              onPress={() => handleExportPDF('monthly')}
+              disabled={isGenerating}
+            >
               <Ionicons name="document-text" size={24} color={Colors.white} />
-              <Text style={styles.shareButtonText}>PDF</Text>
+              <Text style={styles.shareButtonText}>Export PDF</Text>
             </TouchableOpacity>
-            <TouchableOpacity style={[styles.shareButton, styles.emailButton]}>
-              <Ionicons name="mail" size={24} color={Colors.white} />
-              <Text style={styles.shareButtonText}>Email</Text>
+            <TouchableOpacity 
+              style={[styles.shareButton, styles.emailButton]}
+              onPress={() => handlePrintReport('monthly')}
+              disabled={isGenerating}
+            >
+              <Ionicons name="print" size={24} color={Colors.white} />
+              <Text style={styles.shareButtonText}>Print</Text>
             </TouchableOpacity>
           </View>
         </View>
