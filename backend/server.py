@@ -1,4 +1,4 @@
-from fastapi import FastAPI, APIRouter, HTTPException, status
+from fastapi import FastAPI, APIRouter, HTTPException, status as http_status
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -12,6 +12,13 @@ from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 import random
+
+# Import notification service
+from services.notification_service import (
+    send_otp, verify_stored_otp, get_notification_status,
+    send_payment_reminder, send_payment_confirmation, send_late_payment_alert,
+    format_phone_number
+)
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -49,6 +56,14 @@ class UserLogin(BaseModel):
 class OTPVerify(BaseModel):
     phone_number: str
     otp: str
+
+class SendOTPRequest(BaseModel):
+    phone_number: str
+    channel: str = "whatsapp"  # whatsapp or sms
+
+class ResendOTPRequest(BaseModel):
+    phone_number: str
+    channel: str = "whatsapp"  # whatsapp or sms
 
 class User(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -192,10 +207,7 @@ async def register(user_data: UserCreate):
     if existing_user:
         raise HTTPException(status_code=400, detail="Phone number already registered")
     
-    # Mock: Generate OTP (in production, send via SMS)
-    mock_otp = "1234"  # Always use 1234 for testing
-    
-    # Create user
+    # Create user (unverified)
     user = User(
         full_name=user_data.full_name,
         phone_number=user_data.phone_number,
@@ -211,17 +223,65 @@ async def register(user_data: UserCreate):
     trust_score = TrustScore(user_id=user.id)
     await db.trust_scores.insert_one(trust_score.dict())
     
-    return {
+    # Send OTP via WhatsApp (with SMS fallback)
+    otp_result = await send_otp(user_data.phone_number, preferred_channel='whatsapp')
+    
+    # Get notification status for response
+    notif_status = get_notification_status()
+    
+    response = {
         "message": "User registered successfully. OTP sent to phone.",
         "user_id": user.id,
-        "mock_otp": mock_otp  # Remove in production
+        "otp_channel": otp_result.get('channel', 'whatsapp'),
+        "notification_mode": notif_status['mode']
     }
+    
+    # Include mock OTP in response if in mock mode
+    if notif_status['mode'] == 'mock':
+        response["mock_otp"] = "1234"
+        response["note"] = "App is in demo mode. Real WhatsApp/SMS will be enabled when Twilio is configured."
+    
+    return response
+
+
+@api_router.post("/auth/send-otp")
+async def send_otp_endpoint(request: SendOTPRequest):
+    """Send or resend OTP to phone number"""
+    # Check if user exists
+    user = await db.users.find_one({"phone_number": request.phone_number})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found. Please register first.")
+    
+    if user.get('otp_verified'):
+        raise HTTPException(status_code=400, detail="Phone already verified. Please login.")
+    
+    # Send OTP
+    otp_result = await send_otp(request.phone_number, preferred_channel=request.channel)
+    
+    if not otp_result['success']:
+        raise HTTPException(status_code=500, detail=f"Failed to send OTP: {otp_result.get('error', 'Unknown error')}")
+    
+    notif_status = get_notification_status()
+    
+    response = {
+        "message": f"OTP sent via {otp_result['channel']}",
+        "channel": otp_result['channel'],
+        "notification_mode": notif_status['mode']
+    }
+    
+    if notif_status['mode'] == 'mock':
+        response["mock_otp"] = "1234"
+    
+    return response
+
 
 @api_router.post("/auth/verify-otp")
 async def verify_otp(otp_data: OTPVerify):
-    # Mock verification - always accept 1234
-    if otp_data.otp != "1234":
-        raise HTTPException(status_code=400, detail="Invalid OTP")
+    # Verify OTP using notification service
+    verification_result = verify_stored_otp(otp_data.phone_number, otp_data.otp)
+    
+    if not verification_result['valid']:
+        raise HTTPException(status_code=400, detail=verification_result['error'])
     
     # Update user verification status
     result = await db.users.update_one(
@@ -232,7 +292,16 @@ async def verify_otp(otp_data: OTPVerify):
     if result.modified_count == 0:
         raise HTTPException(status_code=404, detail="User not found")
     
-    return {"message": "OTP verified successfully"}
+    return {
+        "message": "OTP verified successfully",
+        "channel": verification_result.get('channel', 'unknown')
+    }
+
+
+@api_router.get("/auth/notification-status")
+async def get_notification_service_status():
+    """Get current notification service configuration status"""
+    return get_notification_status()
 
 @api_router.post("/auth/login")
 async def login(login_data: UserLogin):
@@ -699,6 +768,14 @@ async def confirm_payment(confirm_data: ConfirmPayment):
     )
     await db.alerts.insert_one(alert.dict())
     
+    # Send WhatsApp notification to member
+    notification_result = await send_payment_confirmation(
+        phone=user['phone_number'],
+        member_name=user['full_name'].split()[0],  # First name
+        group_name=group['group_name'],
+        amount=contribution['amount_due']
+    )
+    
     # Recalculate trust score (simplified)
     trust_score = await db.trust_scores.find_one({"user_id": user['id']})
     if trust_score:
@@ -715,7 +792,96 @@ async def confirm_payment(confirm_data: ConfirmPayment):
     
     return {
         "message": "Payment confirmed successfully",
-        "member_notified": True
+        "member_notified": True,
+        "notification_channel": notification_result.get('channel', 'whatsapp'),
+        "notification_mock": notification_result.get('mock', True)
+    }
+
+
+class SendReminderRequest(BaseModel):
+    member_id: str
+    group_id: str
+
+
+@api_router.post("/treasurer/send-reminder")
+async def send_payment_reminder_endpoint(request: SendReminderRequest):
+    """Send payment reminder to a member via WhatsApp"""
+    # Get member and user info
+    member = await db.members.find_one({"id": request.member_id})
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    
+    user = await db.users.find_one({"id": member['user_id']})
+    group = await db.groups.find_one({"id": request.group_id})
+    
+    if not user or not group:
+        raise HTTPException(status_code=404, detail="User or group not found")
+    
+    # Calculate due date
+    now = datetime.utcnow()
+    due_date = f"{now.year}-{now.month:02d}-{min(group['payment_due_date'], 28):02d}"
+    
+    # Send WhatsApp reminder
+    notification_result = await send_payment_reminder(
+        phone=user['phone_number'],
+        member_name=user['full_name'].split()[0],
+        group_name=group['group_name'],
+        amount=group['monthly_contribution'],
+        due_date=due_date
+    )
+    
+    # Create alert record
+    alert = Alert(
+        user_id=user['id'],
+        group_id=group['id'],
+        alert_type="payment_reminder",
+        alert_message=f"Reminder: Your {group['group_name']} payment of R{group['monthly_contribution']:.2f} is due on {due_date}",
+        action_url=f"/member/club/{group['id']}"
+    )
+    await db.alerts.insert_one(alert.dict())
+    
+    return {
+        "message": f"Payment reminder sent to {user['full_name']}",
+        "channel": notification_result.get('channel', 'whatsapp'),
+        "mock": notification_result.get('mock', True),
+        "success": notification_result.get('success', False)
+    }
+
+
+@api_router.post("/treasurer/send-late-alert/{member_id}")
+async def send_late_payment_alert_endpoint(member_id: str):
+    """Send late payment alert to a member via WhatsApp"""
+    # Get member and user info
+    member = await db.members.find_one({"id": member_id})
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    
+    user = await db.users.find_one({"id": member['user_id']})
+    group = await db.groups.find_one({"id": member['group_id']})
+    
+    if not user or not group:
+        raise HTTPException(status_code=404, detail="User or group not found")
+    
+    # Calculate days late
+    now = datetime.utcnow()
+    due_date = datetime(now.year, now.month, min(group['payment_due_date'], 28))
+    days_late = max(0, (now - due_date).days)
+    
+    # Send WhatsApp alert
+    notification_result = await send_late_payment_alert(
+        phone=user['phone_number'],
+        member_name=user['full_name'].split()[0],
+        group_name=group['group_name'],
+        amount=group['monthly_contribution'],
+        days_late=days_late
+    )
+    
+    return {
+        "message": f"Late payment alert sent to {user['full_name']}",
+        "days_late": days_late,
+        "channel": notification_result.get('channel', 'whatsapp'),
+        "mock": notification_result.get('mock', True),
+        "success": notification_result.get('success', False)
     }
 
 # ==================== SEED DATA ROUTE ====================
