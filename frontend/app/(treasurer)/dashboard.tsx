@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Linking, Alert } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
+import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
@@ -265,16 +266,8 @@ export default function TreasurerDashboardScreen() {
         </View>
       )}
 
-      {/* Advertisement */}
-      <View style={styles.adContainer}>
-        <Text style={styles.adLabel}>Sponsored</Text>
-        <View style={styles.adCard}>
-          <Text style={styles.adTitle}>Grow your stokvel with TymeBank</Text>
-          <Text style={styles.adBody}>
-            Earn up to 10% interest on your group savings. No monthly fees. Free group account setup.
-          </Text>
-        </View>
-      </View>
+      {/* Advertisement Banner */}
+      <AdBanner size="banner" />
     </ScrollView>
   );
 }

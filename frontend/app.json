@@ -1,31 +1,42 @@
 {
   "expo": {
-    "name": "frontend",
-    "slug": "frontend",
+    "name": "Clubvel",
+    "slug": "clubvel",
     "version": "1.0.0",
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
-    "scheme": "frontend",
+    "scheme": "clubvel",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
+      "bundleIdentifier": "com.clubvel.app",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Upload payment proof from your gallery",
-        "NSCameraUsageDescription": "Take photos of payment receipts"
+        "NSCameraUsageDescription": "Take photos of payment receipts",
+        "NSUserTrackingUsageDescription": "This allows Clubvel to show you relevant ads",
+        "SKAdNetworkItems": [
+          { "SKAdNetworkIdentifier": "cstr6suwn9.skadnetwork" },
+          { "SKAdNetworkIdentifier": "4fzdc2evr5.skadnetwork" },
+          { "SKAdNetworkIdentifier": "2fnua5tdw4.skadnetwork" }
+        ]
       }
     },
     "android": {
+      "package": "com.clubvel.app",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#000"
+        "backgroundColor": "#0E2318"
       },
       "edgeToEdgeEnabled": true,
       "permissions": [
         "android.permission.READ_EXTERNAL_STORAGE",
         "android.permission.WRITE_EXTERNAL_STORAGE",
         "android.permission.READ_MEDIA_IMAGES",
-        "android.permission.CAMERA"
+        "android.permission.CAMERA",
+        "android.permission.INTERNET",
+        "android.permission.ACCESS_NETWORK_STATE",
+        "com.google.android.gms.permission.AD_ID"
       ]
     },
     "web": {
@@ -41,13 +52,23 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#000"
+          "backgroundColor": "#0E2318"
         }
       ],
       "expo-secure-store"
     ],
+    "_admob_plugin_comment": "Add this plugin when building with EAS: ['react-native-google-mobile-ads', { 'androidAppId': 'ca-app-pub-XXX~YYY', 'iosAppId': 'ca-app-pub-XXX~YYY' }]",
     "experiments": {
       "typedRoutes": true
+    },
+    "extra": {
+      "eas": {
+        "projectId": "your-project-id"
+      },
+      "admob": {
+        "androidAppId": "ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY",
+        "iosAppId": "ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY"
+      }
     }
   }
 }

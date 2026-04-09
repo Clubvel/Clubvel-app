@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, A
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { StatusPill } from '../../components/StatusPill';
+import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
@@ -157,14 +158,8 @@ export default function MemberHomeScreen() {
         )}
       </View>
 
-      {/* Mock Advertisement */}
-      <View style={styles.adContainer}>
-        <Text style={styles.adLabel}>Sponsored</Text>
-        <View style={styles.adCard}>
-          <Text style={styles.adTitle}>Save smarter with TymeBank</Text>
-          <Text style={styles.adBody}>Open a savings account with up to 10% interest. No monthly fees.</Text>
-        </View>
-      </View>
+      {/* Advertisement Banner */}
+      <AdBanner size="banner" />
     </ScrollView>
   );
 }
