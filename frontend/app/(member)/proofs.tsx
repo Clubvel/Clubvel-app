@@ -1,12 +1,39 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, ActivityIndicator, Modal } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
+import { useAuth } from '../../contexts/AuthContext';
+import * as ImagePicker from 'expo-image-picker';
+import axios from 'axios';
+
+interface Club {
+  id: string;
+  name: string;
+  contribution_id?: string;
+  amount_due: number;
+  status: string;
+}
+
+interface Proof {
+  id: string;
+  groupName: string;
+  month: string;
+  amount: number;
+  status: string;
+  uploadDate: string;
+  hasImage: boolean;
+}
 
 export default function ProofOfPaymentsScreen() {
-  // Mock data - in production this would come from API
-  const proofs = [
+  const { user } = useAuth();
+  const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+  
+  const [showClubModal, setShowClubModal] = useState(false);
+  const [clubs, setClubs] = useState<Club[]>([]);
+  const [uploading, setUploading] = useState(false);
+  const [loadingClubs, setLoadingClubs] = useState(false);
+  const [proofs, setProofs] = useState<Proof[]>([
     {
       id: '1',
       groupName: 'Soshanguve Savings Club',
@@ -34,7 +61,96 @@ export default function ProofOfPaymentsScreen() {
       uploadDate: '2026-03-03',
       hasImage: true,
     },
-  ];
+  ]);
+
+  const fetchClubs = async () => {
+    setLoadingClubs(true);
+    try {
+      const response = await axios.get(`${API_URL}/api/member/dashboard/${user?.id}`);
+      // Filter clubs that need payment (pending status)
+      const pendingClubs = response.data.clubs
+        .filter((club: any) => club.status === 'pending' || club.status === 'due')
+        .map((club: any) => ({
+          id: club.id,
+          name: club.name,
+          amount_due: club.monthly_contribution,
+          status: club.status,
+        }));
+      setClubs(pendingClubs);
+    } catch (error) {
+      console.error('Error fetching clubs:', error);
+    } finally {
+      setLoadingClubs(false);
+    }
+  };
+
+  const handleUploadPress = async () => {
+    await fetchClubs();
+    setShowClubModal(true);
+  };
+
+  const handleSelectClub = async (club: Club) => {
+    setShowClubModal(false);
+    
+    // Request permission and pick image
+    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!permissionResult.granted) {
+      Alert.alert('Permission Required', 'Please allow access to your photo library to upload proof of payment.');
+      return;
+    }
+
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsEditing: true,
+      aspect: [4, 3],
+      quality: 0.7,
+      base64: true,
+    });
+
+    if (!result.canceled && result.assets[0].base64) {
+      setUploading(true);
+      try {
+        // Get contribution ID for this club
+        const clubResponse = await axios.get(`${API_URL}/api/member/club/${club.id}/user/${user?.id}`);
+        const contributionId = clubResponse.data.current_contribution?.id;
+
+        if (!contributionId) {
+          Alert.alert('Error', 'No pending contribution found for this club.');
+          return;
+        }
+
+        // Upload proof
+        await axios.post(`${API_URL}/api/contributions/upload-proof`, {
+          contribution_id: contributionId,
+          proof_image: `data:image/jpeg;base64,${result.assets[0].base64}`,
+        });
+
+        Alert.alert(
+          'Success!',
+          `Proof of payment for ${club.name} has been uploaded. Awaiting treasurer confirmation.`,
+          [{ text: 'OK' }]
+        );
+
+        // Add to local proofs list
+        const newProof: Proof = {
+          id: Date.now().toString(),
+          groupName: club.name,
+          month: new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+          amount: club.amount_due,
+          status: 'proof_uploaded',
+          uploadDate: new Date().toISOString().split('T')[0],
+          hasImage: true,
+        };
+        setProofs([newProof, ...proofs]);
+
+      } catch (error) {
+        console.error('Upload error:', error);
+        Alert.alert('Upload Failed', 'Failed to upload proof of payment. Please try again.');
+      } finally {
+        setUploading(false);
+      }
+    }
+  };
 
   return (
     <View style={styles.container}>
@@ -45,6 +161,22 @@ export default function ProofOfPaymentsScreen() {
       </View>
 
       <ScrollView style={styles.content}>
+        {/* Upload Button */}
+        <TouchableOpacity 
+          style={styles.uploadButton}
+          onPress={handleUploadPress}
+          disabled={uploading}
+        >
+          {uploading ? (
+            <ActivityIndicator color={Colors.white} />
+          ) : (
+            <>
+              <Ionicons name="cloud-upload" size={24} color={Colors.white} />
+              <Text style={styles.uploadButtonText}>Upload Proof of Payment</Text>
+            </>
+          )}
+        </TouchableOpacity>
+
         {/* Summary Card */}
         <View style={styles.summaryCard}>
           <View style={styles.summaryRow}>
@@ -116,6 +248,55 @@ export default function ProofOfPaymentsScreen() {
           </View>
         </View>
       </ScrollView>
+
+      {/* Club Selection Modal */}
+      <Modal
+        visible={showClubModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowClubModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Select Club</Text>
+              <TouchableOpacity onPress={() => setShowClubModal(false)}>
+                <Ionicons name="close" size={24} color={Colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <Text style={styles.modalSubtitle}>Choose which club to upload proof for</Text>
+
+            {loadingClubs ? (
+              <ActivityIndicator size="large" color={Colors.mediumGreen} style={{ marginVertical: 20 }} />
+            ) : clubs.length === 0 ? (
+              <View style={styles.noClubsContainer}>
+                <Ionicons name="checkmark-circle" size={48} color={Colors.mediumGreen} />
+                <Text style={styles.noClubsText}>All payments are up to date!</Text>
+                <Text style={styles.noClubsSubtext}>No pending payments to upload proof for.</Text>
+              </View>
+            ) : (
+              <ScrollView style={styles.clubList}>
+                {clubs.map((club) => (
+                  <TouchableOpacity
+                    key={club.id}
+                    style={styles.clubItem}
+                    onPress={() => handleSelectClub(club)}
+                  >
+                    <View style={styles.clubIcon}>
+                      <Ionicons name="people" size={24} color={Colors.mediumGreen} />
+                    </View>
+                    <View style={styles.clubInfo}>
+                      <Text style={styles.clubName}>{club.name}</Text>
+                      <Text style={styles.clubAmount}>Amount Due: R{club.amount_due.toFixed(2)}</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -279,5 +460,102 @@ const styles = StyleSheet.create({
     fontSize: 13,
     color: Colors.textSecondary,
     lineHeight: 18,
+  },
+  uploadButton: {
+    backgroundColor: Colors.gold,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    marginHorizontal: 24,
+    marginTop: 16,
+    paddingVertical: 16,
+    borderRadius: 12,
+  },
+  uploadButtonText: {
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: Colors.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    paddingTop: 20,
+    paddingBottom: 40,
+    maxHeight: '70%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    paddingHorizontal: 24,
+    marginBottom: 8,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: Colors.textPrimary,
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    paddingHorizontal: 24,
+    marginBottom: 16,
+  },
+  clubList: {
+    paddingHorizontal: 24,
+  },
+  clubItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.lightBackground,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+  },
+  clubIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.white,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  clubInfo: {
+    flex: 1,
+  },
+  clubName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginBottom: 4,
+  },
+  clubAmount: {
+    fontSize: 14,
+    color: Colors.gold,
+    fontWeight: '500',
+  },
+  noClubsContainer: {
+    alignItems: 'center',
+    padding: 32,
+  },
+  noClubsText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.mediumGreen,
+    marginTop: 16,
+  },
+  noClubsSubtext: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginTop: 8,
+    textAlign: 'center',
   },
 });
