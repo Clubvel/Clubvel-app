@@ -256,23 +256,23 @@ export default function ReportsScreen() {
               onPress={() => handleShareWhatsApp('monthly')}
               disabled={isGenerating}
             >
-              <Ionicons name="logo-whatsapp" size={24} color={Colors.white} />
-              <Text style={styles.shareButtonText}>Share via WhatsApp</Text>
+              <Ionicons name="logo-whatsapp" size={20} color={Colors.white} />
+              <Text style={styles.shareButtonText}>WhatsApp</Text>
             </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.shareButton, styles.pdfButton]}
               onPress={() => handleExportPDF('monthly')}
               disabled={isGenerating}
             >
-              <Ionicons name="document-text" size={24} color={Colors.white} />
-              <Text style={styles.shareButtonText}>Export PDF</Text>
+              <Ionicons name="document-text" size={20} color={Colors.white} />
+              <Text style={styles.shareButtonText}>PDF</Text>
             </TouchableOpacity>
             <TouchableOpacity 
               style={[styles.shareButton, styles.emailButton]}
               onPress={() => handlePrintReport('monthly')}
               disabled={isGenerating}
             >
-              <Ionicons name="print" size={24} color={Colors.white} />
+              <Ionicons name="print" size={20} color={Colors.white} />
               <Text style={styles.shareButtonText}>Print</Text>
             </TouchableOpacity>
           </View>
@@ -394,9 +394,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    gap: 8,
-    paddingVertical: 14,
-    borderRadius: 12,
+    gap: 6,
+    paddingVertical: 12,
+    paddingHorizontal: 8,
+    borderRadius: 10,
   },
   whatsappButton: {
     backgroundColor: '#25D366',
@@ -409,7 +410,7 @@ const styles = StyleSheet.create({
   },
   shareButtonText: {
     color: Colors.white,
-    fontSize: 14,
+    fontSize: 12,
     fontWeight: '600',
   },
 });

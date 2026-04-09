@@ -167,9 +167,21 @@ export default function ClubDetailScreen() {
                 <Text style={styles.buttonSecondaryText}>Payment Confirmed</Text>
               </TouchableOpacity>
             ) : clubData.current_contribution.proof_uploaded ? (
-              <View style={styles.waitingContainer}>
-                <Ionicons name="time" size={20} color={Colors.gold} />
-                <Text style={styles.waitingText}>Awaiting treasurer confirmation</Text>
+              <View>
+                <View style={styles.waitingContainer}>
+                  <Ionicons name="time" size={20} color={Colors.gold} />
+                  <Text style={styles.waitingText}>Awaiting treasurer confirmation</Text>
+                </View>
+                <TouchableOpacity
+                  style={[styles.buttonOutline, uploading && styles.buttonDisabled]}
+                  onPress={handleUploadProof}
+                  disabled={uploading}
+                >
+                  <Ionicons name="refresh" size={18} color={Colors.mediumGreen} />
+                  <Text style={styles.buttonOutlineText}>
+                    {uploading ? 'Uploading...' : 'Re-upload Proof'}
+                  </Text>
+                </TouchableOpacity>
               </View>
             ) : (
               <TouchableOpacity
@@ -380,9 +392,25 @@ const styles = StyleSheet.create({
     paddingVertical: 16,
     backgroundColor: Colors.lightGold,
     borderRadius: 12,
+    marginBottom: 12,
   },
   waitingText: {
     color: Colors.gold,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  buttonOutline: {
+    borderWidth: 1,
+    borderColor: Colors.mediumGreen,
+    paddingVertical: 12,
+    borderRadius: 10,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+  },
+  buttonOutlineText: {
+    color: Colors.mediumGreen,
     fontSize: 14,
     fontWeight: '600',
   },
