@@ -1,7 +1,10 @@
-from fastapi import FastAPI, APIRouter, HTTPException, status as http_status
+from fastapi import FastAPI, APIRouter, HTTPException, status as http_status, Request
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from slowapi import Limiter, _rate_limit_exceeded_handler
+from slowapi.util import get_remote_address
+from slowapi.errors import RateLimitExceeded
 import os
 import logging
 from pathlib import Path
@@ -28,6 +31,9 @@ from services.bank_feed_service import (
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
+# Rate limiter setup
+limiter = Limiter(key_func=get_remote_address)
+
 # MongoDB connection
 mongo_url = os.environ['MONGO_URL']
 client = AsyncIOMotorClient(mongo_url)
@@ -43,6 +49,9 @@ ACCESS_TOKEN_EXPIRE_MINUTES = 43200  # 30 days
 
 # Create the main app
 app = FastAPI(title="Clubvel API")
+app.state.limiter = limiter
+app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
 api_router = APIRouter(prefix="/api")
 
 # ==================== MODELS ====================
@@ -206,7 +215,8 @@ def calculate_contribution_status(contribution: dict, due_day: int) -> str:
 # ==================== AUTHENTICATION ROUTES ====================
 
 @api_router.post("/auth/register")
-async def register(user_data: UserCreate):
+@limiter.limit("5/minute")  # Limit to 5 registration attempts per minute
+async def register(request: Request, user_data: UserCreate):
     # Check if phone number already exists
     existing_user = await db.users.find_one({"phone_number": user_data.phone_number})
     if existing_user:
@@ -250,10 +260,11 @@ async def register(user_data: UserCreate):
 
 
 @api_router.post("/auth/send-otp")
-async def send_otp_endpoint(request: SendOTPRequest):
+@limiter.limit("3/minute")  # Limit to 3 OTP requests per minute
+async def send_otp_endpoint(request: Request, otp_request: SendOTPRequest):
     """Send or resend OTP to phone number"""
     # Check if user exists
-    user = await db.users.find_one({"phone_number": request.phone_number})
+    user = await db.users.find_one({"phone_number": otp_request.phone_number})
     if not user:
         raise HTTPException(status_code=404, detail="User not found. Please register first.")
     
@@ -261,7 +272,7 @@ async def send_otp_endpoint(request: SendOTPRequest):
         raise HTTPException(status_code=400, detail="Phone already verified. Please login.")
     
     # Send OTP
-    otp_result = await send_otp(request.phone_number, preferred_channel=request.channel)
+    otp_result = await send_otp(otp_request.phone_number, preferred_channel=otp_request.channel)
     
     if not otp_result['success']:
         raise HTTPException(status_code=500, detail=f"Failed to send OTP: {otp_result.get('error', 'Unknown error')}")
@@ -309,7 +320,8 @@ async def get_notification_service_status():
     return get_notification_status()
 
 @api_router.post("/auth/login")
-async def login(login_data: UserLogin):
+@limiter.limit("10/minute")  # Limit to 10 login attempts per minute
+async def login(request: Request, login_data: UserLogin):
     # Find user
     user = await db.users.find_one({"phone_number": login_data.phone_number})
     if not user:

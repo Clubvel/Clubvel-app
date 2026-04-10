@@ -113,6 +113,30 @@ export default function ProfileScreen() {
 
           <View style={styles.divider} />
 
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => router.push('/(member)/support')}
+          >
+            <View style={styles.menuItemLeft}>
+              <Ionicons name="help-circle" size={24} color={Colors.mediumGreen} />
+              <Text style={styles.menuItemText}>Help & Support</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+          </TouchableOpacity>
+
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => router.push('/(member)/privacy')}
+          >
+            <View style={styles.menuItemLeft}>
+              <Ionicons name="shield-checkmark" size={24} color={Colors.mediumGreen} />
+              <Text style={styles.menuItemText}>Privacy Policy</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+          </TouchableOpacity>
+
+          <View style={styles.divider} />
+
           <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
             <View style={styles.menuItemLeft}>
               <Ionicons name="log-out" size={24} color={Colors.statusLate} />
