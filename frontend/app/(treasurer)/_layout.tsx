@@ -65,13 +65,16 @@ export default function TreasurerLayout() {
           ),
         }}
       />
-      {/* Hidden screens - not in tab bar */}
       <Tabs.Screen
         name="my-contributions"
         options={{
-          href: null,
+          title: 'My Payments',
+          tabBarIcon: ({ color, size }) => (
+            <Ionicons name="wallet" size={size} color={color} />
+          ),
         }}
       />
+      {/* Hidden screens - not in tab bar */}
       <Tabs.Screen
         name="reports"
         options={{
