@@ -32,9 +32,9 @@ export default function TreasurerLayout() {
       <Tabs.Screen
         name="dashboard"
         options={{
-          title: 'Overview',
+          title: 'Home',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="grid" size={size} color={color} />
+            <Ionicons name="home" size={size} color={color} />
           ),
         }}
       />
@@ -65,22 +65,35 @@ export default function TreasurerLayout() {
           ),
         }}
       />
+      {/* Hidden screens - not in tab bar */}
       <Tabs.Screen
         name="my-contributions"
         options={{
-          title: 'My Contributions',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="wallet" size={size} color={color} />
-          ),
+          href: null,
         }}
       />
       <Tabs.Screen
         name="reports"
         options={{
-          title: 'Reports',
-          tabBarIcon: ({ color, size }) => (
-            <Ionicons name="document-text" size={size} color={color} />
-          ),
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="support"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="privacy"
+        options={{
+          href: null,
+        }}
+      />
+      <Tabs.Screen
+        name="about"
+        options={{
+          href: null,
         }}
       />
     </Tabs>

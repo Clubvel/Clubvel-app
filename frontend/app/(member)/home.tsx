@@ -204,6 +204,67 @@ export default function MemberHomeScreen() {
       {/* Advertisement Banner */}
       <AdBanner size="banner" />
     </ScrollView>
+
+    {/* Profile Dropdown Menu Modal */}
+    <Modal
+      visible={showProfileMenu}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={() => setShowProfileMenu(false)}
+    >
+      <TouchableOpacity 
+        style={styles.modalOverlay}
+        activeOpacity={1}
+        onPress={() => setShowProfileMenu(false)}
+      >
+        <View style={styles.dropdownMenu}>
+          <View style={styles.dropdownHeader}>
+            <View style={styles.dropdownAvatar}>
+              <Text style={styles.dropdownAvatarText}>
+                {dashboardData?.user.first_name.charAt(0)}
+              </Text>
+            </View>
+            <View style={styles.dropdownUserInfo}>
+              <Text style={styles.dropdownUserName}>{dashboardData?.user.full_name}</Text>
+              <Text style={styles.dropdownUserRole}>Member</Text>
+            </View>
+          </View>
+          
+          <View style={styles.dropdownDivider} />
+          
+          <TouchableOpacity style={styles.dropdownItem} onPress={navigateToProfile}>
+            <Ionicons name="person-outline" size={20} color={Colors.textPrimary} />
+            <Text style={styles.dropdownItemText}>My Profile</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.dropdownItem} onPress={navigateToSupport}>
+            <Ionicons name="help-circle-outline" size={20} color={Colors.textPrimary} />
+            <Text style={styles.dropdownItemText}>Contact Us</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.dropdownItem} onPress={() => {
+            setShowProfileMenu(false);
+            router.push('/(member)/about');
+          }}>
+            <Ionicons name="information-circle-outline" size={20} color={Colors.textPrimary} />
+            <Text style={styles.dropdownItemText}>About Us</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.dropdownItem} onPress={navigateToPrivacy}>
+            <Ionicons name="shield-checkmark-outline" size={20} color={Colors.textPrimary} />
+            <Text style={styles.dropdownItemText}>Privacy Policy</Text>
+          </TouchableOpacity>
+          
+          <View style={styles.dropdownDivider} />
+          
+          <TouchableOpacity style={styles.dropdownItemLogout} onPress={handleLogout}>
+            <Ionicons name="log-out-outline" size={20} color={Colors.statusLate} />
+            <Text style={styles.dropdownItemTextLogout}>Sign Out</Text>
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
+    </Modal>
+  </View>
   );
 }
 
@@ -364,5 +425,91 @@ const styles = StyleSheet.create({
   adBody: {
     fontSize: 14,
     color: Colors.textSecondary,
+  },
+  logo: {
+    width: 120,
+    height: 36,
+  },
+  avatarButton: {
+    padding: 4,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+    paddingTop: 110,
+    paddingRight: 16,
+  },
+  dropdownMenu: {
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    width: 260,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
+    overflow: 'hidden',
+  },
+  dropdownHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: Colors.lightBackground,
+  },
+  dropdownAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.gold,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dropdownAvatarText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.white,
+  },
+  dropdownUserInfo: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  dropdownUserName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: Colors.textPrimary,
+  },
+  dropdownUserRole: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  dropdownDivider: {
+    height: 1,
+    backgroundColor: Colors.cardBorder,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  dropdownItemText: {
+    fontSize: 15,
+    color: Colors.textPrimary,
+  },
+  dropdownItemLogout: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  dropdownItemTextLogout: {
+    fontSize: 15,
+    color: Colors.statusLate,
+    fontWeight: '500',
   },
 });

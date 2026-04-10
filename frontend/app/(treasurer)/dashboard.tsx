@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Linking, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Linking, Alert, Modal, Image } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
@@ -49,6 +49,7 @@ export default function TreasurerDashboardScreen() {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
@@ -94,6 +95,7 @@ export default function TreasurerDashboardScreen() {
   };
 
   const handleLogout = () => {
+    setShowProfileMenu(false);
     Alert.alert(
       'Sign Out',
       'Are you sure you want to sign out?',
@@ -111,6 +113,21 @@ export default function TreasurerDashboardScreen() {
     );
   };
 
+  const navigateToSupport = () => {
+    setShowProfileMenu(false);
+    router.push('/(treasurer)/support');
+  };
+
+  const navigateToPrivacy = () => {
+    setShowProfileMenu(false);
+    router.push('/(treasurer)/privacy');
+  };
+
+  const navigateToAbout = () => {
+    setShowProfileMenu(false);
+    router.push('/(treasurer)/about');
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -120,6 +137,7 @@ export default function TreasurerDashboardScreen() {
   }
 
   return (
+    <View style={{ flex: 1 }}>
     <ScrollView
       style={styles.container}
       refreshControl={
@@ -128,14 +146,25 @@ export default function TreasurerDashboardScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <View>
+        <View style={styles.headerLeft}>
+          <Image 
+            source={require('../../assets/images/icon.png')} 
+            style={styles.logo}
+            resizeMode="contain"
+          />
           <View style={styles.treasurerBadge}>
             <Text style={styles.treasurerBadgeText}>TREASURER</Text>
           </View>
-          <Text style={styles.greeting}>{user?.full_name}</Text>
         </View>
-        <TouchableOpacity onPress={handleLogout}>
-          <Ionicons name="log-out-outline" size={24} color={Colors.white} />
+        <TouchableOpacity 
+          style={styles.avatarButton}
+          onPress={() => setShowProfileMenu(true)}
+        >
+          <View style={styles.avatar}>
+            <Text style={styles.avatarText}>
+              {user?.full_name?.charAt(0) || 'T'}
+            </Text>
+          </View>
         </TouchableOpacity>
       </View>
 
@@ -269,6 +298,59 @@ export default function TreasurerDashboardScreen() {
       {/* Advertisement Banner */}
       <AdBanner size="banner" />
     </ScrollView>
+
+    {/* Profile Dropdown Menu Modal */}
+    <Modal
+      visible={showProfileMenu}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={() => setShowProfileMenu(false)}
+    >
+      <TouchableOpacity 
+        style={styles.modalOverlay}
+        activeOpacity={1}
+        onPress={() => setShowProfileMenu(false)}
+      >
+        <View style={styles.dropdownMenu}>
+          <View style={styles.dropdownHeader}>
+            <View style={styles.dropdownAvatar}>
+              <Text style={styles.dropdownAvatarText}>
+                {user?.full_name?.charAt(0) || 'T'}
+              </Text>
+            </View>
+            <View style={styles.dropdownUserInfo}>
+              <Text style={styles.dropdownUserName}>{user?.full_name}</Text>
+              <Text style={styles.dropdownUserRole}>Treasurer</Text>
+            </View>
+          </View>
+          
+          <View style={styles.dropdownDivider} />
+          
+          <TouchableOpacity style={styles.dropdownItem} onPress={navigateToSupport}>
+            <Ionicons name="help-circle-outline" size={20} color={Colors.textPrimary} />
+            <Text style={styles.dropdownItemText}>Contact Us</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.dropdownItem} onPress={navigateToAbout}>
+            <Ionicons name="information-circle-outline" size={20} color={Colors.textPrimary} />
+            <Text style={styles.dropdownItemText}>About Us</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.dropdownItem} onPress={navigateToPrivacy}>
+            <Ionicons name="shield-checkmark-outline" size={20} color={Colors.textPrimary} />
+            <Text style={styles.dropdownItemText}>Privacy Policy</Text>
+          </TouchableOpacity>
+          
+          <View style={styles.dropdownDivider} />
+          
+          <TouchableOpacity style={styles.dropdownItemLogout} onPress={handleLogout}>
+            <Ionicons name="log-out-outline" size={20} color={Colors.statusLate} />
+            <Text style={styles.dropdownItemTextLogout}>Sign Out</Text>
+          </TouchableOpacity>
+        </View>
+      </TouchableOpacity>
+    </Modal>
+    </View>
   );
 }
 
@@ -516,6 +598,110 @@ const styles = StyleSheet.create({
   emptyStateText: {
     fontSize: 14,
     color: Colors.textSecondary,
+  },
+  logo: {
+    width: 100,
+    height: 30,
+  },
+  headerLeft: {
+    flexDirection: 'column',
+    alignItems: 'flex-start',
+    gap: 8,
+  },
+  avatarButton: {
+    padding: 4,
+  },
+  avatar: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.gold,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarText: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: Colors.white,
+  },
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-start',
+    alignItems: 'flex-end',
+    paddingTop: 110,
+    paddingRight: 16,
+  },
+  dropdownMenu: {
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    width: 260,
+    shadowColor: '#000',
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.25,
+    shadowRadius: 12,
+    elevation: 8,
+    overflow: 'hidden',
+  },
+  dropdownHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    padding: 16,
+    backgroundColor: Colors.lightBackground,
+  },
+  dropdownAvatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.gold,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  dropdownAvatarText: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.white,
+  },
+  dropdownUserInfo: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  dropdownUserName: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: Colors.textPrimary,
+  },
+  dropdownUserRole: {
+    fontSize: 12,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  dropdownDivider: {
+    height: 1,
+    backgroundColor: Colors.cardBorder,
+  },
+  dropdownItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  dropdownItemText: {
+    fontSize: 15,
+    color: Colors.textPrimary,
+  },
+  dropdownItemLogout: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 14,
+    paddingHorizontal: 16,
+    gap: 12,
+  },
+  dropdownItemTextLogout: {
+    fontSize: 15,
+    color: Colors.statusLate,
+    fontWeight: '500',
   },
   adContainer: {
     paddingHorizontal: 24,

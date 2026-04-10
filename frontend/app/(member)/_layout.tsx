@@ -96,6 +96,12 @@ export default function MemberLayout() {
           href: null,
         }}
       />
+      <Tabs.Screen
+        name="about"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }
