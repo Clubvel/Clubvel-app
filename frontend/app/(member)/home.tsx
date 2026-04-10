@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { StatusPill } from '../../components/StatusPill';
@@ -38,10 +38,12 @@ export default function MemberHomeScreen() {
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [showProfileMenu, setShowProfileMenu] = useState(false);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
   const handleLogout = () => {
+    setShowProfileMenu(false);
     Alert.alert(
       'Sign Out',
       'Are you sure you want to sign out?',
@@ -82,6 +84,21 @@ export default function MemberHomeScreen() {
     fetchDashboard();
   };
 
+  const navigateToProfile = () => {
+    setShowProfileMenu(false);
+    router.push('/(member)/profile');
+  };
+
+  const navigateToSupport = () => {
+    setShowProfileMenu(false);
+    router.push('/(member)/support');
+  };
+
+  const navigateToPrivacy = () => {
+    setShowProfileMenu(false);
+    router.push('/(member)/privacy');
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -91,31 +108,34 @@ export default function MemberHomeScreen() {
   }
 
   return (
-    <ScrollView
-      style={styles.container}
-      refreshControl={
-        <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-      }
-    >
-      {/* Header */}
-      <View style={styles.header}>
-        <View>
-          <Text style={styles.greeting}>Hello {dashboardData?.user.first_name}</Text>
-        </View>
-        <View style={styles.headerRight}>
-          <TouchableOpacity onPress={handleLogout} style={styles.logoutButton}>
-            <Ionicons name="log-out-outline" size={24} color={Colors.white} />
+    <View style={{ flex: 1 }}>
+      <ScrollView
+        style={styles.container}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
+        {/* Header */}
+        <View style={styles.header}>
+          <Image 
+            source={require('../../assets/images/icon.png')} 
+            style={styles.logo}
+            resizeMode="contain"
+          />
+          <TouchableOpacity 
+            style={styles.avatarButton}
+            onPress={() => setShowProfileMenu(true)}
+          >
+            <View style={styles.avatar}>
+              <Text style={styles.avatarText}>
+                {dashboardData?.user.first_name.charAt(0)}
+              </Text>
+            </View>
           </TouchableOpacity>
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {dashboardData?.user.first_name.charAt(0)}
-            </Text>
-          </View>
         </View>
-      </View>
 
-      {/* Summary Cards */}
-      <View style={styles.summaryContainer}>
+        {/* Summary Cards */}
+        <View style={styles.summaryContainer}>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Total Saved</Text>
           <Text style={styles.summaryValue}>
