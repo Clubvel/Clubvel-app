@@ -1213,7 +1213,7 @@ async def seed_demo_data():
     # Create demo group
     group1 = Group(
         id="group1",
-        group_name="Soshanguve Savings Club",
+        group_name="Phala tja Pele",
         group_type="savings",
         monthly_contribution=500.0,
         payment_due_date=5,
@@ -1223,12 +1223,12 @@ async def seed_demo_data():
         payment_reference_prefix="SSH",
         start_date=datetime(2024, 1, 1),
         treasurer_user_id="treasurer1",
-        description="Monthly savings group for Soshanguve community"
+        description="Monthly savings group for the community"
     )
     
     group2 = Group(
         id="group2",
-        group_name="Mamelodi Burial Society",
+        group_name="Club89",
         group_type="burial society",
         monthly_contribution=300.0,
         payment_due_date=15,
@@ -1327,7 +1327,7 @@ async def seed_demo_data():
         user_id="member1",
         group_id="group2",
         alert_type="payment_due",
-        alert_message="Your Mamelodi Burial Society payment of R300 is due in 3 days."
+        alert_message="Your Club89 payment of R300 is due in 3 days."
     )
     
     await db.alerts.insert_one(alert1.dict())
