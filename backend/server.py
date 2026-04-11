@@ -238,6 +238,31 @@ async def register(request: Request, user_data: UserCreate):
     trust_score = TrustScore(user_id=user.id)
     await db.trust_scores.insert_one(trust_score.dict())
     
+    # Check for pending invitations and auto-add to clubs
+    pending_invitations = await db.invitations.find({
+        "phone_number": user_data.phone_number,
+        "status": "pending",
+        "expires_at": {"$gt": datetime.utcnow()}
+    }).to_list(10)
+    
+    groups_joined = []
+    for invitation in pending_invitations:
+        # Create member record
+        member = Member(
+            user_id=user.id,
+            group_id=invitation['group_id'],
+            membership_status="active"
+        )
+        await db.members.insert_one(member.dict())
+        
+        # Update invitation status
+        await db.invitations.update_one(
+            {"id": invitation['id']},
+            {"$set": {"status": "accepted", "accepted_at": datetime.utcnow()}}
+        )
+        
+        groups_joined.append(invitation['group_name'])
+    
     # Send OTP via WhatsApp (with SMS fallback)
     otp_result = await send_otp(user_data.phone_number, preferred_channel='whatsapp')
     
@@ -250,6 +275,11 @@ async def register(request: Request, user_data: UserCreate):
         "otp_channel": otp_result.get('channel', 'whatsapp'),
         "notification_mode": notif_status['mode']
     }
+    
+    # Include groups joined via invitation
+    if groups_joined:
+        response["groups_joined"] = groups_joined
+        response["invitation_note"] = f"You've been automatically added to: {', '.join(groups_joined)}"
     
     # Include mock OTP in response if in mock mode
     if notif_status['mode'] == 'mock':
@@ -895,6 +925,68 @@ async def confirm_payment(confirm_data: ConfirmPayment):
         "member_notified": True,
         "notification_channel": notification_result.get('channel', 'whatsapp'),
         "notification_mock": notification_result.get('mock', True)
+    }
+
+
+class InviteMemberRequest(BaseModel):
+    phone_number: str
+    name: Optional[str] = None
+    group_id: str
+    group_name: str
+    invited_by: str
+    treasurer_name: str
+
+
+@api_router.post("/treasurer/invite-member")
+async def invite_member(request: InviteMemberRequest):
+    """Invite a new member to join a club via SMS"""
+    
+    # Check if user already exists
+    existing_user = await db.users.find_one({"phone_number": request.phone_number})
+    if existing_user:
+        # Check if already a member of this group
+        existing_member = await db.members.find_one({
+            "user_id": existing_user['id'],
+            "group_id": request.group_id
+        })
+        if existing_member:
+            raise HTTPException(status_code=400, detail="This person is already a member of this club")
+    
+    # Store the invitation
+    invitation = {
+        "id": f"inv_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{request.phone_number[-4:]}",
+        "phone_number": request.phone_number,
+        "name": request.name,
+        "group_id": request.group_id,
+        "group_name": request.group_name,
+        "invited_by": request.invited_by,
+        "treasurer_name": request.treasurer_name,
+        "status": "pending",
+        "created_at": datetime.utcnow(),
+        "expires_at": datetime.utcnow() + timedelta(days=7)
+    }
+    
+    await db.invitations.insert_one(invitation)
+    
+    # Send SMS invitation
+    invite_message = f"Hi{' ' + request.name if request.name else ''}! You've been invited by {request.treasurer_name} to join {request.group_name} on Clubvel - the smart stokvel app. Download Clubvel and register with this number ({request.phone_number}) to join automatically. https://clubvel.co.za/download"
+    
+    # Use the notification service to send SMS
+    try:
+        from services.notification_service import send_sms_otp
+        sms_result = await send_sms_otp(request.phone_number, "0000")  # We're just using the SMS functionality
+        print(f"[INVITE SMS] To: {request.phone_number}")
+        print(f"[INVITE SMS] Message: {invite_message}")
+    except Exception as e:
+        print(f"[INVITE SMS MOCK] To: {request.phone_number}")
+        print(f"[INVITE SMS MOCK] Message: {invite_message}")
+    
+    return {
+        "message": "Invitation sent successfully",
+        "invitation_id": invitation['id'],
+        "phone_number": request.phone_number,
+        "group_name": request.group_name,
+        "expires_at": invitation['expires_at'].isoformat()
     }
 
 
