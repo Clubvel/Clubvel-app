@@ -118,6 +118,11 @@ export default function TreasurerDashboardScreen() {
     router.push('/(treasurer)/support');
   };
 
+  const navigateToProfile = () => {
+    setShowProfileMenu(false);
+    router.push('/(treasurer)/profile');
+  };
+
   const navigateToPrivacy = () => {
     setShowProfileMenu(false);
     router.push('/(treasurer)/privacy');
@@ -318,6 +323,11 @@ export default function TreasurerDashboardScreen() {
           </View>
           
           <View style={styles.dropdownDivider} />
+          
+          <TouchableOpacity style={styles.dropdownItem} onPress={navigateToProfile}>
+            <Ionicons name="person-outline" size={20} color={Colors.textPrimary} />
+            <Text style={styles.dropdownItemText}>My Profile</Text>
+          </TouchableOpacity>
           
           <TouchableOpacity style={styles.dropdownItem} onPress={navigateToSupport}>
             <Ionicons name="help-circle-outline" size={20} color={Colors.textPrimary} />
