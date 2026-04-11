@@ -634,9 +634,9 @@ const styles = StyleSheet.create({
     height: 30,
   },
   logoText: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
-    color: Colors.gold,
+    color: Colors.white,
     letterSpacing: 1,
   },
   headerLeft: {

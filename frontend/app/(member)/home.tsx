@@ -429,9 +429,9 @@ const styles = StyleSheet.create({
     height: 36,
   },
   logoText: {
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: 'bold',
-    color: Colors.gold,
+    color: Colors.white,
     letterSpacing: 1,
   },
   avatarButton: {
