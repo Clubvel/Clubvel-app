@@ -350,6 +350,25 @@ async def login(request: Request, login_data: UserLogin):
 
 # ==================== MEMBER ROUTES ====================
 
+class ProfilePhotoUpdate(BaseModel):
+    user_id: str
+    profile_photo: str  # base64 encoded image
+
+@api_router.post("/user/profile-photo")
+async def update_profile_photo(data: ProfilePhotoUpdate):
+    """Update user's profile photo"""
+    user = await db.users.find_one({"id": data.user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Update profile photo
+    await db.users.update_one(
+        {"id": data.user_id},
+        {"$set": {"profile_photo": data.profile_photo}}
+    )
+    
+    return {"message": "Profile photo updated successfully"}
+
 @api_router.get("/member/dashboard/{user_id}")
 async def get_member_dashboard(user_id: str):
     # Get user

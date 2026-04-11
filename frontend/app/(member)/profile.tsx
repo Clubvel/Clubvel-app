@@ -1,13 +1,15 @@
-import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert } from 'react-native';
+import React, { useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 
 export default function ProfileScreen() {
-  const { user, logout } = useAuth();
+  const { user, logout, updateProfilePhoto } = useAuth();
   const router = useRouter();
+  const [uploading, setUploading] = useState(false);
 
   const handleLogout = () => {
     Alert.alert(
@@ -27,13 +29,60 @@ export default function ProfileScreen() {
     );
   };
 
+  const handleChangePhoto = async () => {
+    try {
+      const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      
+      if (!permissionResult.granted) {
+        Alert.alert('Permission Required', 'Please allow access to your photo library to change your profile picture.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.5,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0].base64) {
+        setUploading(true);
+        try {
+          await updateProfilePhoto(`data:image/jpeg;base64,${result.assets[0].base64}`);
+          Alert.alert('Success', 'Profile photo updated successfully!');
+        } catch (error: any) {
+          Alert.alert('Error', error.message || 'Failed to update profile photo');
+        } finally {
+          setUploading(false);
+        }
+      }
+    } catch (error) {
+      console.error('Error picking image:', error);
+      Alert.alert('Error', 'Failed to pick image');
+    }
+  };
+
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <View style={styles.avatar}>
-          <Text style={styles.avatarText}>{user?.full_name.charAt(0)}</Text>
-        </View>
+        <TouchableOpacity style={styles.avatarContainer} onPress={handleChangePhoto} disabled={uploading}>
+          {user?.profile_photo ? (
+            <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} />
+          ) : (
+            <View style={styles.avatar}>
+              <Ionicons name="person" size={32} color={Colors.white} />
+            </View>
+          )}
+          <View style={styles.editBadge}>
+            {uploading ? (
+              <ActivityIndicator size="small" color={Colors.white} />
+            ) : (
+              <Ionicons name="camera" size={14} color={Colors.white} />
+            )}
+          </View>
+        </TouchableOpacity>
         <Text style={styles.name}>{user?.full_name}</Text>
         <Text style={styles.memberSince}>Member since 2024</Text>
       </View>
@@ -170,13 +219,36 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   avatar: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
+  },
+  avatarContainer: {
+    position: 'relative',
     marginBottom: 12,
+  },
+  avatarImage: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 3,
+    borderColor: Colors.gold,
+  },
+  editBadge: {
+    position: 'absolute',
+    bottom: 0,
+    right: 0,
+    backgroundColor: Colors.mediumGreen,
+    width: 28,
+    height: 28,
+    borderRadius: 14,
+    justifyContent: 'center',
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: Colors.white,
   },
   avatarText: {
     fontSize: 24,

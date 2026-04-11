@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { StatusPill } from '../../components/StatusPill';
@@ -122,11 +122,13 @@ export default function MemberHomeScreen() {
             style={styles.avatarButton}
             onPress={() => setShowProfileMenu(true)}
           >
-            <View style={styles.avatar}>
-              <Text style={styles.avatarText}>
-                {dashboardData?.user.first_name.charAt(0)}
-              </Text>
-            </View>
+            {user?.profile_photo ? (
+              <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} />
+            ) : (
+              <View style={styles.avatar}>
+                <Ionicons name="person" size={24} color={Colors.white} />
+              </View>
+            )}
           </TouchableOpacity>
         </View>
 
@@ -434,6 +436,21 @@ const styles = StyleSheet.create({
   },
   avatarButton: {
     padding: 4,
+  },
+  avatar: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.gold,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  avatarImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: Colors.gold,
   },
   modalOverlay: {
     flex: 1,

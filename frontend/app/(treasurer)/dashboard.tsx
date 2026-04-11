@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Linking, Alert, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Linking, Alert, Modal, Image } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
@@ -151,11 +151,13 @@ export default function TreasurerDashboardScreen() {
           style={styles.avatarButton}
           onPress={() => setShowProfileMenu(true)}
         >
-          <View style={styles.avatar}>
-            <Text style={styles.avatarText}>
-              {user?.full_name?.charAt(0) || 'T'}
-            </Text>
-          </View>
+          {user?.profile_photo ? (
+            <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} />
+          ) : (
+            <View style={styles.avatar}>
+              <Ionicons name="person" size={24} color={Colors.white} />
+            </View>
+          )}
         </TouchableOpacity>
       </View>
 
@@ -620,6 +622,13 @@ const styles = StyleSheet.create({
     fontSize: 20,
     fontWeight: 'bold',
     color: Colors.white,
+  },
+  avatarImage: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    borderWidth: 2,
+    borderColor: Colors.gold,
   },
   modalOverlay: {
     flex: 1,

@@ -18,6 +18,7 @@ interface AuthContextType {
   register: (fullName: string, phone: string, password: string, role: string) => Promise<{ userId: string; otp: string }>;
   verifyOTP: (phone: string, otp: string) => Promise<void>;
   logout: () => Promise<void>;
+  updateProfilePhoto: (photoBase64: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -127,8 +128,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     setUser(null);
   };
 
+  const updateProfilePhoto = async (photoBase64: string) => {
+    try {
+      const response = await axios.post(`${API_URL}/api/user/profile-photo`, {
+        user_id: user?.id,
+        profile_photo: photoBase64
+      });
+      
+      if (user) {
+        const updatedUser = { ...user, profile_photo: photoBase64 };
+        setUser(updatedUser);
+        await AsyncStorage.setItem('user_data', JSON.stringify(updatedUser));
+      }
+    } catch (error: any) {
+      console.error('Error updating profile photo:', error);
+      throw new Error(error.response?.data?.detail || 'Failed to update profile photo');
+    }
+  };
+
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, verifyOTP, logout }}>
+    <AuthContext.Provider value={{ user, token, loading, login, register, verifyOTP, logout, updateProfilePhoto }}>
       {children}
     </AuthContext.Provider>
   );
