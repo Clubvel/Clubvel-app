@@ -431,7 +431,7 @@ const styles = StyleSheet.create({
   logoText: {
     fontSize: 24,
     fontWeight: 'bold',
-    color: Colors.white,
+    color: Colors.gold,
     letterSpacing: 1,
   },
   avatarButton: {
