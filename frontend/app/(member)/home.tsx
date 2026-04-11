@@ -117,7 +117,7 @@ export default function MemberHomeScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.logoText}>clubvel</Text>
+          <Text style={styles.logoText}>Clubvel</Text>
           <TouchableOpacity 
             style={styles.avatarButton}
             onPress={() => setShowProfileMenu(true)}

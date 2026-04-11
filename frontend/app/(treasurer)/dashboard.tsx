@@ -146,12 +146,7 @@ export default function TreasurerDashboardScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.logoText}>clubvel</Text>
-          <View style={styles.treasurerBadge}>
-            <Text style={styles.treasurerBadgeText}>TREASURER</Text>
-          </View>
-        </View>
+        <Text style={styles.logoText}>Clubvel</Text>
         <TouchableOpacity 
           style={styles.avatarButton}
           onPress={() => setShowProfileMenu(true)}
