@@ -98,7 +98,7 @@ export default function AuthScreen() {
       if (error.message.includes('Invalid phone number or password')) {
         Alert.alert(
           'Login Failed',
-          'Invalid phone number or password.\n\nIf you just registered, make sure you verified your OTP first.\n\nTry demo account:\nPhone: 0821234567\nPassword: password123'
+          'Invalid phone number or password.\n\nIf you just registered, make sure you verified your OTP first.\n\nTry demo account:\nPhone: 0821234567\nPassword: Pass&Word76'
         );
       } else {
         Alert.alert('Error', error.message || 'Login failed. Please try again.');
@@ -266,7 +266,7 @@ export default function AuthScreen() {
                   <Text style={styles.demoAccountTitle}>Try Demo Accounts:</Text>
                   <Text style={styles.demoAccountDetail}>Member: 0821234567</Text>
                   <Text style={styles.demoAccountDetail}>Treasurer: 0829876543</Text>
-                  <Text style={styles.demoAccountDetail}>Password: password123</Text>
+                  <Text style={styles.demoAccountDetail}>Password: Pass&Word76</Text>
                 </View>
               </View>
               

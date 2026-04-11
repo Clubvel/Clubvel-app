@@ -233,7 +233,7 @@ export default function TreasurerDashboardScreen() {
               key={club.id} 
               style={styles.clubCard}
               onPress={() => router.push({
-                pathname: '/club/[id]',
+                pathname: '/(treasurer)/club-detail',
                 params: { id: club.id, name: club.name }
               })}
               activeOpacity={0.7}

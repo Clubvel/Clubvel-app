@@ -105,6 +105,12 @@ export default function TreasurerLayout() {
           href: null,
         }}
       />
+      <Tabs.Screen
+        name="club-detail"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }

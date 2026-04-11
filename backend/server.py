@@ -771,6 +771,70 @@ async def get_group_contributions(group_id: str, month: int, year: int):
         "contributions": contributions_list
     }
 
+@api_router.get("/treasurer/club/{group_id}")
+async def get_club_detail(group_id: str):
+    """Get detailed information about a specific club for the treasurer"""
+    group = await db.groups.find_one({"id": group_id})
+    if not group:
+        raise HTTPException(status_code=404, detail="Club not found")
+    
+    # Get all members of this club
+    members = await db.members.find({"group_id": group_id}).to_list(100)
+    
+    now = datetime.now()
+    month = now.month
+    year = now.year
+    
+    collected = 0.0
+    expected = len(members) * group['monthly_contribution']
+    
+    members_list = []
+    for member in members:
+        user = await db.users.find_one({"id": member['user_id']})
+        
+        # Get contribution for this month
+        contribution = await db.contributions.find_one({
+            "member_id": member['id'],
+            "group_id": group_id,
+            "month": month,
+            "year": year
+        })
+        
+        status = "pending"
+        amount_paid = 0.0
+        has_proof = False
+        
+        if contribution:
+            status = calculate_contribution_status(contribution, group['payment_due_date'])
+            amount_paid = contribution.get('amount_paid', 0)
+            has_proof = contribution.get('proof_of_payment') is not None
+            if status == "confirmed":
+                collected += amount_paid
+        
+        members_list.append({
+            "id": member['id'],
+            "name": user['full_name'],
+            "phone": user['phone_number'],
+            "status": status,
+            "amount_paid": amount_paid,
+            "amount_due": group['monthly_contribution'],
+            "has_proof": has_proof
+        })
+    
+    return {
+        "id": group['id'],
+        "name": group['group_name'],
+        "type": group.get('group_type', 'savings'),
+        "monthly_contribution": group['monthly_contribution'],
+        "due_date": group['payment_due_date'],
+        "bank_name": group.get('bank_name', 'N/A'),
+        "bank_account": group.get('bank_account_number', 'N/A'),
+        "member_count": len(members),
+        "collected": collected,
+        "expected": expected,
+        "members": members_list
+    }
+
 @api_router.post("/treasurer/confirm-payment")
 async def confirm_payment(confirm_data: ConfirmPayment):
     # Get contribution

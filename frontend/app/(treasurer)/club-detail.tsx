@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
@@ -42,30 +42,16 @@ export default function ClubDetailScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'members' | 'payments' | 'claims'>('members');
+  const [error, setError] = useState<string | null>(null);
 
   const fetchClubData = async () => {
+    setError(null);
     try {
       const response = await axios.get(`${API_URL}/api/treasurer/club/${id}`);
       setClubData(response.data);
-    } catch (error) {
-      console.error('Error fetching club data:', error);
-      // Use mock data if API fails
-      setClubData({
-        id: id || 'group1',
-        name: name || 'Club',
-        type: 'savings',
-        monthly_contribution: 500,
-        due_date: 5,
-        bank_name: 'FNB',
-        bank_account: '****1234',
-        member_count: 2,
-        collected: 500,
-        expected: 1000,
-        members: [
-          { id: '1', name: 'Thabo Mokoena', phone: '0821234567', status: 'confirmed', amount_paid: 500, amount_due: 500, has_proof: true },
-          { id: '2', name: 'Lerato Nkosi', phone: '0827654321', status: 'pending', amount_paid: 0, amount_due: 500, has_proof: false },
-        ]
-      });
+    } catch (err) {
+      console.error('Error fetching club data:', err);
+      setError('Failed to load club details');
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -73,7 +59,9 @@ export default function ClubDetailScreen() {
   };
 
   useEffect(() => {
-    fetchClubData();
+    if (id) {
+      fetchClubData();
+    }
   }, [id]);
 
   const onRefresh = () => {
@@ -98,18 +86,8 @@ export default function ClubDetailScreen() {
               });
               Alert.alert('Success', 'Payment confirmed!');
               fetchClubData();
-            } catch (error) {
-              console.error('Error confirming payment:', error);
-              Alert.alert('Success', 'Payment confirmed!');
-              // Update local state
-              if (clubData) {
-                setClubData({
-                  ...clubData,
-                  members: clubData.members.map(m => 
-                    m.id === memberId ? { ...m, status: 'confirmed', amount_paid: m.amount_due } : m
-                  )
-                });
-              }
+            } catch (err) {
+              Alert.alert('Error', 'Failed to confirm payment');
             }
           }
         }
@@ -155,6 +133,22 @@ export default function ClubDetailScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.mediumGreen} />
+        <Text style={styles.loadingText}>Loading club details...</Text>
+      </View>
+    );
+  }
+
+  if (error || !clubData) {
+    return (
+      <View style={styles.errorContainer}>
+        <Ionicons name="alert-circle-outline" size={64} color={Colors.statusLate} />
+        <Text style={styles.errorText}>{error || 'Club not found'}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={fetchClubData}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+          <Text style={styles.backButtonText}>Go Back</Text>
+        </TouchableOpacity>
       </View>
     );
   }
@@ -163,12 +157,12 @@ export default function ClubDetailScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity onPress={() => router.back()} style={styles.headerBackButton}>
           <Ionicons name="arrow-back" size={24} color={Colors.white} />
         </TouchableOpacity>
         <View style={styles.headerContent}>
-          <Text style={styles.headerTitle}>{clubData?.name}</Text>
-          <Text style={styles.headerSubtitle}>{clubData?.member_count} members • Due: {clubData?.due_date}th</Text>
+          <Text style={styles.headerTitle}>{clubData.name}</Text>
+          <Text style={styles.headerSubtitle}>{clubData.member_count} members • Due: {clubData.due_date}th</Text>
         </View>
         <View style={{ width: 40 }} />
       </View>
@@ -176,18 +170,18 @@ export default function ClubDetailScreen() {
       {/* Summary Card */}
       <View style={styles.summaryCard}>
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryValue}>R{clubData?.collected?.toFixed(2)}</Text>
+          <Text style={styles.summaryValue}>R{clubData.collected.toFixed(2)}</Text>
           <Text style={styles.summaryLabel}>Collected</Text>
         </View>
         <View style={styles.summaryDivider} />
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryValue}>R{clubData?.expected?.toFixed(2)}</Text>
+          <Text style={styles.summaryValue}>R{clubData.expected.toFixed(2)}</Text>
           <Text style={styles.summaryLabel}>Expected</Text>
         </View>
         <View style={styles.summaryDivider} />
         <View style={styles.summaryItem}>
           <Text style={[styles.summaryValue, { color: Colors.mediumGreen }]}>
-            {clubData ? Math.round((clubData.collected / clubData.expected) * 100) : 0}%
+            {Math.round((clubData.collected / clubData.expected) * 100)}%
           </Text>
           <Text style={styles.summaryLabel}>Progress</Text>
         </View>
@@ -224,7 +218,7 @@ export default function ClubDetailScreen() {
       >
         {activeTab === 'members' && (
           <View style={styles.section}>
-            {clubData?.members.map((member) => (
+            {clubData.members.map((member) => (
               <View key={member.id} style={styles.memberCard}>
                 <View style={styles.memberInfo}>
                   <View style={styles.memberAvatar}>
@@ -247,7 +241,7 @@ export default function ClubDetailScreen() {
 
         {activeTab === 'payments' && (
           <View style={styles.section}>
-            {clubData?.members.map((member) => (
+            {clubData.members.map((member) => (
               <View key={member.id} style={styles.paymentCard}>
                 <View style={styles.paymentHeader}>
                   <View style={styles.memberInfo}>
@@ -301,18 +295,18 @@ export default function ClubDetailScreen() {
                 <Ionicons name="trophy" size={32} color={Colors.gold} />
                 <View style={styles.claimInfo}>
                   <Text style={styles.claimTitle}>Next Claim</Text>
-                  <Text style={styles.claimAmount}>R{clubData?.expected?.toFixed(2)}</Text>
+                  <Text style={styles.claimAmount}>R{clubData.expected.toFixed(2)}</Text>
                 </View>
               </View>
               <View style={styles.claimRecipient}>
                 <Text style={styles.claimLabel}>Recipient:</Text>
-                <Text style={styles.claimName}>{clubData?.members[0]?.name || 'TBD'}</Text>
+                <Text style={styles.claimName}>{clubData.members[0]?.name || 'TBD'}</Text>
               </View>
               <Text style={styles.claimDate}>Payout Date: End of Month</Text>
             </View>
 
             <Text style={styles.rotationTitle}>Rotation Order</Text>
-            {clubData?.members.map((member, index) => (
+            {clubData.members.map((member, index) => (
               <View key={member.id} style={styles.rotationItem}>
                 <View style={styles.rotationNumber}>
                   <Text style={styles.rotationNumberText}>{index + 1}</Text>
@@ -345,6 +339,46 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     backgroundColor: Colors.lightBackground,
   },
+  loadingText: {
+    marginTop: 16,
+    fontSize: 16,
+    color: Colors.textSecondary,
+  },
+  errorContainer: {
+    flex: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.lightBackground,
+    padding: 24,
+  },
+  errorText: {
+    fontSize: 18,
+    color: Colors.textSecondary,
+    marginTop: 16,
+    marginBottom: 24,
+    textAlign: 'center',
+  },
+  retryButton: {
+    backgroundColor: Colors.mediumGreen,
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  retryButtonText: {
+    color: Colors.white,
+    fontWeight: '600',
+    fontSize: 16,
+  },
+  backButton: {
+    paddingHorizontal: 32,
+    paddingVertical: 12,
+  },
+  backButtonText: {
+    color: Colors.mediumGreen,
+    fontWeight: '600',
+    fontSize: 16,
+  },
   header: {
     backgroundColor: Colors.darkGreen,
     flexDirection: 'row',
@@ -352,7 +386,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
     paddingBottom: 16,
   },
-  backButton: {
+  headerBackButton: {
     width: 40,
     height: 40,
     justifyContent: 'center',
@@ -376,7 +410,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: Colors.white,
     marginHorizontal: 16,
-    marginTop: -8,
+    marginTop: 16,
     borderRadius: 12,
     padding: 16,
     shadowColor: '#000',
