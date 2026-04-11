@@ -24,10 +24,10 @@ export default function SupportScreen() {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
 
-  // Support contact details - Update these with your actual details
+  // Support contact details
   const SUPPORT_EMAIL = 'support@clubvel.co.za';
-  const SUPPORT_WHATSAPP = '+27609953034'; // Your WhatsApp number
-  const SUPPORT_PHONE = '+27609953034';
+  const SUPPORT_WHATSAPP = '+27665050720';
+  const SUPPORT_PHONE = '+27665050720';
 
   const handleWhatsAppSupport = () => {
     const whatsappUrl = `whatsapp://send?phone=${SUPPORT_WHATSAPP}&text=Hi, I need help with Clubvel app. My phone: ${user?.phone_number || 'N/A'}`;

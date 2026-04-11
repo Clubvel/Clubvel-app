@@ -20,13 +20,13 @@ export default function SupportScreen() {
       icon: 'call-outline',
       title: 'Call Us',
       description: 'Speak to our support team',
-      action: () => Linking.openURL('tel:+27800123456'),
+      action: () => Linking.openURL('tel:+27665050720'),
     },
     {
       icon: 'logo-whatsapp',
       title: 'WhatsApp',
       description: 'Chat with us on WhatsApp',
-      action: () => Linking.openURL('https://wa.me/27800123456'),
+      action: () => Linking.openURL('https://wa.me/27665050720'),
     },
     {
       icon: 'help-circle-outline',
