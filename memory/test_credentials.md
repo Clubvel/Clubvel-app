@@ -2,19 +2,19 @@
 
 ## Demo Member Account
 - **Phone:** 0821234567
-- **Password:** password123
+- **Password:** Pass&Word76
 - **Name:** Thabo Mokoena
 - **Role:** member
 
 ## Demo Member Account 2
 - **Phone:** 0827654321
-- **Password:** password123
+- **Password:** Pass&Word76
 - **Name:** Lerato Nkosi
 - **Role:** member
 
 ## Demo Treasurer Account
 - **Phone:** 0829876543
-- **Password:** password123
+- **Password:** Pass&Word76
 - **Name:** Sipho Dlamini
 - **Role:** treasurer
 

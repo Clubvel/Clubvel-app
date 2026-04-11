@@ -1023,7 +1023,7 @@ async def seed_demo_data():
         id="member1",
         full_name="Thabo Mokoena",
         phone_number="0821234567",
-        password_hash=hash_password("password123"),
+        password_hash=hash_password("Pass&Word76"),
         role="member",
         otp_verified=True
     )
@@ -1032,7 +1032,7 @@ async def seed_demo_data():
         id="member2",
         full_name="Lerato Nkosi",
         phone_number="0827654321",
-        password_hash=hash_password("password123"),
+        password_hash=hash_password("Pass&Word76"),
         role="member",
         otp_verified=True
     )
@@ -1041,7 +1041,7 @@ async def seed_demo_data():
         id="treasurer1",
         full_name="Sipho Dlamini",
         phone_number="0829876543",
-        password_hash=hash_password("password123"),
+        password_hash=hash_password("Pass&Word76"),
         role="treasurer",
         otp_verified=True
     )
@@ -1179,9 +1179,9 @@ async def seed_demo_data():
     return {
         "message": "Demo data seeded successfully",
         "demo_accounts": [
-            {"phone": "0821234567", "password": "password123", "role": "member", "name": "Thabo Mokoena"},
-            {"phone": "0827654321", "password": "password123", "role": "member", "name": "Lerato Nkosi"},
-            {"phone": "0829876543", "password": "password123", "role": "treasurer", "name": "Sipho Dlamini"}
+            {"phone": "0821234567", "password": "Pass&Word76", "role": "member", "name": "Thabo Mokoena"},
+            {"phone": "0827654321", "password": "Pass&Word76", "role": "member", "name": "Lerato Nkosi"},
+            {"phone": "0829876543", "password": "Pass&Word76", "role": "treasurer", "name": "Sipho Dlamini"}
         ]
     }
 

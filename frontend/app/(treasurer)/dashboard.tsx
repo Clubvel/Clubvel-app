@@ -229,7 +229,15 @@ export default function TreasurerDashboardScreen() {
 
         {dashboardData?.clubs && dashboardData.clubs.length > 0 ? (
           dashboardData.clubs.map((club) => (
-            <View key={club.id} style={styles.clubCard}>
+            <TouchableOpacity 
+              key={club.id} 
+              style={styles.clubCard}
+              onPress={() => router.push({
+                pathname: '/(treasurer)/club/[id]',
+                params: { id: club.id, name: club.name }
+              })}
+              activeOpacity={0.7}
+            >
               <View style={styles.clubCardHeader}>
                 <Text style={styles.clubName}>{club.name}</Text>
                 {club.late_count > 0 ? (
@@ -267,7 +275,12 @@ export default function TreasurerDashboardScreen() {
                   R{club.collected.toFixed(2)} / R{club.expected.toFixed(2)}
                 </Text>
               </View>
-            </View>
+              
+              <View style={styles.tapHint}>
+                <Text style={styles.tapHintText}>Tap to view details</Text>
+                <Ionicons name="chevron-forward" size={16} color={Colors.textMuted} />
+              </View>
+            </TouchableOpacity>
           ))
         ) : (
           <View style={styles.emptyState}>
@@ -557,6 +570,20 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.textSecondary,
     textAlign: 'right',
+  },
+  tapHint: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'flex-end',
+    marginTop: 12,
+    paddingTop: 12,
+    borderTopWidth: 1,
+    borderTopColor: Colors.cardBorder,
+  },
+  tapHintText: {
+    fontSize: 12,
+    color: Colors.textMuted,
+    marginRight: 4,
   },
   card: {
     backgroundColor: Colors.white,
