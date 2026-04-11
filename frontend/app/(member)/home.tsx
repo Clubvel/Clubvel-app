@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { StatusPill } from '../../components/StatusPill';
@@ -117,11 +117,7 @@ export default function MemberHomeScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Image 
-            source={require('../../assets/images/icon.png')} 
-            style={styles.logo}
-            resizeMode="contain"
-          />
+          <Text style={styles.logoText}>clubvel</Text>
           <TouchableOpacity 
             style={styles.avatarButton}
             onPress={() => setShowProfileMenu(true)}
@@ -429,6 +425,12 @@ const styles = StyleSheet.create({
   logo: {
     width: 120,
     height: 36,
+  },
+  logoText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: Colors.white,
+    letterSpacing: 1,
   },
   avatarButton: {
     padding: 4,

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Linking, Alert, Modal, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Linking, Alert, Modal } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
@@ -147,11 +147,7 @@ export default function TreasurerDashboardScreen() {
       {/* Header */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
-          <Image 
-            source={require('../../assets/images/icon.png')} 
-            style={styles.logo}
-            resizeMode="contain"
-          />
+          <Text style={styles.logoText}>clubvel</Text>
           <View style={styles.treasurerBadge}>
             <Text style={styles.treasurerBadgeText}>TREASURER</Text>
           </View>
@@ -602,6 +598,12 @@ const styles = StyleSheet.create({
   logo: {
     width: 100,
     height: 30,
+  },
+  logoText: {
+    fontSize: 24,
+    fontWeight: 'bold',
+    color: Colors.white,
+    letterSpacing: 1,
   },
   headerLeft: {
     flexDirection: 'column',
