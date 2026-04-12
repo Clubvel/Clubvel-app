@@ -9,7 +9,7 @@ export default function TreasurerClaimsScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Claims Management</Text>
-        <Text style={styles.headerSubtitle}>Soshanguve Savings Club</Text>
+        <Text style={styles.headerSubtitle}>Phala tja Pele</Text>
       </View>
 
       <ScrollView style={styles.content}>

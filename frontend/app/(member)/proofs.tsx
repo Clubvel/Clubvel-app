@@ -36,7 +36,7 @@ export default function ProofOfPaymentsScreen() {
   const [proofs, setProofs] = useState<Proof[]>([
     {
       id: '1',
-      groupName: 'Soshanguve Savings Club',
+      groupName: 'Phala tja Pele',
       month: 'April 2026',
       amount: 500,
       status: 'confirmed',
@@ -45,7 +45,7 @@ export default function ProofOfPaymentsScreen() {
     },
     {
       id: '2',
-      groupName: 'Mamelodi Burial Society',
+      groupName: 'Club89',
       month: 'March 2026',
       amount: 300,
       status: 'proof_uploaded',
@@ -54,7 +54,7 @@ export default function ProofOfPaymentsScreen() {
     },
     {
       id: '3',
-      groupName: 'Soshanguve Savings Club',
+      groupName: 'Phala tja Pele',
       month: 'March 2026',
       amount: 500,
       status: 'confirmed',

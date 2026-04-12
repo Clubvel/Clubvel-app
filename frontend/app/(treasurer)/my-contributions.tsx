@@ -37,7 +37,7 @@ export default function MyContributionsScreen() {
       const mockContributions: MyContribution[] = [
         {
           id: 'contrib1',
-          group_name: 'Soshanguve Savings Club',
+          group_name: 'Phala tja Pele',
           group_id: 'group1',
           month: 'April 2026',
           amount_due: 500,
@@ -48,7 +48,7 @@ export default function MyContributionsScreen() {
         },
         {
           id: 'contrib2',
-          group_name: 'Mamelodi Investment Group',
+          group_name: 'Club89',
           group_id: 'group3',
           month: 'April 2026',
           amount_due: 800,
