@@ -252,7 +252,7 @@ export default function AuthScreen() {
                   style={styles.privacyLink}
                   onPress={() => {
                     // Navigate to privacy policy
-                    router.push('/(member)/privacy');
+                    router.push('/privacy-policy');
                   }}
                 >
                   Privacy Policy

@@ -1,52 +1,19 @@
 import React from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity } from 'react-native';
+import {
+  View,
+  Text,
+  StyleSheet,
+  ScrollView,
+  TouchableOpacity,
+} from 'react-native';
 import { useRouter } from 'expo-router';
-import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
+import { Colors } from '../../constants/Colors';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
-export default function PrivacyScreen() {
+export default function PrivacyPolicyScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
-
-  const sections = [
-    {
-      title: '1. Information We Collect',
-      content: 'We collect information you provide directly, including your name, phone number, and payment proof images. We also collect usage data to improve our services.',
-    },
-    {
-      title: '2. How We Use Your Information',
-      content: 'Your information is used to manage your stokvel membership, track contributions, facilitate claims payouts, and communicate important updates about your groups.',
-    },
-    {
-      title: '3. Data Storage & Security',
-      content: 'Your data is stored securely using industry-standard encryption. Payment proof images are stored as encoded data in our secure database. We implement appropriate technical measures to protect against unauthorized access.',
-    },
-    {
-      title: '4. Information Sharing',
-      content: 'We share your contribution status and basic profile information with your group treasurer and fellow members. We do not sell your personal information to third parties.',
-    },
-    {
-      title: '5. Your Rights',
-      content: 'You have the right to access, correct, or delete your personal information. You can request a copy of your data or ask us to remove your account by contacting our support team.',
-    },
-    {
-      title: '6. POPIA Compliance',
-      content: 'We comply with the Protection of Personal Information Act (POPIA) of South Africa. We only process your personal information with your consent and for legitimate purposes related to stokvel management.',
-    },
-    {
-      title: '7. Cookies & Tracking',
-      content: 'Our mobile app may use local storage to remember your preferences and login status. We may collect anonymous analytics data to improve app performance.',
-    },
-    {
-      title: '8. Changes to This Policy',
-      content: 'We may update this privacy policy from time to time. We will notify you of any significant changes through the app or via your registered contact details.',
-    },
-    {
-      title: '9. Contact Us',
-      content: 'If you have any questions about this privacy policy or our data practices, please contact us at privacy@clubvel.co.za or call our support line.',
-    },
-  ];
 
   return (
     <View style={styles.container}>
@@ -60,27 +27,72 @@ export default function PrivacyScreen() {
       </View>
 
       <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
-        <View style={styles.intro}>
-          <Text style={styles.introTitle}>Privacy Policy</Text>
-          <Text style={styles.introDate}>Last updated: January 2025</Text>
+        <View style={styles.policyContainer}>
+          <Text style={styles.mainTitle}>PRIVACY POLICY</Text>
+          
           <Text style={styles.introText}>
-            Clubvel ("we", "our", or "us") is committed to protecting your privacy. 
-            This policy explains how we collect, use, and safeguard your personal information.
+            This app is operated in compliance with the Protection of Personal Information Act (POPIA), Act 4 of 2013.
           </Text>
-        </View>
 
-        {sections.map((section, index) => (
-          <View key={index} style={styles.section}>
-            <Text style={styles.sectionTitle}>{section.title}</Text>
-            <Text style={styles.sectionContent}>{section.content}</Text>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>What we collect:</Text>
+            <Text style={styles.sectionContent}>
+              Your name, contact details (phone/email), and financial contribution records related to your Stokvel group.
+            </Text>
           </View>
-        ))}
 
-        <View style={styles.footer}>
-          <Text style={styles.footerText}>
-            By using Clubvel, you agree to this Privacy Policy.
-          </Text>
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Why we collect it:</Text>
+            <Text style={styles.sectionContent}>
+              To manage your Stokvel group's contributions, claims, and financial records.
+            </Text>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Who sees your data:</Text>
+            <Text style={styles.sectionContent}>
+              Only your Stokvel group administrator and authorised members of your group.
+            </Text>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>How we protect it:</Text>
+            <Text style={styles.sectionContent}>
+              All data is encrypted and stored securely. We do not sell or share your data with third parties.
+            </Text>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>How long we keep it:</Text>
+            <Text style={styles.sectionContent}>
+              For as long as your account is active, or as required by law for financial records.
+            </Text>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Your rights:</Text>
+            <Text style={styles.sectionContent}>
+              You have the right to access, correct, or request deletion of your personal information at any time. Use the "Delete My Account" option in Settings or contact us directly.
+            </Text>
+          </View>
+
+          <View style={styles.section}>
+            <Text style={styles.sectionTitle}>Data breaches:</Text>
+            <Text style={styles.sectionContent}>
+              In the event of a data breach, we will notify you and the Information Regulator as required by POPIA.
+            </Text>
+          </View>
+
+          <View style={styles.contactSection}>
+            <Text style={styles.sectionTitle}>Contact:</Text>
+            <Text style={styles.contactText}>
+              Chief Information Officer — Information Officer
+            </Text>
+            <Text style={styles.contactEmail}>cio@clubvel.co.za</Text>
+          </View>
         </View>
+
+        <View style={{ height: 40 }} />
       </ScrollView>
     </View>
   );
@@ -113,52 +125,57 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
-  intro: {
+  policyContainer: {
     backgroundColor: Colors.white,
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.cardBorder,
+    margin: 16,
+    borderRadius: 16,
+    padding: 24,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
   },
-  introTitle: {
+  mainTitle: {
     fontSize: 24,
     fontWeight: 'bold',
     color: Colors.textPrimary,
-    marginBottom: 8,
-  },
-  introDate: {
-    fontSize: 14,
-    color: Colors.textMuted,
-    marginBottom: 16,
+    textAlign: 'center',
+    marginBottom: 24,
   },
   introText: {
     fontSize: 15,
     color: Colors.textSecondary,
-    lineHeight: 22,
+    lineHeight: 24,
+    marginBottom: 24,
+    textAlign: 'center',
+    fontStyle: 'italic',
   },
   section: {
-    backgroundColor: Colors.white,
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.cardBorder,
+    marginBottom: 20,
   },
   sectionTitle: {
     fontSize: 16,
     fontWeight: 'bold',
     color: Colors.textPrimary,
-    marginBottom: 12,
+    marginBottom: 8,
   },
   sectionContent: {
     fontSize: 15,
     color: Colors.textSecondary,
     lineHeight: 22,
   },
-  footer: {
-    padding: 24,
-    alignItems: 'center',
+  contactSection: {
+    marginTop: 8,
+    paddingTop: 20,
+    borderTopWidth: 1,
+    borderTopColor: Colors.cardBorder,
   },
-  footerText: {
-    fontSize: 14,
-    color: Colors.textMuted,
-    textAlign: 'center',
+  contactText: {
+    fontSize: 15,
+    color: Colors.textSecondary,
+    marginBottom: 4,
+  },
+  contactEmail: {
+    fontSize: 15,
+    color: Colors.mediumGreen,
+    fontWeight: '600',
   },
 });
