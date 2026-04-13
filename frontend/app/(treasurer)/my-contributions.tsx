@@ -93,6 +93,7 @@ export default function MyContributionsScreen() {
           contribution_id: contributionId,
           proof_image: base64Image,
           reference_number: contributions.find(c => c.id === contributionId)?.payment_reference,
+          user_id: user?.id,  // Authorization: Pass user ID for access control
         });
 
         Alert.alert('Success', 'Proof of payment uploaded successfully!');

@@ -47,11 +47,16 @@ export default function ClubDetailScreen() {
   const fetchClubData = async () => {
     setError(null);
     try {
-      const response = await axios.get(`${API_URL}/api/treasurer/club/${id}`);
+      // Pass treasurer_id for authorization
+      const response = await axios.get(`${API_URL}/api/treasurer/club/${id}?treasurer_id=${user?.id}`);
       setClubData(response.data);
-    } catch (err) {
+    } catch (err: any) {
       console.error('Error fetching club data:', err);
-      setError('Failed to load club details');
+      if (err.response?.status === 403) {
+        setError('Access denied: You are not the treasurer of this group');
+      } else {
+        setError('Failed to load club details');
+      }
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -82,12 +87,17 @@ export default function ClubDetailScreen() {
               await axios.post(`${API_URL}/api/treasurer/confirm-payment`, {
                 member_id: memberId,
                 group_id: id,
-                confirmed_by: user?.id
+                confirmed_by: user?.id,
+                treasurer_id: user?.id  // Authorization: Pass treasurer ID for access control
               });
               Alert.alert('Success', 'Payment confirmed!');
               fetchClubData();
-            } catch (err) {
-              Alert.alert('Error', 'Failed to confirm payment');
+            } catch (err: any) {
+              if (err.response?.status === 403) {
+                Alert.alert('Access Denied', 'You are not authorized to confirm payments for this group');
+              } else {
+                Alert.alert('Error', 'Failed to confirm payment');
+              }
             }
           }
         }

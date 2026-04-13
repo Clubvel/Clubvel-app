@@ -170,10 +170,12 @@ class ProofUpload(BaseModel):
     contribution_id: str
     proof_image: str  # base64
     reference_number: str
+    user_id: str  # Requesting user - for authorization
 
 class ConfirmPayment(BaseModel):
     contribution_id: str
     notes: Optional[str] = None
+    treasurer_id: str  # Requesting treasurer - for authorization
 
 # ==================== HELPER FUNCTIONS ====================
 
@@ -182,6 +184,124 @@ def hash_password(password: str) -> str:
 
 def verify_password(plain_password: str, hashed_password: str) -> bool:
     return pwd_context.verify(plain_password, hashed_password)
+
+
+# ==================== DATA ACCESS CONTROL HELPERS ====================
+
+async def verify_user_exists(user_id: str) -> dict:
+    """Verify user exists and return user data"""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    return user
+
+
+async def verify_member_owns_data(user_id: str, target_user_id: str) -> bool:
+    """Verify that a member is only accessing their own data"""
+    if user_id != target_user_id:
+        raise HTTPException(
+            status_code=403, 
+            detail="Access denied: You can only access your own data"
+        )
+    return True
+
+
+async def verify_user_is_group_member(user_id: str, group_id: str) -> dict:
+    """Verify user is an active member of the specified group"""
+    membership = await db.members.find_one({
+        "user_id": user_id, 
+        "group_id": group_id,
+        "status": "active"
+    })
+    if not membership:
+        raise HTTPException(
+            status_code=403, 
+            detail="Access denied: You are not a member of this group"
+        )
+    return membership
+
+
+async def verify_user_is_group_treasurer(user_id: str, group_id: str) -> dict:
+    """Verify user is the treasurer of the specified group"""
+    group = await db.groups.find_one({"id": group_id})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    if group.get('treasurer_user_id') != user_id:
+        raise HTTPException(
+            status_code=403, 
+            detail="Access denied: You are not the treasurer of this group"
+        )
+    return group
+
+
+async def verify_treasurer_owns_groups(user_id: str) -> list:
+    """Get all groups where user is treasurer"""
+    groups = await db.groups.find({
+        "treasurer_user_id": user_id, 
+        "status": "active"
+    }).to_list(100)
+    return groups
+
+
+async def verify_contribution_access(user_id: str, contribution_id: str, require_treasurer: bool = False) -> dict:
+    """
+    Verify user has access to a contribution record.
+    - Members can only access their own contributions
+    - Treasurers can access contributions from their groups
+    """
+    contribution = await db.contributions.find_one({"id": contribution_id})
+    if not contribution:
+        raise HTTPException(status_code=404, detail="Contribution not found")
+    
+    # Get the member record for this contribution
+    member = await db.members.find_one({"id": contribution['member_id']})
+    if not member:
+        raise HTTPException(status_code=404, detail="Member record not found")
+    
+    # Check if user owns this contribution (is the member)
+    if member['user_id'] == user_id:
+        if require_treasurer:
+            raise HTTPException(
+                status_code=403, 
+                detail="Access denied: Treasurer access required"
+            )
+        return contribution
+    
+    # Check if user is treasurer of the group
+    group = await db.groups.find_one({"id": contribution['group_id']})
+    if group and group.get('treasurer_user_id') == user_id:
+        return contribution
+    
+    raise HTTPException(
+        status_code=403, 
+        detail="Access denied: You cannot access this contribution"
+    )
+
+
+async def verify_member_access(user_id: str, member_id: str) -> dict:
+    """
+    Verify user has access to a member record.
+    - Members can only access their own member records
+    - Treasurers can access member records from their groups
+    """
+    member = await db.members.find_one({"id": member_id})
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found")
+    
+    # Check if user owns this member record
+    if member['user_id'] == user_id:
+        return member
+    
+    # Check if user is treasurer of the group
+    group = await db.groups.find_one({"id": member['group_id']})
+    if group and group.get('treasurer_user_id') == user_id:
+        return member
+    
+    raise HTTPException(
+        status_code=403, 
+        detail="Access denied: You cannot access this member's data"
+    )
 
 def create_access_token(data: dict):
     to_encode = data.copy()
@@ -664,10 +784,22 @@ async def get_member_club_details(group_id: str, user_id: str):
 
 @api_router.post("/contributions/upload-proof")
 async def upload_proof_of_payment(proof_data: ProofUpload):
-    # Get contribution
+    # DATA ACCESS CONTROL: Verify user can only upload proof for their own contribution
     contribution = await db.contributions.find_one({"id": proof_data.contribution_id})
     if not contribution:
         raise HTTPException(status_code=404, detail="Contribution not found")
+    
+    # Get the member record to verify ownership
+    member = await db.members.find_one({"id": contribution['member_id']})
+    if not member:
+        raise HTTPException(status_code=404, detail="Member record not found")
+    
+    # AUTHORIZATION CHECK: Only the member who owns this contribution can upload proof
+    if member['user_id'] != proof_data.user_id:
+        raise HTTPException(
+            status_code=403, 
+            detail="Access denied: You can only upload proof for your own contributions"
+        )
     
     # Update contribution with proof
     await db.contributions.update_one(
@@ -680,8 +812,7 @@ async def upload_proof_of_payment(proof_data: ProofUpload):
         }}
     )
     
-    # Get member and group info
-    member = await db.members.find_one({"id": contribution['member_id']})
+    # Get group info for alert
     group = await db.groups.find_one({"id": contribution['group_id']})
     user = await db.users.find_one({"id": member['user_id']})
     
@@ -803,11 +934,18 @@ async def get_treasurer_dashboard(user_id: str):
     }
 
 @api_router.get("/treasurer/contributions/{group_id}/month/{month}/year/{year}")
-async def get_group_contributions(group_id: str, month: int, year: int):
-    # Get group
+async def get_group_contributions(group_id: str, month: int, year: int, treasurer_id: str):
+    # DATA ACCESS CONTROL: Verify treasurer owns this group
     group = await db.groups.find_one({"id": group_id})
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
+    
+    # AUTHORIZATION CHECK: Only the treasurer of this group can view all contributions
+    if group.get('treasurer_user_id') != treasurer_id:
+        raise HTTPException(
+            status_code=403, 
+            detail="Access denied: You are not the treasurer of this group"
+        )
     
     # Get all members
     members = await db.members.find({"group_id": group_id, "status": "active"}).to_list(1000)
@@ -886,11 +1024,19 @@ async def get_group_contributions(group_id: str, month: int, year: int):
     }
 
 @api_router.get("/treasurer/club/{group_id}")
-async def get_club_detail(group_id: str):
+async def get_club_detail(group_id: str, treasurer_id: str):
     """Get detailed information about a specific club for the treasurer"""
+    # DATA ACCESS CONTROL: Verify treasurer owns this group
     group = await db.groups.find_one({"id": group_id})
     if not group:
         raise HTTPException(status_code=404, detail="Club not found")
+    
+    # AUTHORIZATION CHECK: Only the treasurer of this group can view club details
+    if group.get('treasurer_user_id') != treasurer_id:
+        raise HTTPException(
+            status_code=403, 
+            detail="Access denied: You are not the treasurer of this group"
+        )
     
     # Get all members of this club
     members = await db.members.find({"group_id": group_id}).to_list(100)
@@ -951,10 +1097,22 @@ async def get_club_detail(group_id: str):
 
 @api_router.post("/treasurer/confirm-payment")
 async def confirm_payment(confirm_data: ConfirmPayment):
-    # Get contribution
+    # DATA ACCESS CONTROL: Verify treasurer owns the group for this contribution
     contribution = await db.contributions.find_one({"id": confirm_data.contribution_id})
     if not contribution:
         raise HTTPException(status_code=404, detail="Contribution not found")
+    
+    # Get the group to verify treasurer authorization
+    group = await db.groups.find_one({"id": contribution['group_id']})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    # AUTHORIZATION CHECK: Only the treasurer of this group can confirm payments
+    if group.get('treasurer_user_id') != confirm_data.treasurer_id:
+        raise HTTPException(
+            status_code=403, 
+            detail="Access denied: You are not the treasurer of this group"
+        )
     
     # Update contribution
     await db.contributions.update_one(
@@ -963,6 +1121,7 @@ async def confirm_payment(confirm_data: ConfirmPayment):
             "contribution_status": "confirmed",
             "amount_paid": contribution['amount_due'],
             "confirmation_date": datetime.utcnow(),
+            "confirmed_by_treasurer_id": confirm_data.treasurer_id,
             "notes": confirm_data.notes
         }}
     )
@@ -970,7 +1129,6 @@ async def confirm_payment(confirm_data: ConfirmPayment):
     # Get member and user info
     member = await db.members.find_one({"id": contribution['member_id']})
     user = await db.users.find_one({"id": member['user_id']})
-    group = await db.groups.find_one({"id": contribution['group_id']})
     
     # Create alert for member
     alert = Alert(
@@ -1025,6 +1183,18 @@ class InviteMemberRequest(BaseModel):
 async def invite_member(request: InviteMemberRequest):
     """Invite a new member to join a club via SMS"""
     
+    # DATA ACCESS CONTROL: Verify treasurer owns this group
+    group = await db.groups.find_one({"id": request.group_id})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    # AUTHORIZATION CHECK: Only the treasurer of this group can invite members
+    if group.get('treasurer_user_id') != request.invited_by:
+        raise HTTPException(
+            status_code=403, 
+            detail="Access denied: You are not the treasurer of this group"
+        )
+    
     # Check if user already exists
     existing_user = await db.users.find_one({"phone_number": request.phone_number})
     if existing_user:
@@ -1077,21 +1247,39 @@ async def invite_member(request: InviteMemberRequest):
 class SendReminderRequest(BaseModel):
     member_id: str
     group_id: str
+    treasurer_id: str  # Requesting treasurer - for authorization
 
 
 @api_router.post("/treasurer/send-reminder")
 async def send_payment_reminder_endpoint(request: SendReminderRequest):
     """Send payment reminder to a member via WhatsApp"""
+    # DATA ACCESS CONTROL: Verify treasurer owns this group
+    group = await db.groups.find_one({"id": request.group_id})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    # AUTHORIZATION CHECK: Only the treasurer of this group can send reminders
+    if group.get('treasurer_user_id') != request.treasurer_id:
+        raise HTTPException(
+            status_code=403, 
+            detail="Access denied: You are not the treasurer of this group"
+        )
+    
     # Get member and user info
     member = await db.members.find_one({"id": request.member_id})
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
     
-    user = await db.users.find_one({"id": member['user_id']})
-    group = await db.groups.find_one({"id": request.group_id})
+    # Verify member belongs to this group
+    if member['group_id'] != request.group_id:
+        raise HTTPException(
+            status_code=403,
+            detail="Access denied: This member does not belong to your group"
+        )
     
-    if not user or not group:
-        raise HTTPException(status_code=404, detail="User or group not found")
+    user = await db.users.find_one({"id": member['user_id']})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
     
     # Calculate due date
     now = datetime.utcnow()

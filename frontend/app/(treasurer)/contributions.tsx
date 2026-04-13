@@ -35,9 +35,9 @@ export default function ContributionsScreen() {
 
   const fetchContributions = async () => {
     try {
-      // Using group1 as demo
+      // Using group1 as demo - pass treasurer_id for authorization
       const response = await axios.get(
-        `${API_URL}/api/treasurer/contributions/group1/month/${currentMonth}/year/${currentYear}`
+        `${API_URL}/api/treasurer/contributions/group1/month/${currentMonth}/year/${currentYear}?treasurer_id=${user?.id}`
       );
       setContributions(response.data.contributions);
       setSummary(response.data.summary);
@@ -83,6 +83,7 @@ export default function ContributionsScreen() {
       await axios.post(`${API_URL}/api/treasurer/confirm-payment`, {
         contribution_id: contributionId,
         notes: 'Payment confirmed by treasurer',
+        treasurer_id: user?.id,  // Authorization: Pass treasurer ID for access control
       });
 
       Alert.alert('Success', 'Payment confirmed! Member has been notified.');

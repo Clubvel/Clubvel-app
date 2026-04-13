@@ -96,6 +96,7 @@ export default function ClubDetailScreen() {
           contribution_id: clubData?.current_contribution.id,
           proof_image: base64Image,
           reference_number: clubData?.payment_reference.reference_code,
+          user_id: user?.id,  // Authorization: Pass user ID for access control
         });
 
         Alert.alert('Success', 'Proof of payment uploaded successfully! Your treasurer will confirm shortly.');

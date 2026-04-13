@@ -123,6 +123,8 @@ export default function ProofOfPaymentsScreen() {
         await axios.post(`${API_URL}/api/contributions/upload-proof`, {
           contribution_id: contributionId,
           proof_image: `data:image/jpeg;base64,${result.assets[0].base64}`,
+          reference_number: '',  // Will be auto-generated if needed
+          user_id: user?.id,  // Authorization: Pass user ID for access control
         });
 
         Alert.alert(
