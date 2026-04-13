@@ -399,6 +399,90 @@ async def update_profile_photo(data: ProfilePhotoUpdate):
     
     return {"message": "Profile photo updated successfully"}
 
+
+class DeleteAccountRequest(BaseModel):
+    user_id: str
+    confirmation: str = "DELETE"  # Must match to confirm
+
+
+@api_router.delete("/user/delete-account")
+async def delete_user_account(data: DeleteAccountRequest):
+    """
+    POPIA-compliant account deletion.
+    - Deletes personal information (name, contact details, login credentials)
+    - Keeps contribution/claims records but replaces member name with "Deleted Member"
+    - Logs the deletion request with timestamp for compliance records
+    """
+    user = await db.users.find_one({"id": data.user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    if data.confirmation != "DELETE":
+        raise HTTPException(status_code=400, detail="Confirmation text must be 'DELETE'")
+    
+    deletion_timestamp = datetime.utcnow()
+    user_phone = user.get("phone_number", "unknown")
+    user_name = user.get("full_name", "unknown")
+    
+    # 1. Log the deletion request for compliance records
+    deletion_log = {
+        "id": str(uuid.uuid4()),
+        "original_user_id": data.user_id,
+        "original_phone_hash": hash_password(user_phone),  # Hash for compliance, not reversible
+        "deletion_reason": "user_requested",
+        "deleted_at": deletion_timestamp,
+        "data_retained": ["contributions", "claims"],
+        "personal_data_deleted": ["full_name", "phone_number", "email", "password_hash", "profile_photo"]
+    }
+    await db.deletion_logs.insert_one(deletion_log)
+    
+    # 2. Get all memberships for this user
+    memberships = await db.members.find({"user_id": data.user_id}).to_list(100)
+    member_ids = [m["id"] for m in memberships]
+    
+    # 3. Update contribution records - replace with "Deleted Member" identifier
+    # Keep the financial records but anonymize the member reference
+    for member_id in member_ids:
+        # Update the member record to show as deleted (keep for financial history)
+        await db.members.update_one(
+            {"id": member_id},
+            {"$set": {
+                "status": "deleted",
+                "deleted_at": deletion_timestamp,
+                "anonymized_name": "Deleted Member"
+            }}
+        )
+    
+    # 4. Update claims to anonymize member name (records kept for group accounting)
+    await db.claims.update_many(
+        {"member_id": {"$in": member_ids}},
+        {"$set": {"anonymized": True}}
+    )
+    
+    # 5. Update contributions to anonymize (records kept for group accounting)  
+    await db.contributions.update_many(
+        {"member_id": {"$in": member_ids}},
+        {"$set": {"anonymized": True}}
+    )
+    
+    # 6. Delete user's personal alerts
+    await db.alerts.delete_many({"user_id": data.user_id})
+    
+    # 7. Delete trust score
+    await db.trust_scores.delete_many({"user_id": data.user_id})
+    
+    # 8. Delete the user record (personal information)
+    await db.users.delete_one({"id": data.user_id})
+    
+    logging.info(f"Account deletion completed for user {data.user_id} at {deletion_timestamp}")
+    
+    return {
+        "message": "Account successfully deleted",
+        "deleted_at": deletion_timestamp.isoformat(),
+        "note": "Financial records have been retained with anonymized references for group accounting purposes"
+    }
+
+
 @api_router.get("/member/dashboard/{user_id}")
 async def get_member_dashboard(user_id: str):
     # Get user

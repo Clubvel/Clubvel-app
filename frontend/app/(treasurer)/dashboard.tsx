@@ -6,6 +6,7 @@ import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import { useRouter } from 'expo-router';
+import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface LateMember {
   member_name: string;
@@ -50,6 +51,8 @@ export default function TreasurerDashboardScreen() {
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showDeleteModal, setShowDeleteModal] = useState(false);
+  const [deleting, setDeleting] = useState(false);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
@@ -111,6 +114,45 @@ export default function TreasurerDashboardScreen() {
         },
       ]
     );
+  };
+
+  const handleDeleteAccount = async () => {
+    setDeleting(true);
+    try {
+      await axios.delete(`${API_URL}/api/user/delete-account`, {
+        data: {
+          user_id: user?.id,
+          confirmation: 'DELETE'
+        }
+      });
+      
+      // Clear local storage
+      await AsyncStorage.clear();
+      
+      // Show success message and redirect
+      Alert.alert(
+        'Account Deleted',
+        'Your personal information has been deleted. Financial records have been anonymized for group accounting purposes.',
+        [
+          {
+            text: 'OK',
+            onPress: () => {
+              logout();
+              router.replace('/');
+            },
+          },
+        ]
+      );
+    } catch (error: any) {
+      console.error('Error deleting account:', error);
+      Alert.alert(
+        'Error',
+        error.response?.data?.detail || 'Failed to delete account. Please try again.'
+      );
+    } finally {
+      setDeleting(false);
+      setShowDeleteModal(false);
+    }
   };
 
   const navigateToSupport = () => {
@@ -357,6 +399,17 @@ export default function TreasurerDashboardScreen() {
             <Text style={styles.dropdownItemText}>Privacy Policy</Text>
           </TouchableOpacity>
           
+          <TouchableOpacity 
+            style={styles.dropdownItem} 
+            onPress={() => {
+              setShowProfileMenu(false);
+              setShowDeleteModal(true);
+            }}
+          >
+            <Ionicons name="trash-outline" size={20} color={Colors.statusLate} />
+            <Text style={[styles.dropdownItemText, { color: Colors.statusLate }]}>Delete My Account</Text>
+          </TouchableOpacity>
+          
           <View style={styles.dropdownDivider} />
           
           <TouchableOpacity style={styles.dropdownItemLogout} onPress={handleLogout}>
@@ -365,6 +418,50 @@ export default function TreasurerDashboardScreen() {
           </TouchableOpacity>
         </View>
       </TouchableOpacity>
+    </Modal>
+
+    {/* Delete Account Confirmation Modal */}
+    <Modal
+      visible={showDeleteModal}
+      transparent={true}
+      animationType="fade"
+      onRequestClose={() => setShowDeleteModal(false)}
+    >
+      <View style={styles.deleteModalOverlay}>
+        <View style={styles.deleteModalContent}>
+          <View style={styles.deleteModalIcon}>
+            <Ionicons name="warning" size={48} color={Colors.statusLate} />
+          </View>
+          
+          <Text style={styles.deleteModalTitle}>Delete Your Account?</Text>
+          
+          <Text style={styles.deleteModalText}>
+            Are you sure? This will permanently delete your personal information. Financial records required for group accounting may be retained.
+          </Text>
+          
+          <View style={styles.deleteModalButtons}>
+            <TouchableOpacity 
+              style={styles.deleteModalCancelBtn}
+              onPress={() => setShowDeleteModal(false)}
+              disabled={deleting}
+            >
+              <Text style={styles.deleteModalCancelText}>Cancel</Text>
+            </TouchableOpacity>
+            
+            <TouchableOpacity 
+              style={[styles.deleteModalDeleteBtn, deleting && styles.deleteModalBtnDisabled]}
+              onPress={handleDeleteAccount}
+              disabled={deleting}
+            >
+              {deleting ? (
+                <ActivityIndicator size="small" color={Colors.white} />
+              ) : (
+                <Text style={styles.deleteModalDeleteText}>Delete My Account</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
     </Modal>
     </View>
   );
@@ -773,5 +870,78 @@ const styles = StyleSheet.create({
   adBody: {
     fontSize: 14,
     color: Colors.textSecondary,
+  },
+  // Delete Account Modal Styles
+  deleteModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.6)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 24,
+  },
+  deleteModalContent: {
+    backgroundColor: Colors.white,
+    borderRadius: 20,
+    padding: 24,
+    width: '100%',
+    maxWidth: 340,
+    alignItems: 'center',
+  },
+  deleteModalIcon: {
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    backgroundColor: '#FEE2E2',
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 20,
+  },
+  deleteModalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: Colors.textPrimary,
+    marginBottom: 12,
+    textAlign: 'center',
+  },
+  deleteModalText: {
+    fontSize: 15,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    lineHeight: 22,
+    marginBottom: 24,
+  },
+  deleteModalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+    width: '100%',
+  },
+  deleteModalCancelBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: Colors.lightBackground,
+    alignItems: 'center',
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  deleteModalCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+  },
+  deleteModalDeleteBtn: {
+    flex: 1,
+    paddingVertical: 14,
+    borderRadius: 12,
+    backgroundColor: Colors.statusLate,
+    alignItems: 'center',
+  },
+  deleteModalDeleteText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.white,
+  },
+  deleteModalBtnDisabled: {
+    opacity: 0.6,
   },
 });
