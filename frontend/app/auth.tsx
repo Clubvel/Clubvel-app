@@ -19,9 +19,11 @@ export default function AuthScreen() {
   const [role, setRole] = useState('member');
   const [otp, setOtp] = useState('');
   const [tempPhone, setTempPhone] = useState('');
+  const [firebaseConfirmation, setFirebaseConfirmation] = useState<any>(null);
+  const [useFirebaseOTP, setUseFirebaseOTP] = useState(false);
   
   const router = useRouter();
-  const { login, register, verifyOTP } = useAuth();
+  const { login, register, verifyOTP, isFirebaseAvailable } = useAuth();
 
   const handleProceedToConsent = () => {
     if (!fullName || !phoneNumber || !password) {
@@ -44,11 +46,25 @@ export default function AuthScreen() {
       setTempPhone(phoneNumber);
       setIsConsentScreen(false);
       setIsOTPScreen(true);
-      Alert.alert(
-        '✅ Registration Successful!', 
-        'For testing, the OTP is always: 1234\n\nNo SMS will be sent - this is a demo environment.',
-        [{ text: 'OK, Got It!' }]
-      );
+      
+      // Store Firebase confirmation if available
+      if (result.confirmation) {
+        setFirebaseConfirmation(result.confirmation);
+        setUseFirebaseOTP(true);
+        Alert.alert(
+          '📱 OTP Sent!', 
+          'An SMS with your verification code has been sent to your phone number via Firebase.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        // Mock OTP fallback (for web preview)
+        setUseFirebaseOTP(false);
+        Alert.alert(
+          '✅ Registration Successful!', 
+          'For testing, the OTP is always: 1234\n\nNo SMS will be sent - this is a demo environment.',
+          [{ text: 'OK, Got It!' }]
+        );
+      }
     } catch (error: any) {
       Alert.alert('Error', error.message);
     } finally {
@@ -64,11 +80,13 @@ export default function AuthScreen() {
 
     setLoading(true);
     try {
-      await verifyOTP(tempPhone, otp);
+      // Pass Firebase confirmation if using Firebase OTP
+      await verifyOTP(tempPhone, otp, firebaseConfirmation);
       Alert.alert('Success', 'Phone number verified! You can now log in.');
       setIsOTPScreen(false);
       setIsLogin(true);
       setPhoneNumber(tempPhone);
+      setFirebaseConfirmation(null);
     } catch (error: any) {
       Alert.alert('Error', error.message);
     } finally {

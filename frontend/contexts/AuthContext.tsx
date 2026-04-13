@@ -1,10 +1,20 @@
 import React, { createContext, useState, useContext, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
-import { AppState, AppStateStatus, Alert } from 'react-native';
+import { AppState, AppStateStatus, Alert, Platform } from 'react-native';
 
 // Session timeout in milliseconds (30 minutes)
 const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+
+// Firebase Phone Auth imports - only for native platforms
+let firebaseAuth: any = null;
+if (Platform.OS !== 'web') {
+  try {
+    firebaseAuth = require('@react-native-firebase/auth').default;
+  } catch (e) {
+    console.log('[Auth] Firebase Auth not available, using mock OTP');
+  }
+}
 
 interface User {
   id: string;
@@ -19,11 +29,13 @@ interface AuthContextType {
   token: string | null;
   loading: boolean;
   login: (phone: string, password: string) => Promise<void>;
-  register: (fullName: string, phone: string, password: string, role: string) => Promise<{ userId: string; otp: string }>;
-  verifyOTP: (phone: string, otp: string) => Promise<void>;
+  register: (fullName: string, phone: string, password: string, role: string) => Promise<{ userId: string; otp: string; confirmation?: any }>;
+  verifyOTP: (phone: string, otp: string, confirmation?: any) => Promise<void>;
+  sendFirebaseOTP: (phone: string) => Promise<any>;
   logout: () => Promise<void>;
   updateProfilePhoto: (photoBase64: string) => Promise<void>;
   refreshSession: () => void;
+  isFirebaseAvailable: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -37,6 +49,56 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+  
+  // Check if Firebase Auth is available (native platforms only)
+  const isFirebaseAvailable = Platform.OS !== 'web' && firebaseAuth !== null;
+
+  /**
+   * Format South African phone number to international format
+   */
+  const formatSAPhoneNumber = (phone: string): string => {
+    let cleaned = phone.replace(/[\s\-\(\)]/g, '');
+    if (cleaned.startsWith('0')) {
+      cleaned = '+27' + cleaned.substring(1);
+    }
+    if (!cleaned.startsWith('+')) {
+      cleaned = '+27' + cleaned;
+    }
+    return cleaned;
+  };
+
+  /**
+   * Send OTP via Firebase Phone Auth (native) or mock (web)
+   */
+  const sendFirebaseOTP = async (phone: string): Promise<any> => {
+    if (isFirebaseAvailable) {
+      try {
+        const formattedNumber = formatSAPhoneNumber(phone);
+        console.log('[Firebase] Sending OTP to:', formattedNumber);
+        const confirmation = await firebaseAuth().signInWithPhoneNumber(formattedNumber);
+        console.log('[Firebase] OTP sent successfully');
+        return { success: true, confirmation, useFirebase: true };
+      } catch (error: any) {
+        console.error('[Firebase] Error sending OTP:', error);
+        if (error.code === 'auth/invalid-phone-number') {
+          throw new Error('Invalid phone number format');
+        } else if (error.code === 'auth/too-many-requests') {
+          throw new Error('Too many OTP requests. Please try again later.');
+        }
+        throw new Error(error.message || 'Failed to send OTP via Firebase');
+      }
+    } else {
+      // Web fallback - use backend mock OTP
+      console.log('[Auth] Firebase not available, using mock OTP');
+      const response = await axios.post(`${API_URL}/api/auth/send-otp`, { phone_number: phone });
+      return { 
+        success: true, 
+        useFirebase: false, 
+        mockOtp: response.data.mock_otp,
+        message: response.data.message 
+      };
+    }
+  };
 
   // Debug: Log API URL on mount
   useEffect(() => {
@@ -129,6 +191,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const register = async (fullName: string, phone: string, password: string, role: string) => {
     try {
+      // Register user in backend
       const response = await axios.post(`${API_URL}/api/auth/register`, {
         full_name: fullName,
         phone_number: phone,
@@ -136,23 +199,41 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role
       });
       
+      // Send OTP via Firebase (native) or mock (web)
+      const otpResult = await sendFirebaseOTP(phone);
+      
       return {
         userId: response.data.user_id,
-        otp: response.data.mock_otp
+        otp: otpResult.mockOtp || response.data.mock_otp, // For web fallback display
+        confirmation: otpResult.confirmation, // Firebase confirmation object
+        useFirebase: otpResult.useFirebase
       };
     } catch (error: any) {
       throw new Error(error.response?.data?.detail || 'Registration failed');
     }
   };
 
-  const verifyOTP = async (phone: string, otp: string) => {
+  const verifyOTP = async (phone: string, otp: string, confirmation?: any) => {
     try {
+      // If Firebase confirmation exists, verify with Firebase
+      if (confirmation && isFirebaseAvailable) {
+        console.log('[Firebase] Verifying OTP...');
+        await confirmation.confirm(otp);
+        console.log('[Firebase] OTP verified successfully');
+      }
+      
+      // Also verify with backend (updates user status)
       await axios.post(`${API_URL}/api/auth/verify-otp`, {
         phone_number: phone,
         otp
       });
     } catch (error: any) {
-      throw new Error(error.response?.data?.detail || 'OTP verification failed');
+      if (error.code === 'auth/invalid-verification-code') {
+        throw new Error('Invalid OTP code. Please try again.');
+      } else if (error.code === 'auth/code-expired') {
+        throw new Error('OTP code has expired. Please request a new one.');
+      }
+      throw new Error(error.response?.data?.detail || error.message || 'OTP verification failed');
     }
   };
 
@@ -218,7 +299,19 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, verifyOTP, logout, updateProfilePhoto, refreshSession }}>
+    <AuthContext.Provider value={{ 
+      user, 
+      token, 
+      loading, 
+      login, 
+      register, 
+      verifyOTP, 
+      sendFirebaseOTP,
+      logout, 
+      updateProfilePhoto, 
+      refreshSession,
+      isFirebaseAvailable
+    }}>
       {children}
     </AuthContext.Provider>
   );

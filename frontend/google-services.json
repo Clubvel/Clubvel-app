@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "274285542095",
+    "project_id": "clubvel-156d7",
+    "storage_bucket": "clubvel-156d7.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:274285542095:android:46ffcee6793c94d79595ba",
+        "android_client_info": {
+          "package_name": "com.clubvel.clubvel"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyA2rPGOOVp-s_nkzj99CD8aEZINCn7UxSI"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

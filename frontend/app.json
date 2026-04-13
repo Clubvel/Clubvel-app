@@ -10,7 +10,8 @@
     "newArchEnabled": true,
     "ios": {
       "supportsTablet": true,
-      "bundleIdentifier": "com.clubvel.app",
+      "bundleIdentifier": "com.clubvel.clubvel",
+      "googleServicesFile": "./GoogleService-Info.plist",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Upload payment proof from your gallery",
         "NSCameraUsageDescription": "Take photos of payment receipts",
@@ -18,7 +19,8 @@
       }
     },
     "android": {
-      "package": "com.clubvel.app",
+      "package": "com.clubvel.clubvel",
+      "googleServicesFile": "./google-services.json",
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#0E2318"
@@ -30,7 +32,8 @@
         "android.permission.READ_MEDIA_IMAGES",
         "android.permission.CAMERA",
         "android.permission.INTERNET",
-        "android.permission.ACCESS_NETWORK_STATE"
+        "android.permission.ACCESS_NETWORK_STATE",
+        "android.permission.RECEIVE_SMS"
       ]
     },
     "web": {
@@ -49,7 +52,10 @@
           "backgroundColor": "#0E2318"
         }
       ],
-      "expo-secure-store"
+      "expo-secure-store",
+      "@react-native-firebase/app",
+      "@react-native-firebase/auth",
+      "expo-build-properties"
     ],
     "experiments": {
       "typedRoutes": true
