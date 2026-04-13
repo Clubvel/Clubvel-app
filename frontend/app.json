@@ -3,24 +3,34 @@
     "name": "Clubvel",
     "slug": "clubvel",
     "version": "1.0.0",
+    "runtimeVersion": {
+      "policy": "appVersion"
+    },
     "orientation": "portrait",
     "icon": "./assets/images/icon.png",
     "scheme": "clubvel",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
+    "owner": "clubvel",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.clubvel.clubvel",
       "googleServicesFile": "./GoogleService-Info.plist",
+      "buildNumber": "1",
       "infoPlist": {
         "NSPhotoLibraryUsageDescription": "Upload payment proof from your gallery",
         "NSCameraUsageDescription": "Take photos of payment receipts",
-        "NSUserTrackingUsageDescription": "This allows Clubvel to show you relevant ads"
+        "NSUserTrackingUsageDescription": "This allows Clubvel to show you relevant ads",
+        "CFBundleAllowMixedLocalizations": true
+      },
+      "config": {
+        "usesNonExemptEncryption": false
       }
     },
     "android": {
       "package": "com.clubvel.clubvel",
       "googleServicesFile": "./google-services.json",
+      "versionCode": 1,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#0E2318"
@@ -55,17 +65,35 @@
       "expo-secure-store",
       "@react-native-firebase/app",
       "@react-native-firebase/auth",
-      "expo-build-properties"
+      [
+        "expo-build-properties",
+        {
+          "android": {
+            "compileSdkVersion": 34,
+            "targetSdkVersion": 34,
+            "minSdkVersion": 24
+          },
+          "ios": {
+            "deploymentTarget": "15.1"
+          }
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
     },
     "extra": {
+      "eas": {
+        "projectId": "your-eas-project-id"
+      },
       "admob": {
         "androidAppId": "ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY",
         "iosAppId": "ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY",
         "note": "Replace with your actual AdMob App IDs when ready for production"
       }
+    },
+    "updates": {
+      "url": "https://u.expo.dev/your-eas-project-id"
     }
   }
 }
