@@ -1,6 +1,10 @@
-import React, { createContext, useState, useContext, useEffect } from 'react';
+import React, { createContext, useState, useContext, useEffect, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import axios from 'axios';
+import { AppState, AppStateStatus, Alert } from 'react-native';
+
+// Session timeout in milliseconds (30 minutes)
+const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
 
 interface User {
   id: string;
@@ -19,6 +23,7 @@ interface AuthContextType {
   verifyOTP: (phone: string, otp: string) => Promise<void>;
   logout: () => Promise<void>;
   updateProfilePhoto: (photoBase64: string) => Promise<void>;
+  refreshSession: () => void;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -27,6 +32,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [user, setUser] = useState<User | null>(null);
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const lastActivityRef = useRef<number>(Date.now());
+  const sessionCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
@@ -38,6 +46,65 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       console.error('❌ EXPO_PUBLIC_BACKEND_URL is not defined!');
     }
   }, []);
+
+  // Session timeout management
+  const refreshSession = () => {
+    lastActivityRef.current = Date.now();
+    // Store last activity time for persistence across app restarts
+    AsyncStorage.setItem('last_activity', Date.now().toString());
+  };
+
+  const checkSessionTimeout = async () => {
+    if (!user || !token) return;
+
+    const storedLastActivity = await AsyncStorage.getItem('last_activity');
+    const lastActivity = storedLastActivity ? parseInt(storedLastActivity, 10) : lastActivityRef.current;
+    const timeSinceLastActivity = Date.now() - lastActivity;
+
+    if (timeSinceLastActivity > SESSION_TIMEOUT_MS) {
+      console.log('⏰ Session expired due to inactivity');
+      Alert.alert(
+        'Session Expired',
+        'Your session has expired due to inactivity. Please log in again.',
+        [{ text: 'OK', onPress: () => logout() }]
+      );
+    }
+  };
+
+  // Monitor app state changes
+  useEffect(() => {
+    const subscription = AppState.addEventListener('change', (nextAppState: AppStateStatus) => {
+      if (appStateRef.current.match(/inactive|background/) && nextAppState === 'active') {
+        // App has come to the foreground - check session
+        checkSessionTimeout();
+      }
+      appStateRef.current = nextAppState;
+    });
+
+    return () => {
+      subscription.remove();
+    };
+  }, [user, token]);
+
+  // Start session check interval when logged in
+  useEffect(() => {
+    if (user && token) {
+      // Check session every minute
+      sessionCheckIntervalRef.current = setInterval(checkSessionTimeout, 60 * 1000);
+      refreshSession(); // Initialize last activity
+    } else {
+      if (sessionCheckIntervalRef.current) {
+        clearInterval(sessionCheckIntervalRef.current);
+        sessionCheckIntervalRef.current = null;
+      }
+    }
+
+    return () => {
+      if (sessionCheckIntervalRef.current) {
+        clearInterval(sessionCheckIntervalRef.current);
+      }
+    };
+  }, [user, token]);
 
   useEffect(() => {
     // Load stored auth data on mount
@@ -113,6 +180,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       setToken(access_token);
       setUser(userData);
       
+      // Initialize session activity tracking
+      refreshSession();
+      
       console.log('✅ Login successful, user:', userData.full_name);
     } catch (error: any) {
       console.error('❌ Login error:', error);
@@ -124,6 +194,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const logout = async () => {
     await AsyncStorage.removeItem('auth_token');
     await AsyncStorage.removeItem('user_data');
+    await AsyncStorage.removeItem('last_activity');  // Clear session tracking
     setToken(null);
     setUser(null);
   };
@@ -147,7 +218,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   return (
-    <AuthContext.Provider value={{ user, token, loading, login, register, verifyOTP, logout, updateProfilePhoto }}>
+    <AuthContext.Provider value={{ user, token, loading, login, register, verifyOTP, logout, updateProfilePhoto, refreshSession }}>
       {children}
     </AuthContext.Provider>
   );

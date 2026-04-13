@@ -15,6 +15,10 @@ from datetime import datetime, timedelta
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 import random
+import base64
+from cryptography.fernet import Fernet
+from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 # Import notification service
 from services.notification_service import (
@@ -45,7 +49,45 @@ pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 # JWT settings
 SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'clubvel-secret-key-change-in-production')
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 43200  # 30 days
+ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Session expires after 30 minutes of inactivity
+
+# Field-level encryption key (for sensitive data at rest)
+ENCRYPTION_KEY = os.environ.get('FIELD_ENCRYPTION_KEY', 'clubvel-encryption-key-32bytes!')
+
+def get_fernet_key():
+    """Generate a Fernet-compatible key from the encryption key"""
+    kdf = PBKDF2HMAC(
+        algorithm=hashes.SHA256(),
+        length=32,
+        salt=b'clubvel_salt_v1',  # Fixed salt for consistent encryption
+        iterations=100000,
+    )
+    key = base64.urlsafe_b64encode(kdf.derive(ENCRYPTION_KEY.encode()))
+    return Fernet(key)
+
+fernet = get_fernet_key()
+
+def encrypt_sensitive_field(value: str) -> str:
+    """Encrypt sensitive data for storage at rest"""
+    if not value:
+        return value
+    return fernet.encrypt(value.encode()).decode()
+
+def decrypt_sensitive_field(encrypted_value: str) -> str:
+    """Decrypt sensitive data when reading"""
+    if not encrypted_value:
+        return encrypted_value
+    try:
+        return fernet.decrypt(encrypted_value.encode()).decode()
+    except Exception:
+        # If decryption fails, return original (might be unencrypted legacy data)
+        return encrypted_value
+
+def mask_sensitive_field(value: str, show_last: int = 4) -> str:
+    """Mask sensitive data for display (e.g., ****1234)"""
+    if not value or len(value) <= show_last:
+        return '*' * len(value) if value else ''
+    return '*' * (len(value) - show_last) + value[-show_last:]
 
 # Create the main app
 app = FastAPI(title="Clubvel API")
@@ -303,12 +345,33 @@ async def verify_member_access(user_id: str, member_id: str) -> dict:
         detail="Access denied: You cannot access this member's data"
     )
 
-def create_access_token(data: dict):
+def create_access_token(data: dict, expires_delta: timedelta = None):
+    """Create JWT access token with session expiration"""
     to_encode = data.copy()
-    expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
-    to_encode.update({"exp": expire})
+    if expires_delta:
+        expire = datetime.utcnow() + expires_delta
+    else:
+        expire = datetime.utcnow() + timedelta(minutes=ACCESS_TOKEN_EXPIRE_MINUTES)
+    
+    # Include issued time for session tracking
+    to_encode.update({
+        "exp": expire,
+        "iat": datetime.utcnow(),  # Issued at time
+        "session_id": str(uuid.uuid4())  # Unique session identifier
+    })
     encoded_jwt = jwt.encode(to_encode, SECRET_KEY, algorithm=ALGORITHM)
     return encoded_jwt
+
+def verify_token(token: str) -> dict:
+    """Verify JWT token and check expiration"""
+    try:
+        payload = jwt.decode(token, SECRET_KEY, algorithms=[ALGORITHM])
+        return payload
+    except JWTError:
+        raise HTTPException(
+            status_code=401,
+            detail="Session expired or invalid. Please log in again."
+        )
 
 def generate_reference_code(prefix: str, member_position: int) -> str:
     """Generate unique reference code for member"""
@@ -753,7 +816,7 @@ async def get_member_club_details(group_id: str, user_id: str):
             "monthly_contribution": group['monthly_contribution'],
             "payment_due_date": group['payment_due_date'],
             "bank_name": group['bank_name'],
-            "bank_account_number": group['bank_account_number'],
+            "bank_account_number": decrypt_sensitive_field(group['bank_account_number']),  # Decrypted for display
             "bank_account_holder": group['bank_account_holder']
         },
         "current_contribution": {
@@ -767,7 +830,7 @@ async def get_member_club_details(group_id: str, user_id: str):
         "payment_reference": {
             "reference_code": membership['unique_reference_code'],
             "bank_name": group['bank_name'],
-            "account_number": group['bank_account_number'],
+            "account_number": decrypt_sensitive_field(group['bank_account_number']),  # Decrypted for display
             "amount": group['monthly_contribution']
         },
         "payment_history": [
@@ -1088,7 +1151,7 @@ async def get_club_detail(group_id: str, treasurer_id: str):
         "monthly_contribution": group['monthly_contribution'],
         "due_date": group['payment_due_date'],
         "bank_name": group.get('bank_name', 'N/A'),
-        "bank_account": group.get('bank_account_number', 'N/A'),
+        "bank_account": decrypt_sensitive_field(group.get('bank_account_number', 'N/A')),  # Decrypted for display
         "member_count": len(members),
         "collected": collected,
         "expected": expected,
@@ -1482,7 +1545,7 @@ async def seed_demo_data():
     trust3 = TrustScore(user_id="treasurer1", overall_score=95)
     await db.trust_scores.insert_many([trust1.dict(), trust2.dict(), trust3.dict()])
     
-    # Create demo group
+    # Create demo group (bank account numbers encrypted at rest)
     group1 = Group(
         id="group1",
         group_name="Phala tja Pele",
@@ -1490,7 +1553,7 @@ async def seed_demo_data():
         monthly_contribution=500.0,
         payment_due_date=5,
         bank_name="FNB",
-        bank_account_number="62812345678",
+        bank_account_number=encrypt_sensitive_field("62812345678"),  # Encrypted at rest
         bank_account_holder="Sipho Dlamini",
         payment_reference_prefix="SSH",
         start_date=datetime(2024, 1, 1),
@@ -1505,7 +1568,7 @@ async def seed_demo_data():
         monthly_contribution=300.0,
         payment_due_date=15,
         bank_name="Standard Bank",
-        bank_account_number="123456789",
+        bank_account_number=encrypt_sensitive_field("123456789"),  # Encrypted at rest
         bank_account_holder="Sipho Dlamini",
         payment_reference_prefix="MBS",
         start_date=datetime(2023, 6, 1),
