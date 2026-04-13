@@ -175,6 +175,11 @@ export default function TreasurerDashboardScreen() {
     router.push('/(treasurer)/about');
   };
 
+  const navigateToNotifications = () => {
+    setShowProfileMenu(false);
+    router.push('/(treasurer)/notifications');
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -392,6 +397,11 @@ export default function TreasurerDashboardScreen() {
           <TouchableOpacity style={styles.dropdownItem} onPress={navigateToAbout}>
             <Ionicons name="information-circle-outline" size={20} color={Colors.textPrimary} />
             <Text style={styles.dropdownItemText}>About Us</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.dropdownItem} onPress={navigateToNotifications}>
+            <Ionicons name="notifications-outline" size={20} color={Colors.textPrimary} />
+            <Text style={styles.dropdownItemText}>Notification Preferences</Text>
           </TouchableOpacity>
           
           <TouchableOpacity style={styles.dropdownItem} onPress={navigateToPrivacy}>

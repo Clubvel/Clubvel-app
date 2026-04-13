@@ -141,6 +141,11 @@ export default function MemberHomeScreen() {
     router.push('/(member)/privacy');
   };
 
+  const navigateToNotifications = () => {
+    setShowProfileMenu(false);
+    router.push('/(member)/notifications');
+  };
+
   if (loading) {
     return (
       <View style={styles.loadingContainer}>
@@ -288,6 +293,11 @@ export default function MemberHomeScreen() {
           }}>
             <Ionicons name="information-circle-outline" size={20} color={Colors.textPrimary} />
             <Text style={styles.dropdownItemText}>About Us</Text>
+          </TouchableOpacity>
+          
+          <TouchableOpacity style={styles.dropdownItem} onPress={navigateToNotifications}>
+            <Ionicons name="notifications-outline" size={20} color={Colors.textPrimary} />
+            <Text style={styles.dropdownItemText}>Notification Preferences</Text>
           </TouchableOpacity>
           
           <TouchableOpacity style={styles.dropdownItem} onPress={navigateToPrivacy}>

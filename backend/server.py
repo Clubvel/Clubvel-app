@@ -208,6 +208,26 @@ class TrustScore(BaseModel):
     disputes_score: int = 50
     last_calculated: datetime = Field(default_factory=datetime.utcnow)
 
+
+class NotificationPreferences(BaseModel):
+    """User notification preferences - all default to OFF for POPIA compliance"""
+    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
+    user_id: str
+    contribution_reminders: bool = False  # Default OFF - opt-in required
+    claim_updates: bool = False  # Default OFF - opt-in required
+    group_announcements: bool = False  # Default OFF - opt-in required
+    created_at: datetime = Field(default_factory=datetime.utcnow)
+    updated_at: datetime = Field(default_factory=datetime.utcnow)
+
+
+class NotificationPreferencesUpdate(BaseModel):
+    """Request model for updating notification preferences"""
+    user_id: str
+    contribution_reminders: Optional[bool] = None
+    claim_updates: Optional[bool] = None
+    group_announcements: Optional[bool] = None
+
+
 class ProofUpload(BaseModel):
     contribution_id: str
     proof_image: str  # base64
@@ -581,6 +601,108 @@ async def update_profile_photo(data: ProfilePhotoUpdate):
     )
     
     return {"message": "Profile photo updated successfully"}
+
+
+# ==================== NOTIFICATION PREFERENCES ====================
+
+@api_router.get("/user/notification-preferences/{user_id}")
+async def get_notification_preferences(user_id: str):
+    """Get user's notification preferences. Creates default (all OFF) if not exists."""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Find existing preferences
+    prefs = await db.notification_preferences.find_one({"user_id": user_id})
+    
+    if not prefs:
+        # Create default preferences (all OFF for POPIA compliance)
+        default_prefs = NotificationPreferences(user_id=user_id)
+        await db.notification_preferences.insert_one(default_prefs.dict())
+        prefs = default_prefs.dict()
+    
+    return {
+        "user_id": prefs['user_id'],
+        "contribution_reminders": prefs.get('contribution_reminders', False),
+        "claim_updates": prefs.get('claim_updates', False),
+        "group_announcements": prefs.get('group_announcements', False),
+        "updated_at": prefs.get('updated_at', datetime.utcnow()).isoformat() if isinstance(prefs.get('updated_at'), datetime) else prefs.get('updated_at')
+    }
+
+
+@api_router.put("/user/notification-preferences")
+async def update_notification_preferences(prefs_update: NotificationPreferencesUpdate):
+    """Update user's notification preferences"""
+    user = await db.users.find_one({"id": prefs_update.user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Find or create preferences
+    existing = await db.notification_preferences.find_one({"user_id": prefs_update.user_id})
+    
+    update_data = {"updated_at": datetime.utcnow()}
+    
+    if prefs_update.contribution_reminders is not None:
+        update_data["contribution_reminders"] = prefs_update.contribution_reminders
+    if prefs_update.claim_updates is not None:
+        update_data["claim_updates"] = prefs_update.claim_updates
+    if prefs_update.group_announcements is not None:
+        update_data["group_announcements"] = prefs_update.group_announcements
+    
+    if existing:
+        await db.notification_preferences.update_one(
+            {"user_id": prefs_update.user_id},
+            {"$set": update_data}
+        )
+    else:
+        # Create new with defaults, then apply updates
+        new_prefs = NotificationPreferences(user_id=prefs_update.user_id)
+        prefs_dict = new_prefs.dict()
+        prefs_dict.update(update_data)
+        await db.notification_preferences.insert_one(prefs_dict)
+    
+    # Return updated preferences
+    updated = await db.notification_preferences.find_one({"user_id": prefs_update.user_id})
+    
+    logging.info(f"Notification preferences updated for user {prefs_update.user_id}: {update_data}")
+    
+    return {
+        "message": "Notification preferences updated successfully",
+        "preferences": {
+            "contribution_reminders": updated.get('contribution_reminders', False),
+            "claim_updates": updated.get('claim_updates', False),
+            "group_announcements": updated.get('group_announcements', False)
+        }
+    }
+
+
+async def check_user_notification_preference(user_id: str, notification_type: str) -> bool:
+    """
+    Check if user has opted in for a specific notification type.
+    Returns False if no preference exists (default OFF for POPIA compliance).
+    """
+    prefs = await db.notification_preferences.find_one({"user_id": user_id})
+    if not prefs:
+        return False  # Default to OFF
+    
+    # Map notification type to preference field
+    type_mapping = {
+        "contribution_reminder": "contribution_reminders",
+        "payment_reminder": "contribution_reminders",
+        "payment_due": "contribution_reminders",
+        "payment_late": "contribution_reminders",
+        "claim_update": "claim_updates",
+        "claim_upcoming": "claim_updates",
+        "claim_paid": "claim_updates",
+        "group_announcement": "group_announcements",
+        "payment_confirmed": "contribution_reminders"
+    }
+    
+    pref_field = type_mapping.get(notification_type, None)
+    if not pref_field:
+        return False
+    
+    return prefs.get(pref_field, False)
 
 
 class DeleteAccountRequest(BaseModel):
@@ -1343,6 +1465,15 @@ async def send_payment_reminder_endpoint(request: SendReminderRequest):
     user = await db.users.find_one({"id": member['user_id']})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+    
+    # CHECK NOTIFICATION PREFERENCE - Respect user's opt-in choice
+    has_opted_in = await check_user_notification_preference(user['id'], "payment_reminder")
+    if not has_opted_in:
+        return {
+            "message": f"Notification not sent - {user['full_name']} has not opted in for contribution reminders",
+            "opted_in": False,
+            "channel": "none"
+        }
     
     # Calculate due date
     now = datetime.utcnow()
