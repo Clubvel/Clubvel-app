@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, Linking } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import { Colors } from '../constants/Colors';
@@ -8,6 +8,8 @@ import { Ionicons } from '@expo/vector-icons';
 export default function AuthScreen() {
   const [isLogin, setIsLogin] = useState(true);
   const [isOTPScreen, setIsOTPScreen] = useState(false);
+  const [isConsentScreen, setIsConsentScreen] = useState(false);
+  const [consentChecked, setConsentChecked] = useState(false);
   const [loading, setLoading] = useState(false);
   
   // Form fields
@@ -21,9 +23,18 @@ export default function AuthScreen() {
   const router = useRouter();
   const { login, register, verifyOTP } = useAuth();
 
-  const handleRegister = async () => {
+  const handleProceedToConsent = () => {
     if (!fullName || !phoneNumber || !password) {
       Alert.alert('Error', 'Please fill in all fields');
+      return;
+    }
+    // Show consent screen before registration
+    setIsConsentScreen(true);
+  };
+
+  const handleRegister = async () => {
+    if (!consentChecked) {
+      Alert.alert('Consent Required', 'You must agree to the Privacy Policy to create an account.');
       return;
     }
 
@@ -31,6 +42,7 @@ export default function AuthScreen() {
     try {
       const result = await register(fullName, phoneNumber, password, role);
       setTempPhone(phoneNumber);
+      setIsConsentScreen(false);
       setIsOTPScreen(true);
       Alert.alert(
         '✅ Registration Successful!', 
@@ -161,6 +173,120 @@ export default function AuthScreen() {
     );
   }
 
+  // POPIA Consent Screen
+  if (isConsentScreen) {
+    return (
+      <KeyboardAvoidingView
+        style={styles.container}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+      >
+        <ScrollView contentContainerStyle={styles.scrollContent}>
+          <View style={styles.header}>
+            <Text style={styles.logo}>Clubvel</Text>
+            <Text style={styles.headerSubtitle}>Privacy & Consent</Text>
+          </View>
+
+          <View style={styles.form}>
+            {/* Back Button */}
+            <TouchableOpacity 
+              style={styles.backButton} 
+              onPress={() => {
+                setIsConsentScreen(false);
+                setConsentChecked(false);
+              }}
+            >
+              <Ionicons name="arrow-back" size={20} color={Colors.mediumGreen} />
+              <Text style={styles.backButtonText}>Back to Sign Up</Text>
+            </TouchableOpacity>
+
+            {/* POPIA Notice */}
+            <View style={styles.consentCard}>
+              <View style={styles.consentIconContainer}>
+                <Ionicons name="shield-checkmark" size={48} color={Colors.mediumGreen} />
+              </View>
+              
+              <Text style={styles.consentTitle}>Your Privacy Matters</Text>
+              
+              <Text style={styles.consentNotice}>
+                Clubvel collects and processes the following personal information to manage your Stokvel group:
+              </Text>
+              
+              <View style={styles.consentList}>
+                <View style={styles.consentListItem}>
+                  <Ionicons name="person-outline" size={18} color={Colors.textSecondary} />
+                  <Text style={styles.consentListText}>Your name and contact details</Text>
+                </View>
+                <View style={styles.consentListItem}>
+                  <Ionicons name="cash-outline" size={18} color={Colors.textSecondary} />
+                  <Text style={styles.consentListText}>Financial contribution records</Text>
+                </View>
+                <View style={styles.consentListItem}>
+                  <Ionicons name="people-outline" size={18} color={Colors.textSecondary} />
+                  <Text style={styles.consentListText}>Group membership information</Text>
+                </View>
+                <View style={styles.consentListItem}>
+                  <Ionicons name="image-outline" size={18} color={Colors.textSecondary} />
+                  <Text style={styles.consentListText}>Payment proof images you upload</Text>
+                </View>
+              </View>
+
+              <Text style={styles.consentNotice}>
+                This information is used solely for Stokvel group management and is protected in accordance with the Protection of Personal Information Act (POPIA).
+              </Text>
+            </View>
+
+            {/* Consent Checkbox */}
+            <TouchableOpacity 
+              style={styles.consentCheckboxContainer}
+              onPress={() => setConsentChecked(!consentChecked)}
+              activeOpacity={0.7}
+            >
+              <View style={[styles.checkbox, consentChecked && styles.checkboxChecked]}>
+                {consentChecked && (
+                  <Ionicons name="checkmark" size={18} color={Colors.white} />
+                )}
+              </View>
+              <Text style={styles.consentCheckboxText}>
+                I have read and agree to the{' '}
+                <Text 
+                  style={styles.privacyLink}
+                  onPress={() => {
+                    // Navigate to privacy policy
+                    router.push('/(member)/privacy');
+                  }}
+                >
+                  Privacy Policy
+                </Text>
+                {' '}and consent to my personal and financial information being processed for Stokvel group management purposes.
+              </Text>
+            </TouchableOpacity>
+
+            {/* Continue Button */}
+            <TouchableOpacity
+              style={[
+                styles.button, 
+                (!consentChecked || loading) && styles.buttonDisabled
+              ]}
+              onPress={handleRegister}
+              disabled={!consentChecked || loading}
+            >
+              <Text style={styles.buttonText}>
+                {loading ? 'Creating Account...' : 'Continue'}
+              </Text>
+            </TouchableOpacity>
+
+            {!consentChecked && (
+              <Text style={styles.consentHint}>
+                <Ionicons name="information-circle-outline" size={14} color={Colors.textMuted} />
+                {' '}You must agree to the Privacy Policy to create an account
+              </Text>
+            )}
+          </View>
+        </ScrollView>
+      </KeyboardAvoidingView>
+    );
+  }
+
   return (
     <KeyboardAvoidingView
       style={styles.container}
@@ -241,7 +367,7 @@ export default function AuthScreen() {
 
               <TouchableOpacity
                 style={[styles.button, loading && styles.buttonDisabled]}
-                onPress={handleRegister}
+                onPress={handleProceedToConsent}
                 disabled={loading}
               >
                 <Text style={styles.buttonText}>
@@ -467,5 +593,97 @@ const styles = StyleSheet.create({
     fontSize: 11,
     color: Colors.textSecondary,
     lineHeight: 16,
+  },
+  // POPIA Consent Screen Styles
+  backButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 20,
+    gap: 8,
+  },
+  backButtonText: {
+    fontSize: 16,
+    color: Colors.mediumGreen,
+    fontWeight: '500',
+  },
+  consentCard: {
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    padding: 24,
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  consentIconContainer: {
+    alignItems: 'center',
+    marginBottom: 16,
+  },
+  consentTitle: {
+    fontSize: 22,
+    fontWeight: 'bold',
+    color: Colors.textPrimary,
+    textAlign: 'center',
+    marginBottom: 16,
+  },
+  consentNotice: {
+    fontSize: 15,
+    color: Colors.textSecondary,
+    lineHeight: 22,
+    marginBottom: 16,
+  },
+  consentList: {
+    backgroundColor: Colors.lightBackground,
+    borderRadius: 12,
+    padding: 16,
+    marginBottom: 16,
+    gap: 12,
+  },
+  consentListItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  consentListText: {
+    fontSize: 14,
+    color: Colors.textPrimary,
+    flex: 1,
+  },
+  consentCheckboxContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    marginBottom: 24,
+    gap: 12,
+  },
+  checkbox: {
+    width: 24,
+    height: 24,
+    borderRadius: 6,
+    borderWidth: 2,
+    borderColor: Colors.cardBorder,
+    backgroundColor: Colors.white,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginTop: 2,
+  },
+  checkboxChecked: {
+    backgroundColor: Colors.mediumGreen,
+    borderColor: Colors.mediumGreen,
+  },
+  consentCheckboxText: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    flex: 1,
+    lineHeight: 20,
+  },
+  privacyLink: {
+    color: Colors.mediumGreen,
+    fontWeight: '600',
+    textDecorationLine: 'underline',
+  },
+  consentHint: {
+    fontSize: 13,
+    color: Colors.textMuted,
+    textAlign: 'center',
+    marginTop: 8,
   },
 });
