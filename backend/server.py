@@ -31,6 +31,8 @@ from services.notification_service import (
 from services.bank_feed_service import (
     bank_feed_service, get_bank_feed_status
 )
+import ssl
+import certifi
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -38,10 +40,24 @@ load_dotenv(ROOT_DIR / '.env')
 # Rate limiter setup
 limiter = Limiter(key_func=get_remote_address)
 
-# MongoDB connection
-mongo_url = os.environ['MONGO_URL']
-client = AsyncIOMotorClient(mongo_url)
-db = client[os.environ['DB_NAME']]
+# MongoDB connection with SSL certificate handling
+mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
+
+# Configure SSL for MongoDB Atlas connections
+if 'mongodb+srv' in mongo_url or 'mongodb.net' in mongo_url:
+    # Use certifi for SSL certificates
+    client = AsyncIOMotorClient(
+        mongo_url,
+        tls=True,
+        tlsCAFile=certifi.where(),
+        serverSelectionTimeoutMS=30000,
+        connectTimeoutMS=30000
+    )
+else:
+    # Local MongoDB - no SSL needed
+    client = AsyncIOMotorClient(mongo_url)
+
+db = client[os.environ.get('DB_NAME', 'clubvel')]
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
