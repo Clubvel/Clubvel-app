@@ -11,7 +11,7 @@
     "scheme": "clubvel",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
-    "owner": "clubvel",
+    "owner": "modjadji",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.clubvel.clubvel",
@@ -84,7 +84,7 @@
     },
     "extra": {
       "eas": {
-        "projectId": "your-eas-project-id"
+        "projectId": "d5dc39d8-0b5e-4fbb-8b92-3e37e0863234"
       },
       "admob": {
         "androidAppId": "ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY",
@@ -93,7 +93,7 @@
       }
     },
     "updates": {
-      "url": "https://u.expo.dev/your-eas-project-id"
+      "url": "https://u.expo.dev/d5dc39d8-0b5e-4fbb-8b92-3e37e0863234"
     }
   }
 }
