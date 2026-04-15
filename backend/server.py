@@ -1,4 +1,5 @@
 from fastapi import FastAPI, APIRouter, HTTPException, status as http_status, Request
+from fastapi.responses import HTMLResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -1848,6 +1849,158 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
+
+# ==================== PUBLIC PAGES (HTML) ====================
+
+@app.get("/privacy-policy", response_class=HTMLResponse)
+async def privacy_policy():
+    """Public privacy policy page for Google Play Store compliance"""
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Privacy Policy - Clubvel</title>
+        <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; color: #333; }
+            h1 { color: #0E2318; }
+            h2 { color: #1A4D2E; margin-top: 30px; }
+            .updated { color: #666; font-size: 14px; }
+        </style>
+    </head>
+    <body>
+        <h1>Clubvel Privacy Policy</h1>
+        <p class="updated">Last updated: April 2025</p>
+        
+        <h2>1. Introduction</h2>
+        <p>Clubvel ("we", "our", or "us") is committed to protecting your personal information in compliance with the Protection of Personal Information Act (POPIA) of South Africa. This policy explains how we collect, use, and protect your data.</p>
+        
+        <h2>2. Information We Collect</h2>
+        <p>We collect the following information to provide our stokvel management services:</p>
+        <ul>
+            <li><strong>Account Information:</strong> Full name, phone number, email address</li>
+            <li><strong>Financial Information:</strong> Bank account details (encrypted), payment records, contribution history</li>
+            <li><strong>Device Information:</strong> Camera access (for uploading payment proofs)</li>
+            <li><strong>Usage Data:</strong> App interaction data to improve our services</li>
+        </ul>
+        
+        <h2>3. How We Use Your Information</h2>
+        <ul>
+            <li>To manage your stokvel group memberships and contributions</li>
+            <li>To process and verify payments</li>
+            <li>To send notifications about payment reminders and group activities</li>
+            <li>To generate financial reports for your stokvel groups</li>
+        </ul>
+        
+        <h2>4. Data Security</h2>
+        <p>We implement industry-standard security measures including:</p>
+        <ul>
+            <li>Encryption of sensitive data (bank account numbers)</li>
+            <li>Secure HTTPS connections</li>
+            <li>Password hashing using bcrypt</li>
+            <li>Session timeouts for inactive users</li>
+        </ul>
+        
+        <h2>5. Data Sharing</h2>
+        <p>We do not sell your personal information. We only share data with:</p>
+        <ul>
+            <li>Your stokvel group treasurer (contribution and payment data)</li>
+            <li>Service providers necessary to operate the app (hosting, notifications)</li>
+            <li>Legal authorities when required by South African law</li>
+        </ul>
+        
+        <h2>6. Your Rights (POPIA)</h2>
+        <p>Under POPIA, you have the right to:</p>
+        <ul>
+            <li>Access your personal information</li>
+            <li>Correct inaccurate information</li>
+            <li>Request deletion of your account and data</li>
+            <li>Object to processing of your information</li>
+        </ul>
+        
+        <h2>7. Data Retention</h2>
+        <p>We retain your data for as long as your account is active. Financial records may be retained for up to 5 years for legal compliance. Upon account deletion, personal data is anonymized.</p>
+        
+        <h2>8. Contact Us</h2>
+        <p>For privacy inquiries or to exercise your rights, contact us at:</p>
+        <p>Email: privacy@clubvel.co.za</p>
+        
+        <h2>9. Changes to This Policy</h2>
+        <p>We may update this policy periodically. Significant changes will be communicated through the app.</p>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
+@app.get("/delete-account", response_class=HTMLResponse)
+async def delete_account_info():
+    """Public page explaining how to delete account - required by Google Play"""
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Delete Your Account - Clubvel</title>
+        <style>
+            body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 800px; margin: 0 auto; padding: 20px; line-height: 1.6; color: #333; }
+            h1 { color: #0E2318; }
+            h2 { color: #1A4D2E; margin-top: 30px; }
+            .steps { background: #f5f5f5; padding: 20px; border-radius: 8px; margin: 20px 0; }
+            .step { margin-bottom: 15px; }
+            .step-number { background: #1A4D2E; color: white; padding: 5px 12px; border-radius: 50%; margin-right: 10px; }
+            .warning { background: #fff3cd; border: 1px solid #ffc107; padding: 15px; border-radius: 8px; margin: 20px 0; }
+        </style>
+    </head>
+    <body>
+        <h1>Delete Your Clubvel Account</h1>
+        <p>We're sorry to see you go. This page explains how to delete your Clubvel account and what happens to your data.</p>
+        
+        <h2>How to Delete Your Account</h2>
+        <div class="steps">
+            <div class="step"><span class="step-number">1</span> Open the Clubvel app on your phone</div>
+            <div class="step"><span class="step-number">2</span> Go to <strong>Settings</strong> (gear icon in the bottom menu)</div>
+            <div class="step"><span class="step-number">3</span> Scroll down and tap <strong>"Delete My Account"</strong></div>
+            <div class="step"><span class="step-number">4</span> Read the confirmation message</div>
+            <div class="step"><span class="step-number">5</span> Type "DELETE" to confirm</div>
+            <div class="step"><span class="step-number">6</span> Tap <strong>"Delete Account"</strong> button</div>
+        </div>
+        
+        <div class="warning">
+            <strong>⚠️ Important:</strong> Account deletion is permanent and cannot be undone.
+        </div>
+        
+        <h2>What Gets Deleted</h2>
+        <ul>
+            <li>Your personal profile information (name, phone number, email)</li>
+            <li>Your profile photo</li>
+            <li>Your login credentials</li>
+            <li>Your notification preferences</li>
+        </ul>
+        
+        <h2>What Gets Retained</h2>
+        <p>For legal and financial record-keeping purposes (POPIA compliance), we retain:</p>
+        <ul>
+            <li>Anonymized contribution records (your name is replaced with "Deleted User")</li>
+            <li>Payment history (anonymized)</li>
+            <li>Financial transaction records for up to 5 years</li>
+        </ul>
+        <p>This data cannot be used to identify you after deletion.</p>
+        
+        <h2>Processing Time</h2>
+        <p>Account deletion is processed <strong>immediately</strong> upon confirmation.</p>
+        
+        <h2>Need Help?</h2>
+        <p>If you're unable to delete your account through the app, contact us:</p>
+        <p>Email: support@clubvel.co.za</p>
+        
+        <h2>Alternative: Contact Support</h2>
+        <p>You can also request account deletion by emailing us at <strong>support@clubvel.co.za</strong> with the subject line "Account Deletion Request" and your registered phone number.</p>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
 
 @app.on_event("shutdown")
 async def shutdown_db_client():
