@@ -30,7 +30,7 @@
     "android": {
       "package": "com.clubvel.clubvel",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 3,
+      "versionCode": 4,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
         "backgroundColor": "#0E2318"
