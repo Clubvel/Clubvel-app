@@ -1,10 +1,13 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TouchableOpacity, Dimensions } from 'react-native';
+import { View, Text, StyleSheet, TouchableOpacity, Dimensions, Platform, Linking, ScrollView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/Colors';
 
 const { width } = Dimensions.get('window');
+
+// APK Download URL
+const APK_DOWNLOAD_URL = 'https://customer-assets.emergentagent.com/job_money-rotation/artifacts/58t4dio9_application-83af7be3-b704-4953-8d51-09f1da1b0e11.apk';
 
 const slides = [
   {
@@ -27,21 +30,114 @@ const slides = [
 export default function OnboardingScreen() {
   const [currentIndex, setCurrentIndex] = useState(0);
   const router = useRouter();
+  const isLastSlide = currentIndex === slides.length - 1;
 
   const handleNext = () => {
     if (currentIndex < slides.length - 1) {
       setCurrentIndex(currentIndex + 1);
-    } else {
-      router.replace('/auth');
     }
   };
 
   const handleSkip = () => {
+    setCurrentIndex(slides.length - 1);
+  };
+
+  const handleAndroidDownload = async () => {
+    try {
+      await Linking.openURL(APK_DOWNLOAD_URL);
+    } catch (error) {
+      console.error('Failed to open download URL:', error);
+    }
+  };
+
+  const handleiPhoneStart = () => {
     router.replace('/auth');
   };
 
   const slide = slides[currentIndex];
 
+  // Render Get Started section on last slide
+  if (isLastSlide) {
+    return (
+      <ScrollView style={styles.container} contentContainerStyle={styles.scrollContent}>
+        <View style={styles.getStartedContent}>
+          {/* Logo */}
+          <View style={styles.logoBox}>
+            <Text style={styles.logoText}>CV</Text>
+          </View>
+          
+          <Text style={styles.getStartedTitle}>Get Started</Text>
+          <Text style={styles.getStartedSubtitle}>
+            Choose how you want to use Clubvel
+          </Text>
+
+          {/* Android Button */}
+          <TouchableOpacity 
+            style={styles.androidButton} 
+            onPress={handleAndroidDownload}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="logo-android" size={24} color={Colors.darkGreen} />
+            <Text style={styles.androidButtonText}>Download for Android</Text>
+          </TouchableOpacity>
+
+          {/* iPhone Button */}
+          <TouchableOpacity 
+            style={styles.iphoneButton} 
+            onPress={handleiPhoneStart}
+            activeOpacity={0.8}
+          >
+            <Ionicons name="logo-apple" size={24} color={Colors.white} />
+            <Text style={styles.iphoneButtonText}>Use on iPhone</Text>
+          </TouchableOpacity>
+
+          {/* iPhone Helper Text */}
+          <View style={styles.helperTextContainer}>
+            <Ionicons name="information-circle-outline" size={18} color="rgba(255,255,255,0.6)" />
+            <Text style={styles.helperText}>
+              iPhone users: For the best experience, tap the Share icon in Safari and select "Add to Home Screen" to use Clubvel as an app.
+            </Text>
+          </View>
+
+          {/* Features recap */}
+          <View style={styles.featuresBox}>
+            <View style={styles.featureRow}>
+              <Ionicons name="checkmark-circle" size={20} color={Colors.gold} />
+              <Text style={styles.featureText}>Track contributions in real-time</Text>
+            </View>
+            <View style={styles.featureRow}>
+              <Ionicons name="checkmark-circle" size={20} color={Colors.gold} />
+              <Text style={styles.featureText}>Upload proof of payment instantly</Text>
+            </View>
+            <View style={styles.featureRow}>
+              <Ionicons name="checkmark-circle" size={20} color={Colors.gold} />
+              <Text style={styles.featureText}>Get smart payment reminders</Text>
+            </View>
+            <View style={styles.featureRow}>
+              <Ionicons name="checkmark-circle" size={20} color={Colors.gold} />
+              <Text style={styles.featureText}>POPIA compliant & secure</Text>
+            </View>
+          </View>
+
+          {/* Dots */}
+          <View style={styles.dotsContainer}>
+            {slides.map((_, index) => (
+              <TouchableOpacity
+                key={index}
+                onPress={() => setCurrentIndex(index)}
+                style={[
+                  styles.dot,
+                  index === currentIndex && styles.activeDot,
+                ]}
+              />
+            ))}
+          </View>
+        </View>
+      </ScrollView>
+    );
+  }
+
+  // Regular onboarding slides
   return (
     <View style={styles.container}>
       <TouchableOpacity style={styles.skipButton} onPress={handleSkip}>
@@ -58,8 +154,9 @@ export default function OnboardingScreen() {
 
         <View style={styles.dotsContainer}>
           {slides.map((_, index) => (
-            <View
+            <TouchableOpacity
               key={index}
+              onPress={() => setCurrentIndex(index)}
               style={[
                 styles.dot,
                 index === currentIndex && styles.activeDot,
@@ -70,9 +167,7 @@ export default function OnboardingScreen() {
       </View>
 
       <TouchableOpacity style={styles.nextButton} onPress={handleNext}>
-        <Text style={styles.nextButtonText}>
-          {currentIndex === slides.length - 1 ? 'Get Started' : 'Next'}
-        </Text>
+        <Text style={styles.nextButtonText}>Next</Text>
       </TouchableOpacity>
     </View>
   );
@@ -84,6 +179,10 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.darkGreen,
     paddingHorizontal: 24,
     paddingVertical: 48,
+  },
+  scrollContent: {
+    flexGrow: 1,
+    paddingBottom: 40,
   },
   skipButton: {
     alignSelf: 'flex-end',
@@ -119,8 +218,9 @@ const styles = StyleSheet.create({
   },
   dotsContainer: {
     flexDirection: 'row',
-    marginTop: 48,
+    marginTop: 32,
     gap: 8,
+    justifyContent: 'center',
   },
   dot: {
     width: 8,
@@ -142,5 +242,118 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: 18,
     fontWeight: 'bold',
+  },
+  // Get Started section styles
+  getStartedContent: {
+    flex: 1,
+    alignItems: 'center',
+    paddingTop: 60,
+  },
+  logoBox: {
+    width: 100,
+    height: 100,
+    backgroundColor: Colors.gold,
+    borderRadius: 24,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginBottom: 24,
+    shadowColor: Colors.gold,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 12,
+    elevation: 8,
+  },
+  logoText: {
+    fontSize: 42,
+    fontWeight: 'bold',
+    color: Colors.white,
+  },
+  getStartedTitle: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: Colors.white,
+    marginBottom: 8,
+  },
+  getStartedSubtitle: {
+    fontSize: 16,
+    color: 'rgba(255, 255, 255, 0.7)',
+    marginBottom: 32,
+    textAlign: 'center',
+  },
+  androidButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.gold,
+    paddingVertical: 16,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    width: '100%',
+    marginBottom: 12,
+    gap: 12,
+    shadowColor: Colors.gold,
+    shadowOffset: { width: 0, height: 4 },
+    shadowOpacity: 0.3,
+    shadowRadius: 8,
+    elevation: 4,
+  },
+  androidButtonText: {
+    color: Colors.darkGreen,
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  iphoneButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: 'transparent',
+    borderWidth: 2,
+    borderColor: Colors.white,
+    paddingVertical: 14,
+    paddingHorizontal: 32,
+    borderRadius: 12,
+    width: '100%',
+    marginBottom: 16,
+    gap: 12,
+  },
+  iphoneButtonText: {
+    color: Colors.white,
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  helperTextContainer: {
+    flexDirection: 'row',
+    alignItems: 'flex-start',
+    backgroundColor: 'rgba(255, 255, 255, 0.08)',
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 24,
+    gap: 10,
+  },
+  helperText: {
+    flex: 1,
+    fontSize: 13,
+    color: 'rgba(255, 255, 255, 0.7)',
+    lineHeight: 20,
+  },
+  featuresBox: {
+    backgroundColor: 'rgba(255, 255, 255, 0.05)',
+    borderRadius: 16,
+    padding: 20,
+    width: '100%',
+    marginBottom: 24,
+    borderWidth: 1,
+    borderColor: 'rgba(255, 255, 255, 0.1)',
+  },
+  featureRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 12,
+    gap: 12,
+  },
+  featureText: {
+    fontSize: 14,
+    color: 'rgba(255, 255, 255, 0.85)',
+    flex: 1,
   },
 });
