@@ -2352,7 +2352,7 @@ async def get_app_page():
             </div>
             
             <!-- Android Download Button -->
-            <a href="https://customer-assets.emergentagent.com/job_money-rotation/artifacts/58t4dio9_application-83af7be3-b704-4953-8d51-09f1da1b0e11.apk" 
+            <a href="https://github.com/Clubvel/Clubvel/releases/download/v1.0.0/application-30489d82-7342-497c-baff-d5e9ff52d6c3.1.apk" 
                class="download-btn android-only" 
                download="clubvel.apk">
                 <svg viewBox="0 0 24 24" fill="currentColor">
