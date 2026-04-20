@@ -2002,6 +2002,475 @@ async def delete_account_info():
     """
     return HTMLResponse(content=html_content)
 
+@app.get("/get-app", response_class=HTMLResponse)
+async def get_app_page():
+    """Landing page for app download - detects device and shows appropriate option"""
+    html_content = """
+    <!DOCTYPE html>
+    <html lang="en">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>Get Clubvel - Stokvel Management App</title>
+        <link rel="preconnect" href="https://fonts.googleapis.com">
+        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+        <style>
+            * {
+                margin: 0;
+                padding: 0;
+                box-sizing: border-box;
+            }
+            
+            body {
+                font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+                background: linear-gradient(135deg, #1a1a2e 0%, #16213e 50%, #0f3460 100%);
+                min-height: 100vh;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+                color: #ffffff;
+            }
+            
+            .container {
+                max-width: 420px;
+                width: 100%;
+                text-align: center;
+            }
+            
+            .app-icon {
+                width: 120px;
+                height: 120px;
+                background: linear-gradient(135deg, #D4A528 0%, #B8941F 100%);
+                border-radius: 28px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                margin: 0 auto 24px;
+                box-shadow: 0 8px 32px rgba(212, 165, 40, 0.3);
+            }
+            
+            .app-icon span {
+                font-size: 48px;
+                font-weight: 700;
+                color: white;
+                letter-spacing: -2px;
+            }
+            
+            h1 {
+                font-size: 32px;
+                font-weight: 700;
+                margin-bottom: 8px;
+                background: linear-gradient(135deg, #D4A528 0%, #F5D77A 100%);
+                -webkit-background-clip: text;
+                -webkit-text-fill-color: transparent;
+                background-clip: text;
+            }
+            
+            .tagline {
+                font-size: 16px;
+                color: #a0aec0;
+                margin-bottom: 32px;
+            }
+            
+            .features {
+                background: rgba(255, 255, 255, 0.05);
+                border-radius: 16px;
+                padding: 24px;
+                margin-bottom: 32px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+            }
+            
+            .feature {
+                display: flex;
+                align-items: center;
+                gap: 12px;
+                margin-bottom: 16px;
+                text-align: left;
+            }
+            
+            .feature:last-child {
+                margin-bottom: 0;
+            }
+            
+            .feature-icon {
+                width: 40px;
+                height: 40px;
+                background: rgba(212, 165, 40, 0.2);
+                border-radius: 10px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 20px;
+                flex-shrink: 0;
+            }
+            
+            .feature-text {
+                font-size: 14px;
+                color: #e2e8f0;
+            }
+            
+            .download-btn {
+                display: inline-flex;
+                align-items: center;
+                justify-content: center;
+                gap: 12px;
+                width: 100%;
+                padding: 18px 32px;
+                font-size: 18px;
+                font-weight: 600;
+                color: #1a1a2e;
+                background: linear-gradient(135deg, #D4A528 0%, #F5D77A 100%);
+                border: none;
+                border-radius: 14px;
+                cursor: pointer;
+                text-decoration: none;
+                transition: all 0.3s ease;
+                box-shadow: 0 4px 20px rgba(212, 165, 40, 0.4);
+            }
+            
+            .download-btn:hover {
+                transform: translateY(-2px);
+                box-shadow: 0 6px 28px rgba(212, 165, 40, 0.5);
+            }
+            
+            .download-btn:active {
+                transform: translateY(0);
+            }
+            
+            .download-btn svg {
+                width: 24px;
+                height: 24px;
+            }
+            
+            .platform-note {
+                margin-top: 16px;
+                font-size: 13px;
+                color: #718096;
+            }
+            
+            /* Modal Styles */
+            .modal-overlay {
+                display: none;
+                position: fixed;
+                top: 0;
+                left: 0;
+                width: 100%;
+                height: 100%;
+                background: rgba(0, 0, 0, 0.8);
+                z-index: 1000;
+                align-items: center;
+                justify-content: center;
+                padding: 20px;
+            }
+            
+            .modal-overlay.active {
+                display: flex;
+            }
+            
+            .modal {
+                background: #1e2a3a;
+                border-radius: 20px;
+                max-width: 380px;
+                width: 100%;
+                padding: 32px 24px;
+                position: relative;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+            }
+            
+            .modal-close {
+                position: absolute;
+                top: 16px;
+                right: 16px;
+                width: 32px;
+                height: 32px;
+                background: rgba(255, 255, 255, 0.1);
+                border: none;
+                border-radius: 50%;
+                color: #a0aec0;
+                font-size: 20px;
+                cursor: pointer;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            
+            .modal-close:hover {
+                background: rgba(255, 255, 255, 0.2);
+                color: #fff;
+            }
+            
+            .modal h2 {
+                font-size: 22px;
+                margin-bottom: 8px;
+                color: #fff;
+            }
+            
+            .modal-subtitle {
+                color: #a0aec0;
+                font-size: 14px;
+                margin-bottom: 24px;
+            }
+            
+            .step {
+                display: flex;
+                gap: 16px;
+                margin-bottom: 20px;
+                text-align: left;
+            }
+            
+            .step-number {
+                width: 32px;
+                height: 32px;
+                background: linear-gradient(135deg, #D4A528 0%, #B8941F 100%);
+                border-radius: 50%;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-weight: 600;
+                font-size: 14px;
+                color: #1a1a2e;
+                flex-shrink: 0;
+            }
+            
+            .step-content h3 {
+                font-size: 15px;
+                font-weight: 600;
+                color: #fff;
+                margin-bottom: 4px;
+            }
+            
+            .step-content p {
+                font-size: 13px;
+                color: #a0aec0;
+                line-height: 1.5;
+            }
+            
+            .step-icon {
+                display: inline-flex;
+                align-items: center;
+                gap: 4px;
+                background: rgba(255, 255, 255, 0.1);
+                padding: 2px 8px;
+                border-radius: 4px;
+                font-size: 12px;
+            }
+            
+            .modal-footer {
+                margin-top: 24px;
+                padding-top: 20px;
+                border-top: 1px solid rgba(255, 255, 255, 0.1);
+                text-align: center;
+            }
+            
+            .modal-footer p {
+                font-size: 13px;
+                color: #718096;
+            }
+            
+            /* Hide elements based on platform */
+            .android-only, .ios-only {
+                display: none;
+            }
+            
+            body.is-android .android-only {
+                display: block;
+            }
+            
+            body.is-ios .ios-only {
+                display: block;
+            }
+            
+            body.is-android .download-btn.android-only,
+            body.is-ios .download-btn.ios-only {
+                display: inline-flex;
+            }
+            
+            /* Desktop fallback */
+            .desktop-message {
+                display: none;
+                background: rgba(255, 255, 255, 0.05);
+                border-radius: 12px;
+                padding: 20px;
+                margin-top: 24px;
+                border: 1px solid rgba(255, 255, 255, 0.1);
+            }
+            
+            body.is-desktop .desktop-message {
+                display: block;
+            }
+            
+            body.is-desktop .download-btn {
+                display: none;
+            }
+            
+            .qr-placeholder {
+                width: 150px;
+                height: 150px;
+                background: #fff;
+                border-radius: 12px;
+                margin: 16px auto;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                color: #1a1a2e;
+                font-size: 12px;
+                padding: 10px;
+                text-align: center;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <!-- App Icon -->
+            <div class="app-icon">
+                <span>CV</span>
+            </div>
+            
+            <h1>Clubvel</h1>
+            <p class="tagline">Manage your Stokvel with ease</p>
+            
+            <!-- Features -->
+            <div class="features">
+                <div class="feature">
+                    <div class="feature-icon">💰</div>
+                    <div class="feature-text">Track contributions and payments in real-time</div>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">📱</div>
+                    <div class="feature-text">Upload proof of payment instantly</div>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🔔</div>
+                    <div class="feature-text">Get reminders for upcoming payments</div>
+                </div>
+                <div class="feature">
+                    <div class="feature-icon">🔒</div>
+                    <div class="feature-text">POPIA compliant & secure</div>
+                </div>
+            </div>
+            
+            <!-- Android Download Button -->
+            <a href="https://customer-assets.emergentagent.com/job_money-rotation/artifacts/58t4dio9_application-83af7be3-b704-4953-8d51-09f1da1b0e11.apk" 
+               class="download-btn android-only" 
+               download="clubvel.apk">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M17.523 2.727l1.485-1.486a.707.707 0 10-1-1L16.4 1.848a6.869 6.869 0 00-8.8 0L6 .241a.707.707 0 10-1 1L6.48 2.727A6.869 6.869 0 004 8.182V9h16v-.818a6.869 6.869 0 00-2.477-5.455zM7 6a1 1 0 111-1 1 1 0 01-1 1zm10 0a1 1 0 111-1 1 1 0 01-1 1zM4 10v9a2 2 0 002 2h12a2 2 0 002-2v-9zm7 7H6v-5h5zm7 0h-5v-5h5z"/>
+                </svg>
+                Download for Android
+            </a>
+            
+            <!-- iOS Install Button -->
+            <button class="download-btn ios-only" onclick="openIOSModal()">
+                <svg viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/>
+                </svg>
+                Install on iPhone
+            </button>
+            
+            <p class="platform-note android-only">After download, tap the file to install</p>
+            <p class="platform-note ios-only">Add Clubvel to your home screen</p>
+            
+            <!-- Desktop Message -->
+            <div class="desktop-message">
+                <p style="color: #e2e8f0; margin-bottom: 12px;">📱 Open this page on your phone to download</p>
+                <p style="font-size: 12px; color: #718096;">Scan this page's URL or visit:</p>
+                <p style="font-size: 14px; color: #D4A528; margin-top: 8px; word-break: break-all;">clubvel-production.up.railway.app/get-app</p>
+            </div>
+        </div>
+        
+        <!-- iOS Instructions Modal -->
+        <div class="modal-overlay" id="iosModal">
+            <div class="modal">
+                <button class="modal-close" onclick="closeIOSModal()">×</button>
+                
+                <h2>Add to Home Screen</h2>
+                <p class="modal-subtitle">Follow these steps to install Clubvel on your iPhone</p>
+                
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h3>Tap the Share button</h3>
+                        <p>Look for the <span class="step-icon">⬆️ Share</span> icon at the bottom of Safari</p>
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h3>Scroll down and tap</h3>
+                        <p>Find and tap <span class="step-icon">➕ Add to Home Screen</span></p>
+                    </div>
+                </div>
+                
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h3>Tap "Add"</h3>
+                        <p>Confirm by tapping <span class="step-icon">Add</span> in the top right corner</p>
+                    </div>
+                </div>
+                
+                <div class="modal-footer">
+                    <p>Clubvel will appear on your home screen like a regular app!</p>
+                </div>
+            </div>
+        </div>
+        
+        <script>
+            // Detect platform
+            function detectPlatform() {
+                const userAgent = navigator.userAgent || navigator.vendor || window.opera;
+                
+                // iOS detection
+                if (/iPad|iPhone|iPod/.test(userAgent) && !window.MSStream) {
+                    document.body.classList.add('is-ios');
+                    return 'ios';
+                }
+                
+                // Android detection
+                if (/android/i.test(userAgent)) {
+                    document.body.classList.add('is-android');
+                    return 'android';
+                }
+                
+                // Desktop fallback
+                document.body.classList.add('is-desktop');
+                return 'desktop';
+            }
+            
+            // Modal functions
+            function openIOSModal() {
+                document.getElementById('iosModal').classList.add('active');
+            }
+            
+            function closeIOSModal() {
+                document.getElementById('iosModal').classList.remove('active');
+            }
+            
+            // Close modal on overlay click
+            document.getElementById('iosModal').addEventListener('click', function(e) {
+                if (e.target === this) {
+                    closeIOSModal();
+                }
+            });
+            
+            // Close modal on Escape key
+            document.addEventListener('keydown', function(e) {
+                if (e.key === 'Escape') {
+                    closeIOSModal();
+                }
+            });
+            
+            // Initialize
+            detectPlatform();
+        </script>
+    </body>
+    </html>
+    """
+    return HTMLResponse(content=html_content)
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
