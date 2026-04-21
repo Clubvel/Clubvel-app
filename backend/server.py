@@ -3396,7 +3396,6 @@ async def clubvel_website():
                 <div class="download-cards">
                     <!-- Android Card -->
                     <div class="download-card">
-                        <div class="download-card-icon">🤖</div>
                         <h3>Android</h3>
                         <p>Download the APK directly to your Android phone</p>
                         <a href="https://github.com/Clubvel/Clubvel/releases/download/v1.0.0/application-30489d82-7342-497c-baff-d5e9ff52d6c3.1.apk" 
@@ -3408,7 +3407,6 @@ async def clubvel_website():
                     
                     <!-- iPhone Card -->
                     <div class="download-card">
-                        <div class="download-card-icon">🍎</div>
                         <h3>iPhone</h3>
                         <p>Use Clubvel as a web app on your iPhone</p>
                         <a href="/get-app" class="btn btn-secondary">
