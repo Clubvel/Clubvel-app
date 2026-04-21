@@ -1,0 +1,1020 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Clubvel - Stokvel Management Made Simple</title>
+    <meta name="description" content="Manage your stokvel with ease. Track contributions, upload proof of payment, and build your financial reputation with Clubvel.">
+    <meta name="keywords" content="stokvel, savings club, South Africa, money management, contributions, financial app">
+    <meta property="og:title" content="Clubvel - Stokvel Management Made Simple">
+    <meta property="og:description" content="Your club. Your money. Your rules. Download Clubvel today.">
+    <meta property="og:type" content="website">
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --dark-green: #0E2318;
+            --medium-green: #16603A;
+            --gold: #C8880A;
+            --light-gold: #D4A528;
+            --white: #FFFFFF;
+            --light-bg: #F3F7F4;
+            --text-primary: #1F2937;
+            --text-secondary: #6B7280;
+        }
+        
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        
+        html {
+            scroll-behavior: smooth;
+        }
+        
+        body {
+            font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
+            color: var(--text-primary);
+            line-height: 1.6;
+        }
+        
+        /* Navigation */
+        .navbar {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            background: var(--dark-green);
+            padding: 16px 24px;
+            z-index: 1000;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .nav-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            text-decoration: none;
+        }
+        
+        .nav-logo-icon {
+            width: 40px;
+            height: 40px;
+            background: var(--gold);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .nav-logo-icon span {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--white);
+        }
+        
+        .nav-logo-text {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--white);
+        }
+        
+        .nav-links {
+            display: flex;
+            gap: 32px;
+            align-items: center;
+        }
+        
+        .nav-links a {
+            color: rgba(255, 255, 255, 0.8);
+            text-decoration: none;
+            font-weight: 500;
+            transition: color 0.3s;
+        }
+        
+        .nav-links a:hover {
+            color: var(--gold);
+        }
+        
+        .nav-cta {
+            background: var(--gold) !important;
+            color: var(--dark-green) !important;
+            padding: 10px 20px;
+            border-radius: 8px;
+            font-weight: 600;
+        }
+        
+        .mobile-menu-btn {
+            display: none;
+            background: none;
+            border: none;
+            color: var(--white);
+            font-size: 24px;
+            cursor: pointer;
+        }
+        
+        /* Hero Section */
+        .hero {
+            background: var(--dark-green);
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            padding: 120px 24px 80px;
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .hero::before {
+            content: '';
+            position: absolute;
+            top: -50%;
+            right: -20%;
+            width: 80%;
+            height: 150%;
+            background: radial-gradient(ellipse, rgba(200, 136, 10, 0.1) 0%, transparent 70%);
+            pointer-events: none;
+        }
+        
+        .hero-container {
+            max-width: 1200px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 60px;
+            align-items: center;
+        }
+        
+        .hero-content {
+            z-index: 1;
+        }
+        
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            background: rgba(200, 136, 10, 0.15);
+            padding: 8px 16px;
+            border-radius: 50px;
+            margin-bottom: 24px;
+        }
+        
+        .hero-badge span {
+            color: var(--gold);
+            font-size: 14px;
+            font-weight: 500;
+        }
+        
+        .hero h1 {
+            font-size: 56px;
+            font-weight: 800;
+            color: var(--white);
+            line-height: 1.1;
+            margin-bottom: 24px;
+        }
+        
+        .hero h1 .highlight {
+            color: var(--gold);
+        }
+        
+        .hero-subtitle {
+            font-size: 20px;
+            color: rgba(255, 255, 255, 0.7);
+            margin-bottom: 40px;
+            max-width: 500px;
+        }
+        
+        .hero-buttons {
+            display: flex;
+            gap: 16px;
+            flex-wrap: wrap;
+        }
+        
+        .btn {
+            display: inline-flex;
+            align-items: center;
+            gap: 10px;
+            padding: 16px 32px;
+            border-radius: 12px;
+            font-size: 16px;
+            font-weight: 600;
+            text-decoration: none;
+            transition: all 0.3s ease;
+            cursor: pointer;
+            border: none;
+        }
+        
+        .btn-primary {
+            background: var(--gold);
+            color: var(--dark-green);
+        }
+        
+        .btn-primary:hover {
+            background: #daa520;
+            transform: translateY(-2px);
+            box-shadow: 0 8px 24px rgba(200, 136, 10, 0.4);
+        }
+        
+        .btn-secondary {
+            background: transparent;
+            color: var(--white);
+            border: 2px solid rgba(255, 255, 255, 0.3);
+        }
+        
+        .btn-secondary:hover {
+            border-color: var(--white);
+            background: rgba(255, 255, 255, 0.1);
+        }
+        
+        .hero-visual {
+            position: relative;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+        }
+        
+        .phone-mockup {
+            width: 280px;
+            height: 570px;
+            background: #1a1a1a;
+            border-radius: 40px;
+            padding: 12px;
+            box-shadow: 0 50px 100px rgba(0, 0, 0, 0.5);
+            position: relative;
+        }
+        
+        .phone-screen {
+            width: 100%;
+            height: 100%;
+            background: var(--dark-green);
+            border-radius: 32px;
+            overflow: hidden;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            padding: 40px 20px;
+        }
+        
+        .phone-logo {
+            width: 80px;
+            height: 80px;
+            background: var(--gold);
+            border-radius: 20px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin-bottom: 20px;
+        }
+        
+        .phone-logo span {
+            font-size: 36px;
+            font-weight: 700;
+            color: var(--white);
+        }
+        
+        .phone-title {
+            font-size: 28px;
+            font-weight: 700;
+            color: var(--white);
+            margin-bottom: 8px;
+        }
+        
+        .phone-tagline {
+            font-size: 12px;
+            color: rgba(255, 255, 255, 0.7);
+            text-align: center;
+        }
+        
+        /* Features Section */
+        .features {
+            padding: 100px 24px;
+            background: var(--light-bg);
+        }
+        
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .section-header {
+            text-align: center;
+            margin-bottom: 60px;
+        }
+        
+        .section-label {
+            display: inline-block;
+            color: var(--gold);
+            font-size: 14px;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 16px;
+        }
+        
+        .section-title {
+            font-size: 42px;
+            font-weight: 700;
+            color: var(--dark-green);
+            margin-bottom: 16px;
+        }
+        
+        .section-subtitle {
+            font-size: 18px;
+            color: var(--text-secondary);
+            max-width: 600px;
+            margin: 0 auto;
+        }
+        
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 32px;
+        }
+        
+        .feature-card {
+            background: var(--white);
+            padding: 32px;
+            border-radius: 20px;
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+        }
+        
+        .feature-card:hover {
+            transform: translateY(-8px);
+            box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
+        }
+        
+        .feature-icon {
+            width: 64px;
+            height: 64px;
+            background: linear-gradient(135deg, rgba(200, 136, 10, 0.15) 0%, rgba(200, 136, 10, 0.05) 100%);
+            border-radius: 16px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 28px;
+            margin-bottom: 20px;
+        }
+        
+        .feature-card h3 {
+            font-size: 20px;
+            font-weight: 600;
+            color: var(--dark-green);
+            margin-bottom: 12px;
+        }
+        
+        .feature-card p {
+            font-size: 15px;
+            color: var(--text-secondary);
+            line-height: 1.7;
+        }
+        
+        /* How It Works */
+        .how-it-works {
+            padding: 100px 24px;
+            background: var(--white);
+        }
+        
+        .steps-container {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 40px;
+            margin-top: 60px;
+        }
+        
+        .step {
+            text-align: center;
+            position: relative;
+        }
+        
+        .step:not(:last-child)::after {
+            content: '';
+            position: absolute;
+            top: 40px;
+            right: -20px;
+            width: 40px;
+            height: 2px;
+            background: linear-gradient(90deg, var(--gold), transparent);
+        }
+        
+        .step-number {
+            width: 80px;
+            height: 80px;
+            background: var(--dark-green);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            margin: 0 auto 20px;
+            font-size: 32px;
+            font-weight: 700;
+            color: var(--gold);
+        }
+        
+        .step h3 {
+            font-size: 18px;
+            font-weight: 600;
+            color: var(--dark-green);
+            margin-bottom: 8px;
+        }
+        
+        .step p {
+            font-size: 14px;
+            color: var(--text-secondary);
+        }
+        
+        /* Download Section */
+        .download {
+            padding: 100px 24px;
+            background: var(--dark-green);
+            position: relative;
+            overflow: hidden;
+        }
+        
+        .download::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background: radial-gradient(ellipse at center, rgba(200, 136, 10, 0.1) 0%, transparent 60%);
+            pointer-events: none;
+        }
+        
+        .download-container {
+            max-width: 800px;
+            margin: 0 auto;
+            text-align: center;
+            position: relative;
+            z-index: 1;
+        }
+        
+        .download .section-label {
+            color: var(--gold);
+        }
+        
+        .download .section-title {
+            color: var(--white);
+        }
+        
+        .download .section-subtitle {
+            color: rgba(255, 255, 255, 0.7);
+        }
+        
+        .download-cards {
+            display: grid;
+            grid-template-columns: repeat(2, 1fr);
+            gap: 24px;
+            margin-top: 48px;
+        }
+        
+        .download-card {
+            background: rgba(255, 255, 255, 0.05);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+            border-radius: 20px;
+            padding: 40px 32px;
+            text-align: center;
+            transition: all 0.3s ease;
+        }
+        
+        .download-card:hover {
+            background: rgba(255, 255, 255, 0.08);
+            border-color: rgba(255, 255, 255, 0.2);
+        }
+        
+        .download-card h3 {
+            font-size: 22px;
+            font-weight: 600;
+            color: var(--white);
+            margin-bottom: 12px;
+        }
+        
+        .download-card p {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.6);
+            margin-bottom: 24px;
+        }
+        
+        .download-card .btn {
+            width: 100%;
+            justify-content: center;
+        }
+        
+        .ios-instructions {
+            margin-top: 16px;
+            padding: 16px;
+            background: rgba(255, 255, 255, 0.05);
+            border-radius: 12px;
+            text-align: left;
+        }
+        
+        .ios-instructions p {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.7);
+            margin-bottom: 0;
+            display: flex;
+            align-items: flex-start;
+            gap: 8px;
+        }
+        
+        .ios-instructions p span {
+            color: var(--gold);
+        }
+        
+        /* Trust Section */
+        .trust {
+            padding: 80px 24px;
+            background: var(--light-bg);
+        }
+        
+        .trust-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 40px;
+            text-align: center;
+        }
+        
+        .trust-item {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+        }
+        
+        .trust-icon {
+            font-size: 32px;
+            margin-bottom: 12px;
+        }
+        
+        .trust-item h4 {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--dark-green);
+        }
+        
+        /* Footer */
+        .footer {
+            background: #0a1810;
+            padding: 60px 24px 30px;
+        }
+        
+        .footer-container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        
+        .footer-top {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 40px;
+            padding-bottom: 40px;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .footer-brand {
+            max-width: 300px;
+        }
+        
+        .footer-logo {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+            margin-bottom: 16px;
+        }
+        
+        .footer-logo-icon {
+            width: 40px;
+            height: 40px;
+            background: var(--gold);
+            border-radius: 10px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+        }
+        
+        .footer-logo-icon span {
+            font-size: 18px;
+            font-weight: 700;
+            color: var(--white);
+        }
+        
+        .footer-logo-text {
+            font-size: 22px;
+            font-weight: 700;
+            color: var(--white);
+        }
+        
+        .footer-brand p {
+            font-size: 14px;
+            color: rgba(255, 255, 255, 0.6);
+            line-height: 1.7;
+        }
+        
+        .footer-links {
+            display: flex;
+            gap: 60px;
+        }
+        
+        .footer-column h4 {
+            font-size: 14px;
+            font-weight: 600;
+            color: var(--white);
+            margin-bottom: 20px;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+        }
+        
+        .footer-column a {
+            display: block;
+            color: rgba(255, 255, 255, 0.6);
+            text-decoration: none;
+            font-size: 14px;
+            margin-bottom: 12px;
+            transition: color 0.3s;
+        }
+        
+        .footer-column a:hover {
+            color: var(--gold);
+        }
+        
+        .footer-bottom {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        
+        .footer-bottom p {
+            font-size: 13px;
+            color: rgba(255, 255, 255, 0.5);
+        }
+        
+        /* Responsive */
+        @media (max-width: 1024px) {
+            .hero-container {
+                grid-template-columns: 1fr;
+                text-align: center;
+            }
+            
+            .hero h1 {
+                font-size: 42px;
+            }
+            
+            .hero-subtitle {
+                margin: 0 auto 40px;
+            }
+            
+            .hero-buttons {
+                justify-content: center;
+            }
+            
+            .hero-visual {
+                display: none;
+            }
+            
+            .features-grid {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .steps-container {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .step:not(:last-child)::after {
+                display: none;
+            }
+        }
+        
+        @media (max-width: 768px) {
+            .nav-links {
+                display: none;
+            }
+            
+            .mobile-menu-btn {
+                display: block;
+            }
+            
+            .hero {
+                padding: 100px 20px 60px;
+            }
+            
+            .hero h1 {
+                font-size: 32px;
+            }
+            
+            .hero-subtitle {
+                font-size: 16px;
+            }
+            
+            .section-title {
+                font-size: 32px;
+            }
+            
+            .features-grid {
+                grid-template-columns: 1fr;
+            }
+            
+            .steps-container {
+                grid-template-columns: 1fr;
+                gap: 32px;
+            }
+            
+            .download-cards {
+                grid-template-columns: 1fr;
+            }
+            
+            .trust-container {
+                grid-template-columns: repeat(2, 1fr);
+            }
+            
+            .footer-top {
+                flex-direction: column;
+                gap: 40px;
+            }
+            
+            .footer-links {
+                flex-wrap: wrap;
+                gap: 40px;
+            }
+            
+            .footer-bottom {
+                flex-direction: column;
+                gap: 16px;
+                text-align: center;
+            }
+        }
+        
+        /* Mobile Menu */
+        .mobile-nav {
+            display: none;
+            position: fixed;
+            top: 72px;
+            left: 0;
+            right: 0;
+            background: var(--dark-green);
+            padding: 20px;
+            border-top: 1px solid rgba(255, 255, 255, 0.1);
+            z-index: 999;
+        }
+        
+        .mobile-nav.active {
+            display: block;
+        }
+        
+        .mobile-nav a {
+            display: block;
+            color: var(--white);
+            text-decoration: none;
+            padding: 12px 0;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
+        }
+    </style>
+</head>
+<body>
+    <!-- Navigation -->
+    <nav class="navbar">
+        <a href="#" class="nav-logo">
+            <div class="nav-logo-icon"><span>CV</span></div>
+            <span class="nav-logo-text">Clubvel</span>
+        </a>
+        <div class="nav-links">
+            <a href="#features">Features</a>
+            <a href="#how-it-works">How It Works</a>
+            <a href="#download">Download</a>
+            <a href="#download" class="nav-cta">Get the App</a>
+        </div>
+        <button class="mobile-menu-btn" onclick="toggleMobileMenu()">☰</button>
+    </nav>
+    
+    <div class="mobile-nav" id="mobileNav">
+        <a href="#features" onclick="toggleMobileMenu()">Features</a>
+        <a href="#how-it-works" onclick="toggleMobileMenu()">How It Works</a>
+        <a href="#download" onclick="toggleMobileMenu()">Download</a>
+    </div>
+
+    <!-- Hero Section -->
+    <section class="hero">
+        <div class="hero-container">
+            <div class="hero-content">
+                <div class="hero-badge">
+                    <span>🇿🇦 Made for South African Stokvels</span>
+                </div>
+                <h1>Your Club.<br><span class="highlight">Your Money.</span><br>Your Rules.</h1>
+                <p class="hero-subtitle">Manage your stokvel with ease. Track contributions, upload proof of payment, and build your financial reputation — all in one app.</p>
+                <div class="hero-buttons">
+                    <a href="#download" class="btn btn-primary">
+                        <span>📱</span> Download Now
+                    </a>
+                    <a href="#features" class="btn btn-secondary">
+                        <span>✨</span> See Features
+                    </a>
+                </div>
+            </div>
+            <div class="hero-visual">
+                <div class="phone-mockup">
+                    <div class="phone-screen">
+                        <div class="phone-logo"><span>CV</span></div>
+                        <div class="phone-title">Clubvel</div>
+                        <div class="phone-tagline">Your club. Your money. Your rules.</div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="features" id="features">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-label">Features</span>
+                <h2 class="section-title">Everything You Need</h2>
+                <p class="section-subtitle">Powerful tools designed specifically for stokvel management</p>
+            </div>
+            <div class="features-grid">
+                <div class="feature-card">
+                    <div class="feature-icon">💰</div>
+                    <h3>Track Contributions</h3>
+                    <p>See who's paid and who hasn't. Real-time updates keep everyone accountable.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📸</div>
+                    <h3>Upload Proof of Payment</h3>
+                    <p>Snap a photo of your receipt or bank confirmation. No more WhatsApp confusion.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔔</div>
+                    <h3>Smart Reminders</h3>
+                    <p>Get notified before due dates. Never be the one who forgot to pay.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">📊</div>
+                    <h3>Treasurer Reports</h3>
+                    <p>Generate reports instantly. Track group finances with professional summaries.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🏆</div>
+                    <h3>Trust Score</h3>
+                    <p>Build your financial reputation with every on-time payment you make.</p>
+                </div>
+                <div class="feature-card">
+                    <div class="feature-icon">🔒</div>
+                    <h3>POPIA Compliant</h3>
+                    <p>Your data is encrypted and protected. We take privacy seriously.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section class="how-it-works" id="how-it-works">
+        <div class="container">
+            <div class="section-header">
+                <span class="section-label">How It Works</span>
+                <h2 class="section-title">Get Started in Minutes</h2>
+                <p class="section-subtitle">Simple steps to transform how your stokvel operates</p>
+            </div>
+            <div class="steps-container">
+                <div class="step">
+                    <div class="step-number">1</div>
+                    <h3>Download the App</h3>
+                    <p>Get Clubvel on your Android phone or add to home screen on iPhone</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">2</div>
+                    <h3>Create Your Club</h3>
+                    <p>Set up your stokvel with contribution amounts and payout dates</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">3</div>
+                    <h3>Invite Members</h3>
+                    <p>Share your club link with members via WhatsApp or SMS</p>
+                </div>
+                <div class="step">
+                    <div class="step-number">4</div>
+                    <h3>Start Saving</h3>
+                    <p>Track payments, upload proofs, and watch your savings grow</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Download Section -->
+    <section class="download" id="download">
+        <div class="download-container">
+            <span class="section-label">Get the App</span>
+            <h2 class="section-title">Download Clubvel Today</h2>
+            <p class="section-subtitle">Available for Android devices. iPhone users can use the web app.</p>
+            
+            <div class="download-cards">
+                <!-- Android Card -->
+                <div class="download-card">
+                    <h3>Android</h3>
+                    <p>Download the APK directly to your Android phone</p>
+                    <a href="https://customer-assets.emergentagent.com/job_money-rotation/artifacts/58t4dio9_application-83af7be3-b704-4953-8d51-09f1da1b0e11.apk" 
+                       class="btn btn-primary" 
+                       download="clubvel.apk">
+                        <span>⬇️</span> Download for Android
+                    </a>
+                </div>
+                
+                <!-- iPhone Card -->
+                <div class="download-card">
+                    <h3>iPhone</h3>
+                    <p>Use Clubvel as a web app on your iPhone</p>
+                    <a href="https://clubvel-production.up.railway.app/get-app" class="btn btn-secondary">
+                        <span>📱</span> Open Web App
+                    </a>
+                    <div class="ios-instructions">
+                        <p><span>💡</span> For the best experience: Tap the Share icon in Safari, then select "Add to Home Screen" to use Clubvel like a native app.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- Trust Section -->
+    <section class="trust">
+        <div class="trust-container">
+            <div class="trust-item">
+                <div class="trust-icon">🔐</div>
+                <h4>Bank-Level Security</h4>
+            </div>
+            <div class="trust-item">
+                <div class="trust-icon">🇿🇦</div>
+                <h4>Made in South Africa</h4>
+            </div>
+            <div class="trust-item">
+                <div class="trust-icon">✅</div>
+                <h4>POPIA Compliant</h4>
+            </div>
+            <div class="trust-item">
+                <div class="trust-icon">💚</div>
+                <h4>Free to Use</h4>
+            </div>
+        </div>
+    </section>
+
+    <!-- Footer -->
+    <footer class="footer">
+        <div class="footer-container">
+            <div class="footer-top">
+                <div class="footer-brand">
+                    <div class="footer-logo">
+                        <div class="footer-logo-icon"><span>CV</span></div>
+                        <span class="footer-logo-text">Clubvel</span>
+                    </div>
+                    <p>Empowering South African stokvels with modern technology. Manage your club, track contributions, and build financial trust.</p>
+                </div>
+                <div class="footer-links">
+                    <div class="footer-column">
+                        <h4>Product</h4>
+                        <a href="#features">Features</a>
+                        <a href="#how-it-works">How It Works</a>
+                        <a href="#download">Download</a>
+                    </div>
+                    <div class="footer-column">
+                        <h4>Legal</h4>
+                        <a href="https://clubvel-production.up.railway.app/privacy-policy">Privacy Policy</a>
+                        <a href="https://clubvel-production.up.railway.app/delete-account">Delete Account</a>
+                    </div>
+                    <div class="footer-column">
+                        <h4>Support</h4>
+                        <a href="mailto:support@clubvel.co.za">Contact Us</a>
+                    </div>
+                </div>
+            </div>
+            <div class="footer-bottom">
+                <p>&copy; 2025 Clubvel. All rights reserved.</p>
+                <p>Made with 💚 in South Africa</p>
+            </div>
+        </div>
+    </footer>
+
+    <script>
+        function toggleMobileMenu() {
+            const nav = document.getElementById('mobileNav');
+            nav.classList.toggle('active');
+        }
+        
+        // Smooth scroll for anchor links
+        document.querySelectorAll('a[href^="#"]').forEach(anchor => {
+            anchor.addEventListener('click', function (e) {
+                e.preventDefault();
+                const target = document.querySelector(this.getAttribute('href'));
+                if (target) {
+                    target.scrollIntoView({
+                        behavior: 'smooth',
+                        block: 'start'
+                    });
+                }
+            });
+        });
+    </script>
+</body>
+</html>
