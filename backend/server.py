@@ -3503,6 +3503,16 @@ async def clubvel_website():
     """
     return HTMLResponse(content=html_content)
 
+# Catch-all route to prevent 404 errors - redirects to main website
+@app.get("/{path:path}", response_class=HTMLResponse)
+async def catch_all(path: str, request: Request):
+    """Catch-all route for any unmatched paths - serves the main website"""
+    # Skip API routes - they should return proper 404
+    if path.startswith("api/"):
+        raise HTTPException(status_code=404, detail="Not found")
+    # For all other paths, redirect to main website
+    return await clubvel_website()
+
 @app.on_event("shutdown")
 async def shutdown_db_client():
     client.close()
