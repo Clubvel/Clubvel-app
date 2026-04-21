@@ -68,36 +68,18 @@ export default function OnboardingScreen() {
           
           <Text style={styles.getStartedTitle}>Get Started</Text>
           <Text style={styles.getStartedSubtitle}>
-            Choose how you want to use Clubvel
+            Join your Stokvel community today
           </Text>
 
-          {/* Android Button */}
+          {/* Get Started Button - Main CTA */}
           <TouchableOpacity 
             style={styles.androidButton} 
-            onPress={handleAndroidDownload}
-            activeOpacity={0.8}
-          >
-            <Ionicons name="logo-android" size={24} color={Colors.darkGreen} />
-            <Text style={styles.androidButtonText}>Download for Android</Text>
-          </TouchableOpacity>
-
-          {/* iPhone Button */}
-          <TouchableOpacity 
-            style={styles.iphoneButton} 
             onPress={handleiPhoneStart}
             activeOpacity={0.8}
           >
-            <Ionicons name="logo-apple" size={24} color={Colors.white} />
-            <Text style={styles.iphoneButtonText}>Use on iPhone</Text>
+            <Ionicons name="arrow-forward-circle" size={24} color={Colors.darkGreen} />
+            <Text style={styles.androidButtonText}>Get Started</Text>
           </TouchableOpacity>
-
-          {/* iPhone Helper Text */}
-          <View style={styles.helperTextContainer}>
-            <Ionicons name="information-circle-outline" size={18} color="rgba(255,255,255,0.6)" />
-            <Text style={styles.helperText}>
-              iPhone users: For the best experience, tap the Share icon in Safari and select "Add to Home Screen" to use Clubvel as an app.
-            </Text>
-          </View>
 
           {/* Features recap */}
           <View style={styles.featuresBox}>
