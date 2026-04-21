@@ -61,7 +61,7 @@ export default function AuthScreen() {
         setUseFirebaseOTP(false);
         Alert.alert(
           '✅ Registration Successful!', 
-          'For testing, the OTP is always: 1234\n\nNo SMS will be sent - this is a demo environment.',
+          'We sent an OTP to your phone number. Please check your WhatsApp or SMS.',
           [{ text: 'OK, Got It!' }]
         );
       }
@@ -128,7 +128,7 @@ export default function AuthScreen() {
       if (error.message.includes('Invalid phone number or password')) {
         Alert.alert(
           'Login Failed',
-          'Invalid phone number or password.\n\nIf you just registered, make sure you verified your OTP first.\n\nTry demo account:\nPhone: 0821234567\nPassword: Pass&Word76'
+          'Invalid phone number or password.\n\nIf you just registered, make sure you verified your OTP first.'
         );
       } else {
         Alert.alert('Error', error.message || 'Login failed. Please try again.');
@@ -152,16 +152,7 @@ export default function AuthScreen() {
           </View>
 
           <View style={styles.form}>
-            {/* DEMO NOTICE */}
-            <View style={styles.demoNotice}>
-              <Ionicons name="information-circle" size={24} color={Colors.gold} />
-              <View style={styles.demoNoticeText}>
-                <Text style={styles.demoNoticeTitle}>Demo Mode - No SMS Sent</Text>
-                <Text style={styles.demoNoticeBody}>
-                  For testing, always use OTP: <Text style={styles.demoOTP}>1234</Text>
-                </Text>
-              </View>
-            </View>
+            <Text style={styles.sectionTitle}>Enter OTP</Text>
 
             <Text style={styles.otpInfo}>
               Enter the verification code
@@ -169,7 +160,7 @@ export default function AuthScreen() {
 
             <TextInput
               style={styles.input}
-              placeholder="Enter OTP (use: 1234)"
+              placeholder="Enter OTP"
               value={otp}
               onChangeText={setOtp}
               keyboardType="number-pad"
@@ -402,17 +393,6 @@ export default function AuthScreen() {
           {isLogin && (
             <>
               <Text style={styles.sectionTitle}>Sign In</Text>
-              
-              {/* Demo Account Info */}
-              <View style={styles.demoAccountInfo}>
-                <Ionicons name="information-circle-outline" size={20} color={Colors.mediumGreen} />
-                <View style={styles.demoAccountText}>
-                  <Text style={styles.demoAccountTitle}>Try Demo Accounts:</Text>
-                  <Text style={styles.demoAccountDetail}>Member: 0821234567</Text>
-                  <Text style={styles.demoAccountDetail}>Treasurer: 0829876543</Text>
-                  <Text style={styles.demoAccountDetail}>Password: Pass&Word76</Text>
-                </View>
-              </View>
               
               <TextInput
                 style={styles.input}
