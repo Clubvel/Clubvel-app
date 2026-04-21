@@ -34,6 +34,7 @@ from services.bank_feed_service import (
 )
 import ssl
 import certifi
+import certifi
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
