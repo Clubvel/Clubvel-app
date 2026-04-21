@@ -29,7 +29,7 @@ export default function AboutScreen() {
             resizeMode="contain"
           />
           <Text style={styles.appName}>Clubvel</Text>
-          <Text style={styles.tagline}>Smart Stokvel Management</Text>
+          <Text style={styles.tagline}>Smart Stokvel / Social Club / Society Management</Text>
           <Text style={styles.version}>Version 1.0.0</Text>
         </View>
 

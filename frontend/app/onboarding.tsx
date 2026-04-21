@@ -13,7 +13,7 @@ const slides = [
   {
     icon: 'people-outline' as const,
     title: 'All your clubs. One screen.',
-    body: 'Manage every stokvel group in one place. No more paper books. No more WhatsApp confusion.',
+    body: 'Manage every stokvel, social club, or society in one place. No more paper books. No more WhatsApp confusion.',
   },
   {
     icon: 'notifications-outline' as const,
@@ -68,7 +68,7 @@ export default function OnboardingScreen() {
           
           <Text style={styles.getStartedTitle}>Get Started</Text>
           <Text style={styles.getStartedSubtitle}>
-            Join your Stokvel community today
+            Join your Stokvel / Social Club / Society today
           </Text>
 
           {/* Get Started Button - Main CTA */}

@@ -241,7 +241,7 @@ export default function MemberHomeScreen() {
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={48} color={Colors.textMuted} />
             <Text style={styles.emptyStateText}>No clubs yet</Text>
-            <Text style={styles.emptyStateSubtext}>Join a stokvel group to get started</Text>
+            <Text style={styles.emptyStateSubtext}>Join a stokvel, social club, or society to get started</Text>
           </View>
         )}
       </View>

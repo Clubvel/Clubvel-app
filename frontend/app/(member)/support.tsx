@@ -282,7 +282,7 @@ Device: ${Platform.OS} ${Platform.Version}
         <View style={styles.appInfo}>
           <Text style={styles.appName}>Clubvel</Text>
           <Text style={styles.appVersion}>Version 1.0.0</Text>
-          <Text style={styles.appTagline}>Managing stokvels made simple</Text>
+          <Text style={styles.appTagline}>Managing stokvels, social clubs & societies made simple</Text>
         </View>
       </ScrollView>
     </KeyboardAvoidingView>
