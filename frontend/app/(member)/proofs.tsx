@@ -33,35 +33,7 @@ export default function ProofOfPaymentsScreen() {
   const [clubs, setClubs] = useState<Club[]>([]);
   const [uploading, setUploading] = useState(false);
   const [loadingClubs, setLoadingClubs] = useState(false);
-  const [proofs, setProofs] = useState<Proof[]>([
-    {
-      id: '1',
-      groupName: 'Phala tja Pele',
-      month: 'April 2026',
-      amount: 500,
-      status: 'confirmed',
-      uploadDate: '2026-04-05',
-      hasImage: true,
-    },
-    {
-      id: '2',
-      groupName: 'Club89',
-      month: 'March 2026',
-      amount: 300,
-      status: 'proof_uploaded',
-      uploadDate: '2026-03-15',
-      hasImage: true,
-    },
-    {
-      id: '3',
-      groupName: 'Phala tja Pele',
-      month: 'March 2026',
-      amount: 500,
-      status: 'confirmed',
-      uploadDate: '2026-03-03',
-      hasImage: true,
-    },
-  ]);
+  const [proofs, setProofs] = useState<Proof[]>([]);
 
   const fetchClubs = async () => {
     setLoadingClubs(true);

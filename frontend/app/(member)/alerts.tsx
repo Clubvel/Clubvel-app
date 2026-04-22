@@ -27,42 +27,19 @@ export default function AlertsScreen() {
 
   const fetchAlerts = async () => {
     try {
-      // Mock alerts for now - in production this would be an API call
-      const mockAlerts: Alert[] = [
-        {
-          id: '1',
-          user_id: user?.id || '',
-          group_id: 'group2',
-          alert_type: 'payment_due',
-          alert_message: 'Your Club89 payment of R300 is due in 3 days.',
-          created_at: new Date().toISOString(),
-          read_status: false,
-          action_url: '/member/club/group2',
-        },
-        {
-          id: '2',
-          user_id: user?.id || '',
-          group_id: 'group1',
-          alert_type: 'payment_confirmed',
-          alert_message: 'Your R500 payment for Phala tja Pele has been confirmed by your treasurer.',
-          created_at: new Date(Date.now() - 86400000).toISOString(),
-          read_status: true,
-          action_url: '/member/club/group1',
-        },
-        {
-          id: '3',
-          user_id: user?.id || '',
-          group_id: 'group1',
-          alert_type: 'claim_upcoming',
-          alert_message: 'Great news! Your Phala tja Pele claim of R5,000 is coming up on 23 August.',
-          created_at: new Date(Date.now() - 172800000).toISOString(),
-          read_status: true,
-          action_url: '/member/claims',
-        },
-      ];
-      setAlerts(mockAlerts);
+      // Fetch alerts from API - empty if no alerts
+      const response = await fetch(`${API_URL}/api/alerts/${user?.id}`, {
+        headers: { 'Authorization': `Bearer ${user?.id}` }
+      });
+      if (response.ok) {
+        const data = await response.json();
+        setAlerts(data.alerts || []);
+      } else {
+        setAlerts([]);
+      }
     } catch (error) {
       console.error('Error fetching alerts:', error);
+      setAlerts([]);
     } finally {
       setLoading(false);
       setRefreshing(false);

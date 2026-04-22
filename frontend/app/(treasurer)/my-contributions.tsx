@@ -33,32 +33,8 @@ export default function MyContributionsScreen() {
 
   const fetchMyContributions = async () => {
     try {
-      // Mock data for now - in production this would fetch treasurer's personal contributions
-      const mockContributions: MyContribution[] = [
-        {
-          id: 'contrib1',
-          group_name: 'Phala tja Pele',
-          group_id: 'group1',
-          month: 'April 2026',
-          amount_due: 500,
-          status: 'confirmed',
-          due_date: '2026-04-05',
-          proof_uploaded: true,
-          payment_reference: 'SSH003',
-        },
-        {
-          id: 'contrib2',
-          group_name: 'Club89',
-          group_id: 'group3',
-          month: 'April 2026',
-          amount_due: 800,
-          status: 'pending',
-          due_date: '2026-04-10',
-          proof_uploaded: false,
-          payment_reference: 'MIG001',
-        },
-      ];
-      setContributions(mockContributions);
+      // Empty array - real data will come from API
+      setContributions([]);
     } catch (error) {
       console.error('Error fetching contributions:', error);
     } finally {

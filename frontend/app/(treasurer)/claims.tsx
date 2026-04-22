@@ -9,25 +9,20 @@ export default function TreasurerClaimsScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Claims Management</Text>
-        <Text style={styles.headerSubtitle}>Phala tja Pele</Text>
+        <Text style={styles.headerSubtitle}>Manage your club claims</Text>
       </View>
 
       <ScrollView style={styles.content}>
-        {/* Upcoming Claims */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Upcoming Claims</Text>
-
-          <View style={styles.claimCard}>
-            <View style={styles.claimHeader}>
-              <View style={styles.claimMember}>
-                <View style={styles.memberAvatar}>
-                  <Text style={styles.memberAvatarText}>TM</Text>
-                </View>
-                <View>
-                  <Text style={styles.memberName}>Thabo Mokoena</Text>
-                  <Text style={styles.claimDate}>Due: 23 August 2025</Text>
-                </View>
-              </View>
+        {/* Empty State */}
+        <View style={styles.emptyState}>
+          <Ionicons name="calendar-outline" size={64} color={Colors.mediumGreen} />
+          <Text style={styles.emptyTitle}>No Claims Yet</Text>
+          <Text style={styles.emptySubtitle}>Claims will appear here once you create a club and add members</Text>
+        </View>
+      </ScrollView>
+    </View>
+  );
+}
               <View style={styles.claimAmount}>
                 <Text style={styles.amountLabel}>Amount</Text>
                 <Text style={styles.amountValue}>R5,000</Text>

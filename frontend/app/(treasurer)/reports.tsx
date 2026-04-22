@@ -147,7 +147,7 @@ export default function ReportsScreen() {
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Reports</Text>
-        <Text style={styles.headerSubtitle}>Phala tja Pele</Text>
+        <Text style={styles.headerSubtitle}>Financial Reports</Text>
       </View>
 
       <ScrollView style={styles.content}>
