@@ -1647,7 +1647,11 @@ async def match_single_transaction(
 
 @api_router.post("/seed/demo-data")
 async def seed_demo_data():
-    """Seed the database with demo data for testing. DISABLED in production mode."""
+    """DISABLED - Demo data seeding is no longer available."""
+    raise HTTPException(
+        status_code=403,
+        detail="Demo data seeding is disabled in production."
+    )
     
     # Block this endpoint in production
     production_mode = os.environ.get('PRODUCTION_MODE', 'false').lower() == 'true'
