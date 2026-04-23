@@ -1,9 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, Linking } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, Linking, Modal, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import { Colors } from '../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
+import axios from 'axios';
 
 export default function AuthScreen() {
   const [isLogin, setIsLogin] = useState(true);
@@ -22,15 +23,24 @@ export default function AuthScreen() {
   const [firebaseConfirmation, setFirebaseConfirmation] = useState<any>(null);
   const [useFirebaseOTP, setUseFirebaseOTP] = useState(false);
   
+  // Forgot Password State
+  const [showForgotPassword, setShowForgotPassword] = useState(false);
+  const [forgotPhoneNumber, setForgotPhoneNumber] = useState('');
+  const [resetOTP, setResetOTP] = useState('');
+  const [newPassword, setNewPassword] = useState('');
+  const [confirmPassword, setConfirmPassword] = useState('');
+  const [resetStep, setResetStep] = useState(1); // 1: enter phone, 2: enter OTP, 3: new password
+  const [resetLoading, setResetLoading] = useState(false);
+  
   const router = useRouter();
   const { login, register, verifyOTP, isFirebaseAvailable } = useAuth();
+  const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
   const handleProceedToConsent = () => {
     if (!fullName || !phoneNumber || !password) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
-    // Show consent screen before registration
     setIsConsentScreen(true);
   };
 
@@ -47,7 +57,6 @@ export default function AuthScreen() {
       setIsConsentScreen(false);
       setIsOTPScreen(true);
       
-      // Store Firebase confirmation if available
       if (result.confirmation) {
         setFirebaseConfirmation(result.confirmation);
         setUseFirebaseOTP(true);
@@ -57,7 +66,6 @@ export default function AuthScreen() {
           [{ text: 'OK' }]
         );
       } else {
-        // Mock OTP fallback (for web preview)
         setUseFirebaseOTP(false);
         Alert.alert(
           '✅ Registration Successful!', 
@@ -80,7 +88,6 @@ export default function AuthScreen() {
 
     setLoading(true);
     try {
-      // Pass Firebase confirmation if using Firebase OTP
       await verifyOTP(tempPhone, otp, firebaseConfirmation);
       Alert.alert('Success', 'Phone number verified! You can now log in.');
       setIsOTPScreen(false);
@@ -95,36 +102,18 @@ export default function AuthScreen() {
   };
 
   const handleLogin = async () => {
-    console.log('🎯 handleLogin called');
-    console.log('📞 Phone number:', phoneNumber);
-    console.log('🔑 Password length:', password?.length);
-    
     if (!phoneNumber || !password) {
       Alert.alert('Error', 'Please enter phone number and password');
       return;
     }
 
     setLoading(true);
-    console.log('⏳ Loading state set to true');
-    
     try {
-      console.log('📡 Calling login function from AuthContext...');
       await login(phoneNumber, password);
-      
-      console.log('✅ Login successful, navigating...');
-      
-      // Get the user role from auth context
-      // Navigation will be handled by auth context and splash screen
-      // But we can add a small delay to ensure state is updated
       setTimeout(() => {
-        console.log('🧭 Navigating to root...');
         router.replace('/');
       }, 100);
-      
     } catch (error: any) {
-      console.error('❌ Login error in handleLogin:', error);
-      
-      // Provide more helpful error messages
       if (error.message.includes('Invalid phone number or password')) {
         Alert.alert(
           'Login Failed',
@@ -134,9 +123,105 @@ export default function AuthScreen() {
         Alert.alert('Error', error.message || 'Login failed. Please try again.');
       }
     } finally {
-      console.log('✅ Loading state set to false');
       setLoading(false);
     }
+  };
+
+  // Forgot Password Functions
+  const handleSendResetOTP = async () => {
+    if (!forgotPhoneNumber) {
+      Alert.alert('Error', 'Please enter your phone number');
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      await axios.post(`${API_URL}/api/auth/forgot-password`, {
+        phone_number: forgotPhoneNumber
+      });
+      Alert.alert(
+        'OTP Sent',
+        'A password reset code has been sent to your phone via SMS/WhatsApp.',
+        [{ text: 'OK' }]
+      );
+      setResetStep(2);
+    } catch (error: any) {
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to send reset code. Please check your phone number.');
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  const handleVerifyResetOTP = async () => {
+    if (!resetOTP) {
+      Alert.alert('Error', 'Please enter the OTP');
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      await axios.post(`${API_URL}/api/auth/verify-reset-otp`, {
+        phone_number: forgotPhoneNumber,
+        otp: resetOTP
+      });
+      setResetStep(3);
+    } catch (error: any) {
+      Alert.alert('Error', error.response?.data?.detail || 'Invalid OTP. Please try again.');
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  const handleResetPassword = async () => {
+    if (!newPassword || !confirmPassword) {
+      Alert.alert('Error', 'Please fill in both password fields');
+      return;
+    }
+
+    if (newPassword !== confirmPassword) {
+      Alert.alert('Error', 'Passwords do not match');
+      return;
+    }
+
+    if (newPassword.length < 6) {
+      Alert.alert('Error', 'Password must be at least 6 characters');
+      return;
+    }
+
+    setResetLoading(true);
+    try {
+      await axios.post(`${API_URL}/api/auth/reset-password`, {
+        phone_number: forgotPhoneNumber,
+        otp: resetOTP,
+        new_password: newPassword
+      });
+      Alert.alert(
+        'Password Reset Successful',
+        'Your password has been changed. Please log in with your new password.',
+        [{ text: 'OK', onPress: () => {
+          setShowForgotPassword(false);
+          setResetStep(1);
+          setForgotPhoneNumber('');
+          setResetOTP('');
+          setNewPassword('');
+          setConfirmPassword('');
+          setPhoneNumber(forgotPhoneNumber);
+        }}]
+      );
+    } catch (error: any) {
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to reset password. Please try again.');
+    } finally {
+      setResetLoading(false);
+    }
+  };
+
+  const closeForgotPassword = () => {
+    setShowForgotPassword(false);
+    setResetStep(1);
+    setForgotPhoneNumber('');
+    setResetOTP('');
+    setNewPassword('');
+    setConfirmPassword('');
   };
 
   if (isOTPScreen) {
@@ -217,7 +302,7 @@ export default function AuthScreen() {
               <Text style={styles.consentTitle}>Your Privacy Matters</Text>
               
               <Text style={styles.consentNotice}>
-                Clubvel collects and processes the following personal information to manage your Stokvel group:
+                Clubvel collects and processes the following personal information to manage your Social Club group:
               </Text>
               
               <View style={styles.consentList}>
@@ -240,7 +325,7 @@ export default function AuthScreen() {
               </View>
 
               <Text style={styles.consentNotice}>
-                This information is used solely for Stokvel group management and is protected in accordance with the Protection of Personal Information Act (POPIA).
+                This information is used solely for Social Club group management and is protected in accordance with the Protection of Personal Information Act (POPIA).
               </Text>
             </View>
 
@@ -260,13 +345,12 @@ export default function AuthScreen() {
                 <Text 
                   style={styles.privacyLink}
                   onPress={() => {
-                    // Navigate to privacy policy
                     router.push('/privacy-policy');
                   }}
                 >
                   Privacy Policy
                 </Text>
-                {' '}and consent to my personal and financial information being processed for Stokvel group management purposes.
+                {' '}and consent to my personal and financial information being processed for Social Club group management purposes.
               </Text>
             </TouchableOpacity>
 
@@ -368,7 +452,7 @@ export default function AuthScreen() {
                         role === 'treasurer' && styles.roleButtonTextActive,
                       ]}
                     >
-                      Treasurer
+                      Admin
                     </Text>
                   </TouchableOpacity>
                 </View>
@@ -420,6 +504,10 @@ export default function AuthScreen() {
                 </Text>
               </TouchableOpacity>
 
+              <TouchableOpacity onPress={() => setShowForgotPassword(true)}>
+                <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+              </TouchableOpacity>
+
               <TouchableOpacity onPress={() => setIsLogin(false)}>
                 <Text style={styles.switchText}>New to Clubvel? Sign Up</Text>
               </TouchableOpacity>
@@ -427,6 +515,119 @@ export default function AuthScreen() {
           )}
         </View>
       </ScrollView>
+
+      {/* Forgot Password Modal */}
+      <Modal
+        visible={showForgotPassword}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={closeForgotPassword}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Reset Password</Text>
+              <TouchableOpacity onPress={closeForgotPassword}>
+                <Ionicons name="close" size={28} color={Colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            <ScrollView style={styles.modalBody}>
+              {resetStep === 1 && (
+                <>
+                  <Text style={styles.resetStepTitle}>Step 1: Enter your phone number</Text>
+                  <Text style={styles.resetStepDesc}>
+                    We'll send you a verification code via SMS or WhatsApp
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Phone Number"
+                    value={forgotPhoneNumber}
+                    onChangeText={setForgotPhoneNumber}
+                    keyboardType="phone-pad"
+                  />
+                  <TouchableOpacity
+                    style={[styles.button, resetLoading && styles.buttonDisabled]}
+                    onPress={handleSendResetOTP}
+                    disabled={resetLoading}
+                  >
+                    {resetLoading ? (
+                      <ActivityIndicator color={Colors.white} />
+                    ) : (
+                      <Text style={styles.buttonText}>Send Reset Code</Text>
+                    )}
+                  </TouchableOpacity>
+                </>
+              )}
+
+              {resetStep === 2 && (
+                <>
+                  <Text style={styles.resetStepTitle}>Step 2: Enter verification code</Text>
+                  <Text style={styles.resetStepDesc}>
+                    Enter the code we sent to {forgotPhoneNumber}
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Enter OTP"
+                    value={resetOTP}
+                    onChangeText={setResetOTP}
+                    keyboardType="number-pad"
+                    maxLength={4}
+                  />
+                  <TouchableOpacity
+                    style={[styles.button, resetLoading && styles.buttonDisabled]}
+                    onPress={handleVerifyResetOTP}
+                    disabled={resetLoading}
+                  >
+                    {resetLoading ? (
+                      <ActivityIndicator color={Colors.white} />
+                    ) : (
+                      <Text style={styles.buttonText}>Verify Code</Text>
+                    )}
+                  </TouchableOpacity>
+                  <TouchableOpacity onPress={() => setResetStep(1)}>
+                    <Text style={styles.backLinkText}>← Back to phone number</Text>
+                  </TouchableOpacity>
+                </>
+              )}
+
+              {resetStep === 3 && (
+                <>
+                  <Text style={styles.resetStepTitle}>Step 3: Create new password</Text>
+                  <Text style={styles.resetStepDesc}>
+                    Enter your new password below
+                  </Text>
+                  <TextInput
+                    style={styles.input}
+                    placeholder="New Password"
+                    value={newPassword}
+                    onChangeText={setNewPassword}
+                    secureTextEntry
+                  />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Confirm New Password"
+                    value={confirmPassword}
+                    onChangeText={setConfirmPassword}
+                    secureTextEntry
+                  />
+                  <TouchableOpacity
+                    style={[styles.button, resetLoading && styles.buttonDisabled]}
+                    onPress={handleResetPassword}
+                    disabled={resetLoading}
+                  >
+                    {resetLoading ? (
+                      <ActivityIndicator color={Colors.white} />
+                    ) : (
+                      <Text style={styles.buttonText}>Reset Password</Text>
+                    )}
+                  </TouchableOpacity>
+                </>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </KeyboardAvoidingView>
   );
 }
@@ -530,6 +731,13 @@ const styles = StyleSheet.create({
     textAlign: 'center',
     fontWeight: '600',
   },
+  forgotPasswordText: {
+    color: Colors.gold,
+    fontSize: 16,
+    textAlign: 'center',
+    fontWeight: '600',
+    marginBottom: 16,
+  },
   otpInfo: {
     fontSize: 16,
     color: Colors.textSecondary,
@@ -537,62 +745,7 @@ const styles = StyleSheet.create({
     marginBottom: 24,
     lineHeight: 24,
   },
-  demoNotice: {
-    flexDirection: 'row',
-    backgroundColor: Colors.lightGold,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 2,
-    borderColor: Colors.gold,
-    marginBottom: 24,
-    alignItems: 'center',
-    gap: 12,
-  },
-  demoNoticeText: {
-    flex: 1,
-  },
-  demoNoticeTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: Colors.textPrimary,
-    marginBottom: 4,
-  },
-  demoNoticeBody: {
-    fontSize: 14,
-    color: Colors.textSecondary,
-    lineHeight: 20,
-  },
-  demoOTP: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: Colors.gold,
-    letterSpacing: 2,
-  },
-  demoAccountInfo: {
-    flexDirection: 'row',
-    backgroundColor: '#E8F5E9',
-    padding: 12,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.mediumGreen,
-    marginBottom: 16,
-    gap: 10,
-  },
-  demoAccountText: {
-    flex: 1,
-  },
-  demoAccountTitle: {
-    fontSize: 13,
-    fontWeight: 'bold',
-    color: Colors.mediumGreen,
-    marginBottom: 4,
-  },
-  demoAccountDetail: {
-    fontSize: 11,
-    color: Colors.textSecondary,
-    lineHeight: 16,
-  },
-  // POPIA Consent Screen Styles
+  // POPIA Consent Styles
   backButton: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -681,6 +834,52 @@ const styles = StyleSheet.create({
   consentHint: {
     fontSize: 13,
     color: Colors.textMuted,
+    textAlign: 'center',
+    marginTop: 8,
+  },
+  // Modal Styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: Colors.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '80%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.cardBorder,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: Colors.textPrimary,
+  },
+  modalBody: {
+    padding: 20,
+  },
+  resetStepTitle: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginBottom: 8,
+  },
+  resetStepDesc: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginBottom: 20,
+    lineHeight: 20,
+  },
+  backLinkText: {
+    color: Colors.mediumGreen,
+    fontSize: 14,
     textAlign: 'center',
     marginTop: 8,
   },

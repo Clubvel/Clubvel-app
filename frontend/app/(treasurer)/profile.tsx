@@ -1,15 +1,72 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, ActivityIndicator } from 'react-native';
+import React, { useState, useEffect } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, ActivityIndicator, Modal } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
+import axios from 'axios';
+
+interface AdminStats {
+  clubs_managed: number;
+  total_members: number;
+  total_collected: number;
+}
+
+interface Club {
+  id: string;
+  name: string;
+  member_count: number;
+  monthly_contribution: number;
+}
+
+interface PayoutSchedule {
+  club_name: string;
+  next_payout_member: string;
+  payout_date: string;
+  amount: number;
+}
 
 export default function ProfileScreen() {
   const { user, logout, updateProfilePhoto } = useAuth();
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [stats, setStats] = useState<AdminStats>({ clubs_managed: 0, total_members: 0, total_collected: 0 });
+  const [clubs, setClubs] = useState<Club[]>([]);
+  const [payoutSchedules, setPayoutSchedules] = useState<PayoutSchedule[]>([]);
+  const [showClubsModal, setShowClubsModal] = useState(false);
+  const [showPayoutModal, setShowPayoutModal] = useState(false);
+
+  const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+
+  useEffect(() => {
+    fetchProfileData();
+  }, []);
+
+  const fetchProfileData = async () => {
+    try {
+      // Fetch admin stats
+      const statsResponse = await axios.get(`${API_URL}/api/admin/stats/${user?.id}`);
+      setStats(statsResponse.data);
+
+      // Fetch managed clubs
+      const clubsResponse = await axios.get(`${API_URL}/api/admin/clubs/${user?.id}`);
+      setClubs(clubsResponse.data.clubs || []);
+
+      // Fetch payout schedules for managed clubs
+      const payoutResponse = await axios.get(`${API_URL}/api/admin/payout-schedules/${user?.id}`);
+      setPayoutSchedules(payoutResponse.data.schedules || []);
+    } catch (error) {
+      console.error('Error fetching profile data:', error);
+      // Set defaults if API fails
+      setStats({ clubs_managed: 0, total_members: 0, total_collected: 0 });
+      setClubs([]);
+      setPayoutSchedules([]);
+    } finally {
+      setLoading(false);
+    }
+  };
 
   const handleLogout = () => {
     Alert.alert(
@@ -85,35 +142,55 @@ export default function ProfileScreen() {
         </TouchableOpacity>
         <Text style={styles.name}>{user?.full_name}</Text>
         <View style={styles.roleBadge}>
-          <Text style={styles.roleBadgeText}>TREASURER</Text>
+          <Text style={styles.roleBadgeText}>ADMIN</Text>
         </View>
       </View>
 
       <ScrollView style={styles.content}>
-        {/* Stats */}
-        <View style={styles.statsContainer}>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>2</Text>
-            <Text style={styles.statLabel}>Clubs Managed</Text>
+        {/* Stats - Dynamically loaded */}
+        {loading ? (
+          <View style={styles.statsLoading}>
+            <ActivityIndicator size="small" color={Colors.mediumGreen} />
           </View>
-          <View style={styles.statCard}>
-            <Text style={styles.statValue}>12</Text>
-            <Text style={styles.statLabel}>Members</Text>
+        ) : (
+          <View style={styles.statsContainer}>
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>{stats.clubs_managed}</Text>
+              <Text style={styles.statLabel}>Clubs Managed</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={styles.statValue}>{stats.total_members}</Text>
+              <Text style={styles.statLabel}>Members</Text>
+            </View>
+            <View style={styles.statCard}>
+              <Text style={[styles.statValue, styles.moneyValue]}>R{stats.total_collected.toLocaleString()}</Text>
+              <Text style={styles.statLabel}>Collected</Text>
+            </View>
           </View>
-          <View style={styles.statCard}>
-            <Text style={[styles.statValue, styles.moneyValue]}>R8,500</Text>
-            <Text style={styles.statLabel}>Collected</Text>
-          </View>
-        </View>
+        )}
 
         {/* Menu */}
         <View style={styles.menuSection}>
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity style={styles.menuItem} onPress={() => setShowClubsModal(true)}>
             <View style={styles.menuItemLeft}>
               <Ionicons name="people" size={24} color={Colors.mediumGreen} />
               <Text style={styles.menuItemText}>My Clubs</Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+            <View style={styles.menuItemRight}>
+              <Text style={styles.menuItemCount}>{clubs.length}</Text>
+              <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+            </View>
+          </TouchableOpacity>
+
+          <TouchableOpacity style={styles.menuItem} onPress={() => setShowPayoutModal(true)}>
+            <View style={styles.menuItemLeft}>
+              <Ionicons name="calendar" size={24} color={Colors.mediumGreen} />
+              <Text style={styles.menuItemText}>Payout Schedule</Text>
+            </View>
+            <View style={styles.menuItemRight}>
+              <Text style={styles.menuItemCount}>{payoutSchedules.length}</Text>
+              <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+            </View>
           </TouchableOpacity>
 
           <TouchableOpacity 
@@ -129,7 +206,10 @@ export default function ProfileScreen() {
 
           <View style={styles.divider} />
 
-          <TouchableOpacity style={styles.menuItem}>
+          <TouchableOpacity 
+            style={styles.menuItem}
+            onPress={() => router.push('/(treasurer)/notifications')}
+          >
             <View style={styles.menuItemLeft}>
               <Ionicons name="notifications" size={24} color={Colors.mediumGreen} />
               <Text style={styles.menuItemText}>Notification Settings</Text>
@@ -145,7 +225,7 @@ export default function ProfileScreen() {
           >
             <View style={styles.menuItemLeft}>
               <Ionicons name="help-circle" size={24} color={Colors.mediumGreen} />
-              <Text style={styles.menuItemText}>Help & Support</Text>
+              <Text style={styles.menuItemText}>Contact Us</Text>
             </View>
             <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
           </TouchableOpacity>
@@ -173,6 +253,87 @@ export default function ProfileScreen() {
 
         <View style={styles.spacer} />
       </ScrollView>
+
+      {/* My Clubs Modal */}
+      <Modal
+        visible={showClubsModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowClubsModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>My Clubs</Text>
+              <TouchableOpacity onPress={() => setShowClubsModal(false)}>
+                <Ionicons name="close" size={28} color={Colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalBody}>
+              {clubs.length > 0 ? (
+                clubs.map((club, index) => (
+                  <View key={index} style={styles.clubItem}>
+                    <View style={styles.clubIcon}>
+                      <Ionicons name="people" size={24} color={Colors.mediumGreen} />
+                    </View>
+                    <View style={styles.clubInfo}>
+                      <Text style={styles.clubName}>{club.name}</Text>
+                      <Text style={styles.clubDetails}>{club.member_count} members • R{club.monthly_contribution}/month</Text>
+                    </View>
+                  </View>
+                ))
+              ) : (
+                <View style={styles.emptyState}>
+                  <Ionicons name="people-outline" size={48} color={Colors.textMuted} />
+                  <Text style={styles.emptyStateText}>No Clubs Available</Text>
+                  <Text style={styles.emptyStateSubtext}>Create a club to get started</Text>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
+
+      {/* Payout Schedule Modal */}
+      <Modal
+        visible={showPayoutModal}
+        transparent={true}
+        animationType="slide"
+        onRequestClose={() => setShowPayoutModal(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Payout Schedule</Text>
+              <TouchableOpacity onPress={() => setShowPayoutModal(false)}>
+                <Ionicons name="close" size={28} color={Colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+            <ScrollView style={styles.modalBody}>
+              {payoutSchedules.length > 0 ? (
+                payoutSchedules.map((schedule, index) => (
+                  <View key={index} style={styles.scheduleItem}>
+                    <View style={styles.scheduleIcon}>
+                      <Ionicons name="calendar" size={24} color={Colors.gold} />
+                    </View>
+                    <View style={styles.scheduleInfo}>
+                      <Text style={styles.scheduleName}>{schedule.club_name}</Text>
+                      <Text style={styles.scheduleDetails}>Next: {schedule.next_payout_member}</Text>
+                      <Text style={styles.scheduleDate}>{schedule.payout_date} • R{schedule.amount.toLocaleString()}</Text>
+                    </View>
+                  </View>
+                ))
+              ) : (
+                <View style={styles.emptyState}>
+                  <Ionicons name="calendar-outline" size={48} color={Colors.textMuted} />
+                  <Text style={styles.emptyStateText}>No Payout Schedule</Text>
+                  <Text style={styles.emptyStateSubtext}>Add members to your clubs to see payout schedules</Text>
+                </View>
+              )}
+            </ScrollView>
+          </View>
+        </View>
+      </Modal>
     </View>
   );
 }
@@ -241,6 +402,10 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
+  statsLoading: {
+    padding: 32,
+    alignItems: 'center',
+  },
   statsContainer: {
     flexDirection: 'row',
     paddingHorizontal: 24,
@@ -291,9 +456,19 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     gap: 16,
   },
+  menuItemRight: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
   menuItemText: {
     fontSize: 16,
     color: Colors.textPrimary,
+  },
+  menuItemCount: {
+    fontSize: 14,
+    color: Colors.textMuted,
+    fontWeight: '500',
   },
   logoutText: {
     color: Colors.statusLate,
@@ -305,5 +480,113 @@ const styles = StyleSheet.create({
   },
   spacer: {
     height: 32,
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: Colors.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '70%',
+  },
+  modalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.cardBorder,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: Colors.textPrimary,
+  },
+  modalBody: {
+    padding: 20,
+  },
+  emptyState: {
+    alignItems: 'center',
+    paddingVertical: 40,
+  },
+  emptyStateText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    marginTop: 16,
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: Colors.textMuted,
+    marginTop: 4,
+    textAlign: 'center',
+  },
+  clubItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.cardBorder,
+  },
+  clubIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.lightBackground,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  clubInfo: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  clubName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+  },
+  clubDetails: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  scheduleItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    paddingVertical: 12,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.cardBorder,
+  },
+  scheduleIcon: {
+    width: 48,
+    height: 48,
+    borderRadius: 24,
+    backgroundColor: Colors.lightGold,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  scheduleInfo: {
+    marginLeft: 12,
+    flex: 1,
+  },
+  scheduleName: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+  },
+  scheduleDetails: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginTop: 2,
+  },
+  scheduleDate: {
+    fontSize: 14,
+    fontWeight: '500',
+    color: Colors.mediumGreen,
+    marginTop: 2,
   },
 });

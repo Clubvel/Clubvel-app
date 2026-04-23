@@ -599,6 +599,453 @@ async def login(request: Request, login_data: UserLogin):
         }
     }
 
+
+# ==================== FORGOT PASSWORD ENDPOINTS ====================
+
+class ForgotPasswordRequest(BaseModel):
+    phone_number: str
+
+class VerifyResetOTPRequest(BaseModel):
+    phone_number: str
+    otp: str
+
+class ResetPasswordRequest(BaseModel):
+    phone_number: str
+    otp: str
+    new_password: str
+
+@api_router.post("/auth/forgot-password")
+@limiter.limit("3/minute")
+async def forgot_password(request: Request, data: ForgotPasswordRequest):
+    """Send password reset OTP to user's phone"""
+    user = await db.users.find_one({"phone_number": data.phone_number})
+    if not user:
+        raise HTTPException(status_code=404, detail="No account found with this phone number")
+    
+    # Send OTP via WhatsApp/SMS
+    otp_result = await send_otp(data.phone_number, preferred_channel='whatsapp')
+    
+    if not otp_result['success']:
+        raise HTTPException(status_code=500, detail="Failed to send reset code. Please try again.")
+    
+    notif_status = get_notification_status()
+    response = {
+        "message": f"Reset code sent via {otp_result['channel']}",
+        "channel": otp_result['channel']
+    }
+    
+    if notif_status['mode'] == 'mock':
+        response["mock_otp"] = "1234"
+    
+    return response
+
+@api_router.post("/auth/verify-reset-otp")
+async def verify_reset_otp(data: VerifyResetOTPRequest):
+    """Verify reset OTP before allowing password change"""
+    user = await db.users.find_one({"phone_number": data.phone_number})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    verification_result = verify_stored_otp(data.phone_number, data.otp)
+    
+    if not verification_result['valid']:
+        raise HTTPException(status_code=400, detail=verification_result['error'])
+    
+    return {"message": "OTP verified successfully", "can_reset": True}
+
+@api_router.post("/auth/reset-password")
+async def reset_password(data: ResetPasswordRequest):
+    """Reset user password after OTP verification"""
+    user = await db.users.find_one({"phone_number": data.phone_number})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Verify OTP again for security
+    verification_result = verify_stored_otp(data.phone_number, data.otp)
+    if not verification_result['valid']:
+        raise HTTPException(status_code=400, detail="Invalid or expired reset code")
+    
+    # Update password
+    new_hash = hash_password(data.new_password)
+    await db.users.update_one(
+        {"phone_number": data.phone_number},
+        {"$set": {"password_hash": new_hash}}
+    )
+    
+    return {"message": "Password reset successful"}
+
+
+# ==================== USER STATS ENDPOINTS ====================
+
+@api_router.get("/user/stats/{user_id}")
+async def get_user_stats(user_id: str):
+    """Get user statistics for profile display"""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get all memberships
+    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(100)
+    clubs_count = len(memberships)
+    
+    # Calculate total saved
+    total_saved = 0.0
+    total_contributions = 0
+    on_time_contributions = 0
+    
+    for membership in memberships:
+        contributions = await db.contributions.find({
+            "member_id": membership['id'],
+            "contribution_status": "confirmed"
+        }).to_list(1000)
+        
+        for c in contributions:
+            total_saved += c.get('amount_paid', 0)
+            total_contributions += 1
+            # Check if paid on time (within 2 days of due date)
+            if c.get('payment_date') and c.get('confirmation_date'):
+                on_time_contributions += 1
+    
+    on_time_percentage = int((on_time_contributions / total_contributions * 100) if total_contributions > 0 else 0)
+    
+    # Get trust score
+    trust_score_record = await db.trust_scores.find_one({"user_id": user_id})
+    trust_score = trust_score_record.get('overall_score', 50) if trust_score_record else 50
+    
+    return {
+        "clubs_count": clubs_count,
+        "total_saved": total_saved,
+        "on_time_percentage": on_time_percentage,
+        "trust_score": trust_score
+    }
+
+@api_router.get("/member/clubs/{user_id}")
+async def get_member_clubs(user_id: str):
+    """Get all clubs a member belongs to"""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(100)
+    
+    clubs = []
+    for membership in memberships:
+        group = await db.groups.find_one({"id": membership['group_id']})
+        if group:
+            clubs.append({
+                "id": group['id'],
+                "name": group['group_name'],
+                "monthly_contribution": group['monthly_contribution']
+            })
+    
+    return {"clubs": clubs}
+
+@api_router.get("/member/payout-schedule/{user_id}")
+async def get_member_payout_schedule(user_id: str):
+    """Get payout schedule for a member"""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(100)
+    
+    schedules = []
+    for membership in memberships:
+        group = await db.groups.find_one({"id": membership['group_id']})
+        if group:
+            # Calculate payout based on position
+            member_count = await db.members.count_documents({"group_id": membership['group_id'], "status": "active"})
+            payout_position = membership.get('payout_position', 1)
+            monthly_contribution = group['monthly_contribution']
+            estimated_payout = monthly_contribution * member_count
+            
+            # Calculate payout date based on position
+            start_date = group.get('start_date', datetime.utcnow())
+            if isinstance(start_date, str):
+                start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
+            
+            payout_month = start_date + timedelta(days=30 * payout_position)
+            
+            schedules.append({
+                "club_name": group['group_name'],
+                "payout_date": payout_month.strftime("%B %Y"),
+                "amount": estimated_payout,
+                "position": payout_position
+            })
+    
+    return {"schedules": schedules}
+
+
+# ==================== ADMIN ENDPOINTS ====================
+
+@api_router.get("/admin/stats/{user_id}")
+async def get_admin_stats(user_id: str):
+    """Get admin statistics for profile display"""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get all groups managed by this admin
+    groups = await db.groups.find({
+        "$or": [
+            {"treasurer_user_id": user_id},
+            {"admin_user_ids": user_id}
+        ],
+        "status": "active"
+    }).to_list(100)
+    
+    clubs_managed = len(groups)
+    total_members = 0
+    total_collected = 0.0
+    
+    for group in groups:
+        # Count members
+        member_count = await db.members.count_documents({"group_id": group['id'], "status": "active"})
+        total_members += member_count
+        
+        # Sum confirmed contributions
+        contributions = await db.contributions.find({
+            "group_id": group['id'],
+            "contribution_status": "confirmed"
+        }).to_list(10000)
+        
+        for c in contributions:
+            total_collected += c.get('amount_paid', 0)
+    
+    return {
+        "clubs_managed": clubs_managed,
+        "total_members": total_members,
+        "total_collected": total_collected
+    }
+
+@api_router.get("/admin/clubs/{user_id}")
+async def get_admin_clubs(user_id: str):
+    """Get all clubs managed by an admin"""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    groups = await db.groups.find({
+        "$or": [
+            {"treasurer_user_id": user_id},
+            {"admin_user_ids": user_id}
+        ],
+        "status": "active"
+    }).to_list(100)
+    
+    clubs = []
+    for group in groups:
+        member_count = await db.members.count_documents({"group_id": group['id'], "status": "active"})
+        clubs.append({
+            "id": group['id'],
+            "name": group['group_name'],
+            "member_count": member_count,
+            "monthly_contribution": group['monthly_contribution']
+        })
+    
+    return {"clubs": clubs}
+
+@api_router.get("/admin/payout-schedules/{user_id}")
+async def get_admin_payout_schedules(user_id: str):
+    """Get payout schedules for all clubs managed by an admin"""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    groups = await db.groups.find({
+        "$or": [
+            {"treasurer_user_id": user_id},
+            {"admin_user_ids": user_id}
+        ],
+        "status": "active"
+    }).to_list(100)
+    
+    schedules = []
+    for group in groups:
+        # Find next member to receive payout
+        members = await db.members.find({
+            "group_id": group['id'],
+            "status": "active"
+        }).sort("payout_position", 1).to_list(100)
+        
+        if members:
+            next_member = members[0]
+            next_user = await db.users.find_one({"id": next_member['user_id']})
+            member_count = len(members)
+            estimated_payout = group['monthly_contribution'] * member_count
+            
+            schedules.append({
+                "club_name": group['group_name'],
+                "next_payout_member": next_user['full_name'] if next_user else "Unknown",
+                "payout_date": "Next Month",
+                "amount": estimated_payout
+            })
+    
+    return {"schedules": schedules}
+
+@api_router.get("/admin/dashboard/{user_id}")
+async def get_admin_dashboard(user_id: str):
+    """Get admin/treasurer dashboard data"""
+    user = await db.users.find_one({"id": user_id})
+    if not user:
+        raise HTTPException(status_code=404, detail="User not found")
+    
+    # Get all groups managed by this admin
+    groups = await db.groups.find({
+        "$or": [
+            {"treasurer_user_id": user_id},
+            {"admin_user_ids": user_id}
+        ],
+        "status": "active"
+    }).to_list(100)
+    
+    total_clubs = len(groups)
+    total_members = 0
+    total_collected_this_month = 0.0
+    late_members_count = 0
+    urgent_alerts = []
+    clubs_data = []
+    next_claim = None
+    
+    now = datetime.utcnow()
+    
+    for group in groups:
+        # Get members
+        members = await db.members.find({"group_id": group['id'], "status": "active"}).to_list(100)
+        member_count = len(members)
+        total_members += member_count
+        
+        collected = 0.0
+        expected = group['monthly_contribution'] * member_count
+        late_in_club = 0
+        
+        for member in members:
+            # Get current month contribution
+            contribution = await db.contributions.find_one({
+                "member_id": member['id'],
+                "group_id": group['id'],
+                "month": now.month,
+                "year": now.year
+            })
+            
+            if contribution:
+                if contribution['contribution_status'] == 'confirmed':
+                    collected += contribution.get('amount_paid', 0)
+                    total_collected_this_month += contribution.get('amount_paid', 0)
+                elif contribution['contribution_status'] in ['late', 'pending']:
+                    # Check if actually late
+                    due_date = datetime(now.year, now.month, min(group['payment_due_date'], 28))
+                    if now > due_date + timedelta(days=2):
+                        late_in_club += 1
+                        late_members_count += 1
+                        
+                        # Get member user info for urgent alert
+                        member_user = await db.users.find_one({"id": member['user_id']})
+                        if member_user and len(urgent_alerts) < 5:
+                            days_late = (now - due_date).days
+                            urgent_alerts.append({
+                                "member_name": member_user['full_name'],
+                                "group_name": group['group_name'],
+                                "days_late": days_late,
+                                "amount": group['monthly_contribution'],
+                                "phone": member_user['phone_number']
+                            })
+        
+        clubs_data.append({
+            "id": group['id'],
+            "name": group['group_name'],
+            "member_count": member_count,
+            "due_date": group['payment_due_date'],
+            "collected": collected,
+            "expected": expected,
+            "status": "active",
+            "late_count": late_in_club
+        })
+    
+    return {
+        "summary": {
+            "total_clubs": total_clubs,
+            "total_members": total_members,
+            "total_collected_this_month": total_collected_this_month,
+            "late_members_count": late_members_count
+        },
+        "urgent_alerts": urgent_alerts,
+        "clubs": clubs_data,
+        "next_claim": next_claim
+    }
+
+
+# ==================== GROUP/CLUB MANAGEMENT ====================
+
+class CreateGroupRequest(BaseModel):
+    group_name: str
+    group_type: str = "savings"
+    monthly_contribution: float
+    payment_due_date: int = 25
+    bank_name: str
+    bank_account_number: str
+    bank_account_holder: str
+    admin_user_id: str
+    payment_reference_prefix: str = "CLB"
+    start_date: Optional[str] = None
+    description: Optional[str] = None
+
+@api_router.post("/groups/create")
+async def create_group(data: CreateGroupRequest):
+    """Create a new club/group"""
+    # Verify admin user exists
+    admin_user = await db.users.find_one({"id": data.admin_user_id})
+    if not admin_user:
+        raise HTTPException(status_code=404, detail="Admin user not found")
+    
+    # Create group
+    group_id = str(uuid.uuid4())
+    start_date = datetime.fromisoformat(data.start_date.replace('Z', '+00:00')) if data.start_date else datetime.utcnow()
+    
+    group = {
+        "id": group_id,
+        "group_name": data.group_name,
+        "group_type": data.group_type,
+        "monthly_contribution": data.monthly_contribution,
+        "payment_due_date": data.payment_due_date,
+        "bank_name": encrypt_sensitive_field(data.bank_name),
+        "bank_account_number": encrypt_sensitive_field(data.bank_account_number),
+        "bank_account_holder": encrypt_sensitive_field(data.bank_account_holder),
+        "payment_reference_prefix": data.payment_reference_prefix,
+        "start_date": start_date,
+        "status": "active",
+        "treasurer_user_id": data.admin_user_id,
+        "admin_user_ids": [data.admin_user_id],  # Support for multiple admins
+        "description": data.description,
+        "created_at": datetime.utcnow()
+    }
+    
+    await db.groups.insert_one(group)
+    
+    # Add creator as first member with admin role
+    member = {
+        "id": str(uuid.uuid4()),
+        "user_id": data.admin_user_id,
+        "group_id": group_id,
+        "unique_reference_code": f"{data.payment_reference_prefix}001",
+        "date_joined_group": datetime.utcnow(),
+        "status": "active",
+        "role_in_group": "admin",
+        "payout_position": 1
+    }
+    
+    await db.members.insert_one(member)
+    
+    logging.info(f"Group created: {data.group_name} by user {data.admin_user_id}")
+    
+    return {
+        "message": "Club created successfully",
+        "group_id": group_id,
+        "group_name": data.group_name
+    }
+
+
+
 # ==================== MEMBER ROUTES ====================
 
 class ProfilePhotoUpdate(BaseModel):

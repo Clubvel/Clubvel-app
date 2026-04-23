@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Linking, Alert, Modal, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Linking, Alert, Modal, Image, TextInput } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
@@ -44,7 +44,7 @@ interface DashboardData {
   } | null;
 }
 
-export default function TreasurerDashboardScreen() {
+export default function AdminDashboardScreen() {
   const { user, logout } = useAuth();
   const router = useRouter();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
@@ -53,15 +53,33 @@ export default function TreasurerDashboardScreen() {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showCreateClubModal, setShowCreateClubModal] = useState(false);
+  const [creatingClub, setCreatingClub] = useState(false);
+  
+  // Create Club Form State
+  const [clubName, setClubName] = useState('');
+  const [clubType, setClubType] = useState('savings');
+  const [monthlyContribution, setMonthlyContribution] = useState('');
+  const [paymentDueDate, setPaymentDueDate] = useState('25');
+  const [bankName, setBankName] = useState('');
+  const [bankAccountNumber, setBankAccountNumber] = useState('');
+  const [bankAccountHolder, setBankAccountHolder] = useState('');
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
   const fetchDashboard = async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/treasurer/dashboard/${user?.id}`);
+      const response = await axios.get(`${API_URL}/api/admin/dashboard/${user?.id}`);
       setDashboardData(response.data);
     } catch (error) {
-      console.error('Error fetching treasurer dashboard:', error);
+      console.error('Error fetching admin dashboard:', error);
+      // Set empty dashboard data if API fails
+      setDashboardData({
+        summary: { total_clubs: 0, total_members: 0, total_collected_this_month: 0, late_members_count: 0 },
+        urgent_alerts: [],
+        clubs: [],
+        next_claim: null
+      });
     } finally {
       setLoading(false);
       setRefreshing(false);
@@ -80,7 +98,6 @@ export default function TreasurerDashboardScreen() {
   };
 
   const handleRemindMember = (phone: string, name: string) => {
-    // Mock WhatsApp reminder
     Alert.alert(
       'Send Reminder',
       `Send WhatsApp reminder to ${name} at ${phone}?`,
@@ -89,12 +106,51 @@ export default function TreasurerDashboardScreen() {
         {
           text: 'Send',
           onPress: () => {
-            // In production, this would call WhatsApp Business API
             Alert.alert('Reminder Sent', `WhatsApp reminder sent to ${name}`);
           },
         },
       ]
     );
+  };
+
+  const handleCreateClub = async () => {
+    if (!clubName || !monthlyContribution || !bankName || !bankAccountNumber || !bankAccountHolder) {
+      Alert.alert('Missing Information', 'Please fill in all required fields');
+      return;
+    }
+
+    setCreatingClub(true);
+    try {
+      const response = await axios.post(`${API_URL}/api/groups/create`, {
+        group_name: clubName,
+        group_type: clubType,
+        monthly_contribution: parseFloat(monthlyContribution),
+        payment_due_date: parseInt(paymentDueDate),
+        bank_name: bankName,
+        bank_account_number: bankAccountNumber,
+        bank_account_holder: bankAccountHolder,
+        admin_user_id: user?.id,
+        payment_reference_prefix: clubName.substring(0, 3).toUpperCase(),
+        start_date: new Date().toISOString()
+      });
+
+      Alert.alert('Success', `Club "${clubName}" created successfully!`);
+      setShowCreateClubModal(false);
+      // Reset form
+      setClubName('');
+      setClubType('savings');
+      setMonthlyContribution('');
+      setPaymentDueDate('25');
+      setBankName('');
+      setBankAccountNumber('');
+      setBankAccountHolder('');
+      // Refresh dashboard
+      fetchDashboard();
+    } catch (error: any) {
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to create club');
+    } finally {
+      setCreatingClub(false);
+    }
   };
 
   const handleLogout = () => {
@@ -126,10 +182,8 @@ export default function TreasurerDashboardScreen() {
         }
       });
       
-      // Clear local storage
       await AsyncStorage.clear();
       
-      // Show success message and redirect
       Alert.alert(
         'Account Deleted',
         'Your personal information has been deleted. Financial records have been anonymized for group accounting purposes.',
@@ -230,7 +284,7 @@ export default function TreasurerDashboardScreen() {
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Collected This Month</Text>
           <Text style={[styles.summaryValue, styles.moneyValue]}>
-            R{dashboardData?.summary.total_collected_this_month.toFixed(2) || '0.00'}
+            R{dashboardData?.summary.total_collected_this_month?.toFixed(2) || '0.00'}
           </Text>
         </View>
 
@@ -240,6 +294,17 @@ export default function TreasurerDashboardScreen() {
             {dashboardData?.summary.late_members_count || 0}
           </Text>
         </View>
+      </View>
+
+      {/* Create Club Button */}
+      <View style={styles.createClubSection}>
+        <TouchableOpacity 
+          style={styles.createClubButton}
+          onPress={() => setShowCreateClubModal(true)}
+        >
+          <Ionicons name="add-circle" size={24} color={Colors.white} />
+          <Text style={styles.createClubButtonText}>Create New Club</Text>
+        </TouchableOpacity>
       </View>
 
       {/* Urgent Alerts */}
@@ -312,7 +377,7 @@ export default function TreasurerDashboardScreen() {
                     style={[
                       styles.progressFill,
                       {
-                        width: `${(club.collected / club.expected) * 100}%`,
+                        width: `${club.expected > 0 ? (club.collected / club.expected) * 100 : 0}%`,
                         backgroundColor: club.late_count > 0 ? Colors.gold : Colors.statusPaid,
                       },
                     ]}
@@ -331,7 +396,9 @@ export default function TreasurerDashboardScreen() {
           ))
         ) : (
           <View style={styles.emptyState}>
+            <Ionicons name="people-outline" size={48} color={Colors.textMuted} />
             <Text style={styles.emptyStateText}>No clubs managed</Text>
+            <Text style={styles.emptyStateSubtext}>Tap "Create New Club" above to get started</Text>
           </View>
         )}
       </View>
@@ -373,12 +440,12 @@ export default function TreasurerDashboardScreen() {
           <View style={styles.dropdownHeader}>
             <View style={styles.dropdownAvatar}>
               <Text style={styles.dropdownAvatarText}>
-                {user?.full_name?.charAt(0) || 'T'}
+                {user?.full_name?.charAt(0) || 'A'}
               </Text>
             </View>
             <View style={styles.dropdownUserInfo}>
               <Text style={styles.dropdownUserName}>{user?.full_name}</Text>
-              <Text style={styles.dropdownUserRole}>Treasurer</Text>
+              <Text style={styles.dropdownUserRole}>Admin</Text>
             </View>
           </View>
           
@@ -428,6 +495,106 @@ export default function TreasurerDashboardScreen() {
           </TouchableOpacity>
         </View>
       </TouchableOpacity>
+    </Modal>
+
+    {/* Create Club Modal */}
+    <Modal
+      visible={showCreateClubModal}
+      transparent={true}
+      animationType="slide"
+      onRequestClose={() => setShowCreateClubModal(false)}
+    >
+      <View style={styles.createClubModalOverlay}>
+        <View style={styles.createClubModalContent}>
+          <View style={styles.createClubModalHeader}>
+            <Text style={styles.createClubModalTitle}>Create New Club</Text>
+            <TouchableOpacity onPress={() => setShowCreateClubModal(false)}>
+              <Ionicons name="close" size={28} color={Colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
+
+          <ScrollView style={styles.createClubForm}>
+            <Text style={styles.inputLabel}>Club Name *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. Family Savings Club"
+              value={clubName}
+              onChangeText={setClubName}
+            />
+
+            <Text style={styles.inputLabel}>Club Type</Text>
+            <View style={styles.typeSelector}>
+              {['savings', 'burial', 'investment', 'grocery', 'social'].map((type) => (
+                <TouchableOpacity
+                  key={type}
+                  style={[styles.typeButton, clubType === type && styles.typeButtonActive]}
+                  onPress={() => setClubType(type)}
+                >
+                  <Text style={[styles.typeButtonText, clubType === type && styles.typeButtonTextActive]}>
+                    {type.charAt(0).toUpperCase() + type.slice(1)}
+                  </Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+
+            <Text style={styles.inputLabel}>Monthly Contribution (R) *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. 500"
+              value={monthlyContribution}
+              onChangeText={setMonthlyContribution}
+              keyboardType="numeric"
+            />
+
+            <Text style={styles.inputLabel}>Payment Due Date (Day of Month)</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. 25"
+              value={paymentDueDate}
+              onChangeText={setPaymentDueDate}
+              keyboardType="numeric"
+              maxLength={2}
+            />
+
+            <Text style={styles.inputLabel}>Bank Name *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="e.g. FNB, Standard Bank"
+              value={bankName}
+              onChangeText={setBankName}
+            />
+
+            <Text style={styles.inputLabel}>Bank Account Number *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Account number"
+              value={bankAccountNumber}
+              onChangeText={setBankAccountNumber}
+              keyboardType="numeric"
+            />
+
+            <Text style={styles.inputLabel}>Account Holder Name *</Text>
+            <TextInput
+              style={styles.input}
+              placeholder="Name on the account"
+              value={bankAccountHolder}
+              onChangeText={setBankAccountHolder}
+            />
+          </ScrollView>
+
+          <TouchableOpacity
+            style={[styles.createClubSubmitButton, creatingClub && styles.buttonDisabled]}
+            onPress={handleCreateClub}
+            disabled={creatingClub}
+          >
+            {creatingClub ? (
+              <ActivityIndicator color={Colors.white} />
+            ) : (
+              <Text style={styles.createClubSubmitText}>Create Club</Text>
+            )}
+          </TouchableOpacity>
+        </View>
+      </View>
     </Modal>
 
     {/* Delete Account Confirmation Modal */}
@@ -497,25 +664,6 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  treasurerBadge: {
-    backgroundColor: Colors.gold,
-    paddingHorizontal: 12,
-    paddingVertical: 4,
-    borderRadius: 8,
-    alignSelf: 'flex-start',
-    marginBottom: 8,
-  },
-  treasurerBadgeText: {
-    color: Colors.white,
-    fontSize: 10,
-    fontWeight: 'bold',
-    letterSpacing: 1,
-  },
-  greeting: {
-    fontSize: 24,
-    fontWeight: 'bold',
-    color: Colors.white,
-  },
   summaryContainer: {
     flexDirection: 'row',
     paddingHorizontal: 24,
@@ -545,6 +693,24 @@ const styles = StyleSheet.create({
   },
   lateValue: {
     color: Colors.statusLate,
+  },
+  createClubSection: {
+    paddingHorizontal: 24,
+    paddingTop: 16,
+  },
+  createClubButton: {
+    backgroundColor: Colors.mediumGreen,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 16,
+    borderRadius: 12,
+    gap: 8,
+  },
+  createClubButtonText: {
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: 'bold',
   },
   section: {
     paddingHorizontal: 24,
@@ -733,23 +899,22 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   emptyStateText: {
-    fontSize: 14,
+    fontSize: 16,
+    fontWeight: '600',
     color: Colors.textSecondary,
+    marginTop: 12,
   },
-  logo: {
-    width: 100,
-    height: 30,
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: Colors.textMuted,
+    marginTop: 4,
+    textAlign: 'center',
   },
   logoText: {
     fontSize: 28,
     fontWeight: 'bold',
     color: Colors.white,
     letterSpacing: 1,
-  },
-  headerLeft: {
-    flexDirection: 'column',
-    alignItems: 'flex-start',
-    gap: 8,
   },
   avatarButton: {
     padding: 4,
@@ -761,11 +926,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
-  },
-  avatarText: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Colors.white,
   },
   avatarImage: {
     width: 48,
@@ -853,33 +1013,91 @@ const styles = StyleSheet.create({
     color: Colors.statusLate,
     fontWeight: '500',
   },
-  adContainer: {
-    paddingHorizontal: 24,
-    paddingTop: 24,
+  // Create Club Modal Styles
+  createClubModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  createClubModalContent: {
+    backgroundColor: Colors.white,
+    borderTopLeftRadius: 24,
+    borderTopRightRadius: 24,
+    maxHeight: '90%',
     paddingBottom: 32,
   },
-  adLabel: {
-    fontSize: 10,
-    color: Colors.textMuted,
-    marginBottom: 8,
-    textTransform: 'uppercase',
+  createClubModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 20,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.cardBorder,
   },
-  adCard: {
-    backgroundColor: Colors.lightGold,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.gold,
-  },
-  adTitle: {
-    fontSize: 16,
+  createClubModalTitle: {
+    fontSize: 20,
     fontWeight: 'bold',
     color: Colors.textPrimary,
-    marginBottom: 4,
   },
-  adBody: {
+  createClubForm: {
+    padding: 20,
+    maxHeight: 400,
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginBottom: 8,
+    marginTop: 12,
+  },
+  input: {
+    backgroundColor: Colors.lightBackground,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+  },
+  typeSelector: {
+    flexDirection: 'row',
+    flexWrap: 'wrap',
+    gap: 8,
+  },
+  typeButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 8,
+    borderRadius: 20,
+    backgroundColor: Colors.lightBackground,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  typeButtonActive: {
+    backgroundColor: Colors.mediumGreen,
+    borderColor: Colors.mediumGreen,
+  },
+  typeButtonText: {
     fontSize: 14,
     color: Colors.textSecondary,
+  },
+  typeButtonTextActive: {
+    color: Colors.white,
+    fontWeight: '600',
+  },
+  createClubSubmitButton: {
+    backgroundColor: Colors.mediumGreen,
+    marginHorizontal: 20,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+  },
+  createClubSubmitText: {
+    color: Colors.white,
+    fontSize: 18,
+    fontWeight: 'bold',
+  },
+  buttonDisabled: {
+    opacity: 0.6,
   },
   // Delete Account Modal Styles
   deleteModalOverlay: {

@@ -19,14 +19,14 @@ export default function SupportScreen() {
     {
       icon: 'call-outline',
       title: 'Call Us',
-      description: 'Speak to our support team',
-      action: () => Linking.openURL('tel:+27665050720'),
+      description: 'Phone support coming soon',
+      action: () => {},  // Phone number to be added
     },
     {
       icon: 'logo-whatsapp',
       title: 'WhatsApp',
-      description: 'Chat with us on WhatsApp',
-      action: () => Linking.openURL('https://wa.me/27665050720'),
+      description: 'WhatsApp support coming soon',
+      action: () => {},  // WhatsApp number to be added
     },
     {
       icon: 'help-circle-outline',
@@ -90,7 +90,7 @@ export default function SupportScreen() {
 
         {/* FAQs */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Treasurer FAQs</Text>
+          <Text style={styles.sectionTitle}>Admin FAQs</Text>
           {faqs.map((faq, index) => (
             <View key={index} style={styles.faqCard}>
               <Text style={styles.faqQuestion}>{faq.question}</Text>

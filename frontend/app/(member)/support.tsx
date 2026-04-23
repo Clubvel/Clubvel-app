@@ -24,12 +24,16 @@ export default function SupportScreen() {
   const [message, setMessage] = useState('');
   const [sending, setSending] = useState(false);
 
-  // Support contact details
+  // Support contact details - phone numbers to be updated
   const SUPPORT_EMAIL = 'support@clubvel.co.za';
-  const SUPPORT_WHATSAPP = '+27665050720';
-  const SUPPORT_PHONE = '+27665050720';
+  const SUPPORT_WHATSAPP = ''; // To be updated
+  const SUPPORT_PHONE = ''; // To be updated
 
   const handleWhatsAppSupport = () => {
+    if (!SUPPORT_WHATSAPP) {
+      Alert.alert('Coming Soon', 'WhatsApp support number will be added soon.');
+      return;
+    }
     const whatsappUrl = `whatsapp://send?phone=${SUPPORT_WHATSAPP}&text=Hi, I need help with Clubvel app. My phone: ${user?.phone_number || 'N/A'}`;
     Linking.openURL(whatsappUrl).catch(() => {
       Alert.alert('Error', 'WhatsApp is not installed on this device');
@@ -55,6 +59,10 @@ App Version: 1.0.0
   };
 
   const handlePhoneSupport = () => {
+    if (!SUPPORT_PHONE) {
+      Alert.alert('Coming Soon', 'Phone support number will be added soon.');
+      return;
+    }
     Linking.openURL(`tel:${SUPPORT_PHONE}`);
   };
 
