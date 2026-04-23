@@ -4,7 +4,10 @@ import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
+import { useRouter } from 'expo-router';
 import * as ImagePicker from 'expo-image-picker';
+import * as FileSystem from 'expo-file-system';
+import * as Sharing from 'expo-sharing';
 import axios from 'axios';
 
 interface Club {
@@ -17,6 +20,7 @@ interface Club {
 
 interface Proof {
   id: string;
+  contribution_id: string;
   groupName: string;
   month: string;
   amount: number;
@@ -27,6 +31,7 @@ interface Proof {
 
 export default function ProofOfPaymentsScreen() {
   const { user } = useAuth();
+  const router = useRouter();
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
   
   const [showClubModal, setShowClubModal] = useState(false);
@@ -34,6 +39,9 @@ export default function ProofOfPaymentsScreen() {
   const [uploading, setUploading] = useState(false);
   const [loadingClubs, setLoadingClubs] = useState(false);
   const [proofs, setProofs] = useState<Proof[]>([]);
+  const [viewingProof, setViewingProof] = useState<string | null>(null);
+  const [proofImage, setProofImage] = useState<string | null>(null);
+  const [loadingProof, setLoadingProof] = useState(false);
 
   const fetchClubs = async () => {
     setLoadingClubs(true);
@@ -51,6 +59,7 @@ export default function ProofOfPaymentsScreen() {
       setClubs(pendingClubs);
     } catch (error) {
       console.error('Error fetching clubs:', error);
+      setClubs([]);
     } finally {
       setLoadingClubs(false);
     }
@@ -95,19 +104,20 @@ export default function ProofOfPaymentsScreen() {
         await axios.post(`${API_URL}/api/contributions/upload-proof`, {
           contribution_id: contributionId,
           proof_image: `data:image/jpeg;base64,${result.assets[0].base64}`,
-          reference_number: '',  // Will be auto-generated if needed
-          user_id: user?.id,  // Authorization: Pass user ID for access control
+          reference_number: '',
+          user_id: user?.id,
         });
 
         Alert.alert(
           'Success!',
-          `Proof of payment for ${club.name} has been uploaded. Awaiting treasurer confirmation.`,
+          `Proof of payment for ${club.name} has been uploaded. Awaiting admin confirmation.`,
           [{ text: 'OK' }]
         );
 
         // Add to local proofs list
         const newProof: Proof = {
           id: Date.now().toString(),
+          contribution_id: contributionId,
           groupName: club.name,
           month: new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
           amount: club.amount_due,
@@ -126,12 +136,66 @@ export default function ProofOfPaymentsScreen() {
     }
   };
 
+  const handleViewProof = async (proof: Proof) => {
+    if (!proof.contribution_id) {
+      Alert.alert('Error', 'Cannot view proof - contribution ID not found');
+      return;
+    }
+
+    setLoadingProof(true);
+    setViewingProof(proof.id);
+    
+    try {
+      const response = await axios.get(
+        `${API_URL}/api/contributions/${proof.contribution_id}/proof?user_id=${user?.id}`
+      );
+      setProofImage(response.data.proof_image);
+    } catch (error: any) {
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to load proof image');
+      setViewingProof(null);
+    } finally {
+      setLoadingProof(false);
+    }
+  };
+
+  const handleDownloadProof = async () => {
+    if (!proofImage) return;
+
+    try {
+      // Check if sharing is available
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (!isAvailable) {
+        Alert.alert('Error', 'Sharing is not available on this device');
+        return;
+      }
+
+      // Save to file system and share
+      const filename = `proof_${Date.now()}.jpg`;
+      const fileUri = FileSystem.documentDirectory + filename;
+      
+      // Remove data URL prefix if present
+      const base64Data = proofImage.replace(/^data:image\/\w+;base64,/, '');
+      
+      await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      await Sharing.shareAsync(fileUri, {
+        mimeType: 'image/jpeg',
+        dialogTitle: 'Save Proof of Payment',
+      });
+    } catch (error) {
+      console.error('Download error:', error);
+      Alert.alert('Error', 'Failed to download proof image');
+    }
+  };
+
   return (
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
         <Text style={styles.headerTitle}>Proof of Payments</Text>
-        <Text style={styles.headerSubtitle}>All your uploaded payment proofs</Text>
+        <Text style={styles.headerSubtitle}>Upload and view your payment proofs</Text>
       </View>
 
       <ScrollView style={styles.content}>
@@ -179,36 +243,49 @@ export default function ProofOfPaymentsScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Recent Uploads</Text>
 
-          {proofs.map((proof) => (
-            <View key={proof.id} style={styles.proofCard}>
-              <View style={styles.proofHeader}>
-                <Ionicons name="document-text" size={24} color={Colors.mediumGreen} />
-                <View style={styles.proofInfo}>
-                  <Text style={styles.proofGroupName}>{proof.groupName}</Text>
-                  <Text style={styles.proofMonth}>{proof.month}</Text>
-                </View>
-                <StatusPill status={proof.status} />
-              </View>
-
-              <View style={styles.proofDetails}>
-                <View style={styles.proofDetailRow}>
-                  <Text style={styles.proofDetailLabel}>Amount:</Text>
-                  <Text style={styles.proofDetailValue}>R{proof.amount.toFixed(2)}</Text>
-                </View>
-                <View style={styles.proofDetailRow}>
-                  <Text style={styles.proofDetailLabel}>Uploaded:</Text>
-                  <Text style={styles.proofDetailValue}>{new Date(proof.uploadDate).toLocaleDateString()}</Text>
-                </View>
-              </View>
-
-              {proof.hasImage && (
-                <TouchableOpacity style={styles.viewProofButton}>
-                  <Ionicons name="eye" size={18} color={Colors.mediumGreen} />
-                  <Text style={styles.viewProofText}>View Proof Image</Text>
-                </TouchableOpacity>
-              )}
+          {proofs.length === 0 ? (
+            <View style={styles.emptyState}>
+              <Ionicons name="document-text-outline" size={48} color={Colors.textMuted} />
+              <Text style={styles.emptyStateText}>No proofs uploaded yet</Text>
+              <Text style={styles.emptyStateSubtext}>Tap the button above to upload your first proof</Text>
             </View>
-          ))}
+          ) : (
+            proofs.map((proof) => (
+              <View key={proof.id} style={styles.proofCard}>
+                <View style={styles.proofHeader}>
+                  <Ionicons name="document-text" size={24} color={Colors.mediumGreen} />
+                  <View style={styles.proofInfo}>
+                    <Text style={styles.proofGroupName}>{proof.groupName}</Text>
+                    <Text style={styles.proofMonth}>{proof.month}</Text>
+                  </View>
+                  <StatusPill status={proof.status} />
+                </View>
+
+                <View style={styles.proofDetails}>
+                  <View style={styles.proofDetailRow}>
+                    <Text style={styles.proofDetailLabel}>Amount:</Text>
+                    <Text style={styles.proofDetailValue}>R{proof.amount.toFixed(2)}</Text>
+                  </View>
+                  <View style={styles.proofDetailRow}>
+                    <Text style={styles.proofDetailLabel}>Uploaded:</Text>
+                    <Text style={styles.proofDetailValue}>{new Date(proof.uploadDate).toLocaleDateString()}</Text>
+                  </View>
+                </View>
+
+                {proof.hasImage && (
+                  <View style={styles.proofActions}>
+                    <TouchableOpacity 
+                      style={styles.viewProofButton}
+                      onPress={() => handleViewProof(proof)}
+                    >
+                      <Ionicons name="eye" size={18} color={Colors.mediumGreen} />
+                      <Text style={styles.viewProofText}>View Proof</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
+              </View>
+            ))
+          )}
         </View>
 
         {/* Info Box */}
@@ -217,7 +294,7 @@ export default function ProofOfPaymentsScreen() {
           <View style={styles.infoText}>
             <Text style={styles.infoTitle}>About Proof of Payments</Text>
             <Text style={styles.infoBody}>
-              Upload proof after making each payment. Your treasurer will review and confirm. Keep records of all confirmed payments for your financial history.
+              Upload proof after making each payment. Your club admin will review and confirm. You can download any uploaded proof for your records.
             </Text>
           </View>
         </View>
@@ -267,6 +344,58 @@ export default function ProofOfPaymentsScreen() {
                   </TouchableOpacity>
                 ))}
               </ScrollView>
+            )}
+          </View>
+        </View>
+      </Modal>
+
+      {/* View Proof Modal */}
+      <Modal
+        visible={viewingProof !== null}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setViewingProof(null);
+          setProofImage(null);
+        }}
+      >
+        <View style={styles.proofModalOverlay}>
+          <View style={styles.proofModalContent}>
+            <View style={styles.proofModalHeader}>
+              <Text style={styles.proofModalTitle}>Proof of Payment</Text>
+              <TouchableOpacity onPress={() => {
+                setViewingProof(null);
+                setProofImage(null);
+              }}>
+                <Ionicons name="close" size={28} color={Colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            {loadingProof ? (
+              <View style={styles.proofLoading}>
+                <ActivityIndicator size="large" color={Colors.mediumGreen} />
+                <Text style={styles.proofLoadingText}>Loading proof image...</Text>
+              </View>
+            ) : proofImage ? (
+              <>
+                <Image 
+                  source={{ uri: proofImage }} 
+                  style={styles.proofImageDisplay}
+                  resizeMode="contain"
+                />
+                <TouchableOpacity 
+                  style={styles.downloadButton}
+                  onPress={handleDownloadProof}
+                >
+                  <Ionicons name="download" size={20} color={Colors.white} />
+                  <Text style={styles.downloadButtonText}>Download / Share</Text>
+                </TouchableOpacity>
+              </>
+            ) : (
+              <View style={styles.proofLoading}>
+                <Ionicons name="image-outline" size={48} color={Colors.textMuted} />
+                <Text style={styles.proofLoadingText}>No proof image available</Text>
+              </View>
             )}
           </View>
         </View>
@@ -346,6 +475,26 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     marginBottom: 12,
   },
+  emptyState: {
+    backgroundColor: Colors.white,
+    padding: 32,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    alignItems: 'center',
+  },
+  emptyStateText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    marginTop: 12,
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: Colors.textMuted,
+    marginTop: 4,
+    textAlign: 'center',
+  },
   proofCard: {
     backgroundColor: Colors.white,
     padding: 16,
@@ -393,7 +542,12 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.textPrimary,
   },
+  proofActions: {
+    flexDirection: 'row',
+    gap: 12,
+  },
   viewProofButton: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -531,5 +685,61 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     marginTop: 8,
     textAlign: 'center',
+  },
+  // Proof View Modal Styles
+  proofModalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.9)',
+    justifyContent: 'center',
+    padding: 20,
+  },
+  proofModalContent: {
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    overflow: 'hidden',
+    maxHeight: '85%',
+  },
+  proofModalHeader: {
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+    padding: 16,
+    borderBottomWidth: 1,
+    borderBottomColor: Colors.cardBorder,
+  },
+  proofModalTitle: {
+    fontSize: 18,
+    fontWeight: 'bold',
+    color: Colors.textPrimary,
+  },
+  proofLoading: {
+    padding: 60,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  proofLoadingText: {
+    marginTop: 12,
+    fontSize: 14,
+    color: Colors.textSecondary,
+  },
+  proofImageDisplay: {
+    width: '100%',
+    height: 400,
+    backgroundColor: Colors.lightBackground,
+  },
+  downloadButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 8,
+    backgroundColor: Colors.mediumGreen,
+    margin: 16,
+    paddingVertical: 14,
+    borderRadius: 12,
+  },
+  downloadButtonText: {
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

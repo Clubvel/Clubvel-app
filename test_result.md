@@ -525,6 +525,18 @@ test_plan:
   test_all: true
   test_priority: "high_first"
 
+  - task: "Multi-Role User Support"
+    implemented: true
+    working: true
+    file: "/app/backend/server.py"
+    stuck_count: 0
+    priority: "high"
+    needs_retesting: false
+    status_history:
+      - working: true
+        agent: "testing"
+        comment: "✅ TESTED: Multi-role user support working perfectly. Same phone number can have both member and treasurer roles. Registration endpoint correctly adds new roles instead of throwing errors. Login returns roles array with has_multiple_roles=true. User can create clubs as admin and access both member and admin dashboards."
+
 agent_communication:
   - agent: "main"
     message: |
@@ -790,3 +802,43 @@ agent_communication:
       - Touch-friendly interface with proper spacing
       
       The Clubvel mobile app successfully passes core UI flow testing for onboarding, authentication, and mobile responsiveness.
+
+  - agent: "testing"
+    message: |
+      🎉 MULTI-ROLE USER SUPPORT TESTING COMPLETE - ALL TESTS PASSED (7/7 - 100% SUCCESS RATE)
+      
+      Comprehensive multi-role user testing completed using multi_role_test.py with real API calls to https://money-rotation.preview.emergentagent.com/api
+      
+      ✅ COMPLETE MULTI-ROLE FLOW VERIFIED:
+      - Same phone number (+27111333444) successfully registered as both member and treasurer
+      - Initial registration as member: Returns user_id, mock_otp=1234, notification_mode=mock
+      - OTP verification working correctly with mock OTP (1234)
+      - Second registration as treasurer: Returns "Role 'treasurer' added to your account" message
+      - No errors thrown when adding second role to existing phone number
+      
+      ✅ MULTI-ROLE LOGIN VERIFICATION:
+      - POST /api/auth/login: Successfully authenticates user with multiple roles
+      - Response includes roles array: ["member", "treasurer"]
+      - has_multiple_roles flag correctly set to true
+      - JWT token includes both roles in payload
+      - User can access both member and admin functionalities
+      
+      ✅ ADMIN FUNCTIONALITY WITH MULTI-ROLE:
+      - POST /api/groups/create: Successfully creates club as admin/treasurer
+      - Returns group_id and confirmation message
+      - Club creation works despite user having member role as well
+      
+      ✅ DASHBOARD ACCESS VERIFICATION:
+      - GET /api/admin/dashboard/{user_id}: Successfully returns admin dashboard
+      - Shows clubs managed by user, member counts, collection stats
+      - GET /api/user/stats/{user_id}: Successfully returns user statistics
+      - Both admin and member endpoints accessible with same user
+      
+      ✅ BACKEND IMPLEMENTATION CONFIRMED:
+      - Registration endpoint correctly handles existing phone numbers
+      - Adds new roles to existing users instead of throwing errors
+      - Maintains backward compatibility with single-role users
+      - Proper role array management in user documents
+      - JWT tokens correctly include multiple roles
+      
+      Multi-role user support is production-ready and working perfectly. Users can seamlessly have both member and treasurer roles with the same phone number.

@@ -145,7 +145,8 @@ class User(BaseModel):
     phone_number: str
     email: Optional[str] = None
     password_hash: str
-    role: str  # member or treasurer
+    role: str  # member or treasurer (primary role)
+    roles: List[str] = ["member"]  # All roles: ["member"], ["treasurer"], or ["member", "treasurer"]
     profile_photo: Optional[str] = None  # base64
     date_joined: datetime = Field(default_factory=datetime.utcnow)
     status: str = "active"  # active or inactive
@@ -440,16 +441,42 @@ def calculate_contribution_status(contribution: dict, due_day: int) -> str:
 async def register(request: Request, user_data: UserCreate):
     # Check if phone number already exists
     existing_user = await db.users.find_one({"phone_number": user_data.phone_number})
-    if existing_user:
-        raise HTTPException(status_code=400, detail="Phone number already registered")
     
-    # Create user (unverified)
+    if existing_user:
+        # Phone exists - check if they're trying to add a different role
+        existing_roles = existing_user.get('roles', [existing_user.get('role', 'member')])
+        requested_role = 'treasurer' if user_data.role == 'treasurer' else 'member'
+        
+        if requested_role in existing_roles:
+            # Already has this role
+            raise HTTPException(
+                status_code=400, 
+                detail=f"This phone number is already registered. Please login instead."
+            )
+        else:
+            # Add the new role to existing user
+            new_roles = list(set(existing_roles + [requested_role]))
+            await db.users.update_one(
+                {"phone_number": user_data.phone_number},
+                {"$set": {"roles": new_roles}}
+            )
+            
+            return {
+                "message": f"Role '{requested_role}' added to your account. Please login.",
+                "user_id": existing_user['id'],
+                "roles": new_roles,
+                "already_registered": True
+            }
+    
+    # Create new user
+    initial_role = 'treasurer' if user_data.role == 'treasurer' else 'member'
     user = User(
         full_name=user_data.full_name,
         phone_number=user_data.phone_number,
         email=user_data.email,
         password_hash=hash_password(user_data.password),
-        role=user_data.role,
+        role=initial_role,
+        roles=[initial_role],
         otp_verified=False
     )
     
@@ -582,9 +609,40 @@ async def login(request: Request, login_data: UserLogin):
     if not verify_password(login_data.password, user['password_hash']):
         raise HTTPException(status_code=401, detail="Invalid phone number or password")
     
+    # Get user's roles - check both old 'role' field and new 'roles' array
+    user_roles = user.get('roles', [user.get('role', 'member')])
+    primary_role = user.get('role', user_roles[0] if user_roles else 'member')
+    
+    # Check if user has both member and admin roles based on their group memberships
+    memberships = await db.members.find({"user_id": user['id'], "status": "active"}).to_list(100)
+    has_admin_membership = any(m.get('role_in_group') == 'admin' or m.get('role_in_group') == 'treasurer' for m in memberships)
+    has_member_membership = any(m.get('role_in_group') == 'member' for m in memberships)
+    
+    # Also check if user is admin of any groups
+    admin_groups = await db.groups.find({
+        "$or": [
+            {"treasurer_user_id": user['id']},
+            {"admin_user_ids": user['id']}
+        ],
+        "status": "active"
+    }).to_list(100)
+    
+    if admin_groups:
+        has_admin_membership = True
+    
+    # Update roles based on actual memberships
+    actual_roles = []
+    if has_member_membership or 'member' in user_roles:
+        actual_roles.append('member')
+    if has_admin_membership or 'treasurer' in user_roles or primary_role == 'treasurer':
+        actual_roles.append('treasurer')
+    
+    if not actual_roles:
+        actual_roles = [primary_role]
+    
     # Create access token
     access_token = create_access_token(
-        data={"user_id": user['id'], "role": user['role'], "phone": user['phone_number']}
+        data={"user_id": user['id'], "role": primary_role, "roles": actual_roles, "phone": user['phone_number']}
     )
     
     return {
@@ -594,7 +652,9 @@ async def login(request: Request, login_data: UserLogin):
             "id": user['id'],
             "full_name": user['full_name'],
             "phone_number": user['phone_number'],
-            "role": user['role'],
+            "role": primary_role,
+            "roles": actual_roles,
+            "has_multiple_roles": len(actual_roles) > 1,
             "profile_photo": user.get('profile_photo')
         }
     }
@@ -1480,6 +1540,93 @@ async def upload_proof_of_payment(proof_data: ProofUpload):
         "message": "Proof of payment uploaded successfully",
         "status": "proof_uploaded"
     }
+
+
+@api_router.get("/contributions/{contribution_id}/proof")
+async def get_contribution_proof(contribution_id: str, user_id: str):
+    """Get proof of payment image for a contribution"""
+    contribution = await db.contributions.find_one({"id": contribution_id})
+    if not contribution:
+        raise HTTPException(status_code=404, detail="Contribution not found")
+    
+    # Get the member record
+    member = await db.members.find_one({"id": contribution['member_id']})
+    if not member:
+        raise HTTPException(status_code=404, detail="Member record not found")
+    
+    # Get the group to check if user is admin/treasurer
+    group = await db.groups.find_one({"id": contribution['group_id']})
+    
+    # AUTHORIZATION CHECK: User must be either:
+    # 1. The member who made this contribution
+    # 2. An admin/treasurer of this group
+    is_owner = member['user_id'] == user_id
+    is_admin = group and (
+        group.get('treasurer_user_id') == user_id or 
+        user_id in group.get('admin_user_ids', [])
+    )
+    
+    if not is_owner and not is_admin:
+        raise HTTPException(
+            status_code=403, 
+            detail="Access denied: You can only view proof for your own contributions or clubs you manage"
+        )
+    
+    proof_image = contribution.get('proof_of_payment')
+    if not proof_image:
+        raise HTTPException(status_code=404, detail="No proof of payment uploaded for this contribution")
+    
+    return {
+        "contribution_id": contribution_id,
+        "proof_image": proof_image,
+        "reference_number": contribution.get('reference_number'),
+        "upload_date": contribution.get('payment_date'),
+        "status": contribution.get('contribution_status')
+    }
+
+
+@api_router.post("/contributions/admin-upload-proof")
+async def admin_upload_proof_of_payment(proof_data: ProofUpload):
+    """Allow admin/treasurer to upload proof for any contribution in their managed groups"""
+    contribution = await db.contributions.find_one({"id": proof_data.contribution_id})
+    if not contribution:
+        raise HTTPException(status_code=404, detail="Contribution not found")
+    
+    # Get the group to verify admin access
+    group = await db.groups.find_one({"id": contribution['group_id']})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+    
+    # AUTHORIZATION CHECK: User must be admin/treasurer of this group
+    is_admin = (
+        group.get('treasurer_user_id') == proof_data.user_id or 
+        proof_data.user_id in group.get('admin_user_ids', [])
+    )
+    
+    if not is_admin:
+        raise HTTPException(
+            status_code=403, 
+            detail="Access denied: Only admins can upload proof on behalf of members"
+        )
+    
+    # Update contribution with proof
+    await db.contributions.update_one(
+        {"id": proof_data.contribution_id},
+        {"$set": {
+            "proof_of_payment": proof_data.proof_image,
+            "reference_number": proof_data.reference_number,
+            "contribution_status": "proof_uploaded",
+            "payment_date": datetime.utcnow(),
+            "uploaded_by_admin": proof_data.user_id
+        }}
+    )
+    
+    return {
+        "message": "Proof of payment uploaded successfully by admin",
+        "status": "proof_uploaded"
+    }
+
+
 
 # ==================== TREASURER ROUTES ====================
 
