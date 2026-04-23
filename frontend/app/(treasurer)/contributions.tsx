@@ -37,7 +37,7 @@ export default function ContributionsScreen() {
     try {
       // Empty contributions - real data will come from API when user creates a club
       setContributions([]);
-      setSummary(null);
+      setSummary({ collected: 0, outstanding: 0, total_expected: 0, collection_rate: 0 });
     } catch (error) {
       console.error('Error fetching contributions:', error);
     } finally {
