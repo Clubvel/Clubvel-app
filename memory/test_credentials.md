@@ -1,31 +1,20 @@
-# Test Credentials for Clubvel App
+# Clubvel Test Credentials
 
-## Demo Member Account
-- **Phone:** 0821234567
-- **Password:** Pass&Word76
-- **Name:** Thabo Mokoena
-- **Role:** member
+## Test User - Multi-Role (Member + Admin)
+- Phone: +27111333444
+- Password: Test123!
+- Roles: member, treasurer
+- Has created club: "Test Multi Role Club"
 
-## Demo Member Account 2
-- **Phone:** 0827654321
-- **Password:** Pass&Word76
-- **Name:** Lerato Nkosi
-- **Role:** member
-
-## Demo Treasurer Account
-- **Phone:** 0829876543
-- **Password:** Pass&Word76
-- **Name:** Sipho Dlamini
-- **Role:** treasurer
-
-## User's Custom Treasurer Account
-- **Phone:** 0609953034
-- **Password:** Wara2025
-- **Role:** treasurer
+## Original User Phone (for deletion testing)
+- Phone: +27665050720 (DELETED from database)
+- Can be used for fresh registration
 
 ## Mock OTP
-- **All OTPs:** 1234 (hardcoded for testing)
+- All environments use mock OTP: **1234**
+- Real SMS/WhatsApp OTP is enabled on production (Railway deployment)
 
 ## Notes
-- Registration creates real accounts in MongoDB
-- Login returns JWT token with 30-day expiration
+- Same phone number can have both member and admin roles
+- User can be admin in one club and member in another
+- Login returns `has_multiple_roles: true` when user has both roles
