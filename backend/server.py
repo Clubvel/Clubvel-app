@@ -3403,7 +3403,7 @@ async def clubvel_website():
                     <div class="download-card">
                         <h3>Android</h3>
                         <p>Download the APK directly to your Android phone</p>
-                        <a href="https://customer-assets.emergentagent.com/job_money-rotation/artifacts/a836k4p3_application-770655b5-41cb-4e26-a406-30be91baf3ac.apk" 
+                        <a href="https://customer-assets.emergentagent.com/job_money-rotation/artifacts/knpjw4gl_application-2d8abc31-1a4d-4550-8c8e-0add6e7fc220.apk" 
                            class="btn btn-primary" 
                            download="clubvel.apk">
                             <span>⬇️</span> Download for Android

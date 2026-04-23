@@ -55,36 +55,8 @@ export default function MembersScreen() {
         }
       }
 
-      // Fetch members (using mock data for now, would be replaced with real API)
-      setMembers([
-        {
-          id: '1',
-          name: 'Lerato Nkosi',
-          initials: 'LN',
-          reference: 'SSH002',
-          status: 'late',
-          amount: 500,
-          phone: '0827654321',
-        },
-        {
-          id: '2',
-          name: 'Thabo Mokoena',
-          initials: 'TM',
-          reference: 'SSH001',
-          status: 'confirmed',
-          amount: 500,
-          phone: '0821234567',
-        },
-        {
-          id: '3',
-          name: 'Nomsa Mthembu',
-          initials: 'NM',
-          reference: 'SSH003',
-          status: 'pending',
-          amount: 500,
-          phone: '0823456789',
-        },
-      ]);
+      // Empty members - real data will come from API when user creates a club
+      setMembers([]);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {

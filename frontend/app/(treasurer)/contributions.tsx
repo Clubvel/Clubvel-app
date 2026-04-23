@@ -35,12 +35,9 @@ export default function ContributionsScreen() {
 
   const fetchContributions = async () => {
     try {
-      // Using group1 as demo - pass treasurer_id for authorization
-      const response = await axios.get(
-        `${API_URL}/api/treasurer/contributions/group1/month/${currentMonth}/year/${currentYear}?treasurer_id=${user?.id}`
-      );
-      setContributions(response.data.contributions);
-      setSummary(response.data.summary);
+      // Empty contributions - real data will come from API when user creates a club
+      setContributions([]);
+      setSummary(null);
     } catch (error) {
       console.error('Error fetching contributions:', error);
     } finally {
