@@ -7,7 +7,7 @@ import { Colors } from '../constants/Colors';
 const { width } = Dimensions.get('window');
 
 // APK Download URL - Latest Build from Expo
-const APK_DOWNLOAD_URL = 'https://expo.dev/accounts/modjadji/projects/clubvel/builds/c9801fdf-102b-4e59-82eb-901998634a61';
+const APK_DOWNLOAD_URL = 'https://expo.dev/accounts/modjadji/projects/clubvel/builds/2a2f4803-0de5-4f8e-be8e-1b1161a42011';
 
 const slides = [
   {
