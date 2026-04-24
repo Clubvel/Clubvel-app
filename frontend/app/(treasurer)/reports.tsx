@@ -3,6 +3,7 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIn
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
+import { useRouter } from 'expo-router';
 import { 
   generatePDFReport, 
   sharePDFReport, 
@@ -13,6 +14,7 @@ import {
 
 export default function ReportsScreen() {
   const { user } = useAuth();
+  const router = useRouter();
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingType, setGeneratingType] = useState<string | null>(null);
 
@@ -146,8 +148,13 @@ export default function ReportsScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Reports</Text>
-        <Text style={styles.headerSubtitle}>Financial Reports</Text>
+        <TouchableOpacity onPress={() => router.push('/(treasurer)/profile')} style={styles.backButton}>
+          <Ionicons name="arrow-back" size={24} color={Colors.white} />
+        </TouchableOpacity>
+        <View>
+          <Text style={styles.headerTitle}>Reports</Text>
+          <Text style={styles.headerSubtitle}>Financial Reports</Text>
+        </View>
       </View>
 
       <ScrollView style={styles.content}>
@@ -292,6 +299,12 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 20,
     paddingHorizontal: 24,
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 16,
+  },
+  backButton: {
+    padding: 8,
   },
   headerTitle: {
     fontSize: 24,

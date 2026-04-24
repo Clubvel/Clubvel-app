@@ -53,6 +53,24 @@ export default function AuthScreen() {
     setLoading(true);
     try {
       const result = await register(fullName, phoneNumber, password, role);
+      
+      // Check if phone was already registered and role was added
+      if (result.already_registered) {
+        Alert.alert(
+          'Role Added!',
+          `Your ${role === 'treasurer' ? 'Admin' : 'Member'} role has been added to your existing account. Please sign in with your password.`,
+          [{ 
+            text: 'Sign In', 
+            onPress: () => {
+              setIsConsentScreen(false);
+              setIsLogin(true);
+            }
+          }]
+        );
+        setLoading(false);
+        return;
+      }
+      
       setTempPhone(phoneNumber);
       setIsConsentScreen(false);
       setIsOTPScreen(true);
@@ -74,7 +92,25 @@ export default function AuthScreen() {
         );
       }
     } catch (error: any) {
-      Alert.alert('Error', error.message);
+      // If phone exists with same role, prompt to login
+      if (error.message.includes('already registered')) {
+        Alert.alert(
+          'Account Exists',
+          'This phone number is already registered. Would you like to sign in instead?',
+          [
+            { text: 'Cancel', style: 'cancel' },
+            { 
+              text: 'Sign In', 
+              onPress: () => {
+                setIsConsentScreen(false);
+                setIsLogin(true);
+              }
+            }
+          ]
+        );
+      } else {
+        Alert.alert('Error', error.message);
+      }
     } finally {
       setLoading(false);
     }

@@ -448,11 +448,13 @@ async def register(request: Request, user_data: UserCreate):
         requested_role = 'treasurer' if user_data.role == 'treasurer' else 'member'
         
         if requested_role in existing_roles:
-            # Already has this role
-            raise HTTPException(
-                status_code=400, 
-                detail=f"This phone number is already registered. Please login instead."
-            )
+            # Already has this role - return success instead of error
+            return {
+                "message": f"This phone number is already registered with {requested_role} role. Please login.",
+                "user_id": existing_user['id'],
+                "roles": existing_roles,
+                "already_registered": True
+            }
         else:
             # Add the new role to existing user
             new_roles = list(set(existing_roles + [requested_role]))
