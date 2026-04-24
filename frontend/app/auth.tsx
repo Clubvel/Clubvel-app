@@ -145,10 +145,33 @@ export default function AuthScreen() {
 
     setLoading(true);
     try {
-      await login(phoneNumber, password);
-      setTimeout(() => {
-        router.replace('/');
-      }, 100);
+      const result = await login(phoneNumber, password);
+      
+      // If user has multiple roles, show role selection
+      if (result.has_multiple_roles && result.roles.length > 1) {
+        Alert.alert(
+          'Choose Your View',
+          'You have both Member and Admin roles. Which view would you like to use?',
+          [
+            {
+              text: 'Member View',
+              onPress: () => {
+                router.replace('/(member)/dashboard');
+              }
+            },
+            {
+              text: 'Admin View',
+              onPress: () => {
+                router.replace('/(treasurer)/dashboard');
+              }
+            }
+          ]
+        );
+      } else {
+        setTimeout(() => {
+          router.replace('/');
+        }, 100);
+      }
     } catch (error: any) {
       if (error.message.includes('Invalid phone number or password')) {
         Alert.alert(

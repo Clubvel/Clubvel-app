@@ -21,6 +21,8 @@ interface User {
   full_name: string;
   phone_number: string;
   role: string;
+  roles?: string[];
+  has_multiple_roles?: boolean;
   profile_photo?: string;
 }
 
@@ -28,14 +30,15 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   loading: boolean;
-  login: (phone: string, password: string) => Promise<void>;
-  register: (fullName: string, phone: string, password: string, role: string) => Promise<{ userId: string; otp: string; confirmation?: any }>;
+  login: (phone: string, password: string) => Promise<{ has_multiple_roles: boolean; roles: string[] }>;
+  register: (fullName: string, phone: string, password: string, role: string) => Promise<{ userId: string; otp: string; confirmation?: any; already_registered?: boolean }>;
   verifyOTP: (phone: string, otp: string, confirmation?: any) => Promise<void>;
   sendFirebaseOTP: (phone: string) => Promise<any>;
   logout: () => Promise<void>;
   updateProfilePhoto: (photoBase64: string) => Promise<void>;
   refreshSession: () => void;
   isFirebaseAvailable: boolean;
+  switchRole: (newRole: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -199,6 +202,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         role
       });
       
+      // Check if this was an existing user who just got a new role added
+      if (response.data.already_registered) {
+        return {
+          userId: response.data.user_id,
+          otp: '',
+          already_registered: true,
+          roles: response.data.roles
+        };
+      }
+      
       // Send OTP via Firebase (native) or mock (web)
       const otpResult = await sendFirebaseOTP(phone);
       
@@ -206,7 +219,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         userId: response.data.user_id,
         otp: otpResult.mockOtp || response.data.mock_otp, // For web fallback display
         confirmation: otpResult.confirmation, // Firebase confirmation object
-        useFirebase: otpResult.useFirebase
+        useFirebase: otpResult.useFirebase,
+        already_registered: false
       };
     } catch (error: any) {
       throw new Error(error.response?.data?.detail || 'Registration failed');
@@ -265,6 +279,13 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       refreshSession();
       
       console.log('✅ Login successful, user:', userData.full_name);
+      console.log('✅ User roles:', userData.roles);
+      console.log('✅ Has multiple roles:', userData.has_multiple_roles);
+      
+      return {
+        has_multiple_roles: userData.has_multiple_roles || false,
+        roles: userData.roles || [userData.role]
+      };
     } catch (error: any) {
       console.error('❌ Login error:', error);
       console.error('❌ Error details:', error.response?.data);
@@ -278,6 +299,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await AsyncStorage.removeItem('last_activity');  // Clear session tracking
     setToken(null);
     setUser(null);
+  };
+
+  const switchRole = async (newRole: string) => {
+    if (!user) return;
+    
+    // Update user's active role locally
+    const updatedUser = { ...user, role: newRole };
+    setUser(updatedUser);
+    await AsyncStorage.setItem('user_data', JSON.stringify(updatedUser));
+    
+    console.log('🔄 Switched role to:', newRole);
   };
 
   const updateProfilePhoto = async (photoBase64: string) => {
@@ -310,7 +342,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       logout, 
       updateProfilePhoto, 
       refreshSession,
-      isFirebaseAvailable
+      isFirebaseAvailable,
+      switchRole
     }}>
       {children}
     </AuthContext.Provider>

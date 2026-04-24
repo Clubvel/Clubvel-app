@@ -303,7 +303,7 @@ export default function AdminDashboardScreen() {
           onPress={() => setShowCreateClubModal(true)}
         >
           <Ionicons name="add-circle" size={24} color={Colors.white} />
-          <Text style={styles.createClubButtonText}>Create New Club</Text>
+          <Text style={styles.createClubButtonText}>Create New Club/Stokvel/Society</Text>
         </TouchableOpacity>
       </View>
 
