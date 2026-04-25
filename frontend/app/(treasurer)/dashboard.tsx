@@ -580,6 +580,9 @@ export default function AdminDashboardScreen() {
               value={bankAccountHolder}
               onChangeText={setBankAccountHolder}
             />
+            
+            {/* Extra padding at bottom */}
+            <View style={{ height: 100 }} />
           </ScrollView>
 
           <TouchableOpacity
