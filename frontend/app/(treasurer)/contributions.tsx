@@ -4,6 +4,7 @@ import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
+import { useRouter } from 'expo-router';
 import axios from 'axios';
 
 interface Contribution {
@@ -22,6 +23,7 @@ interface Contribution {
 
 export default function ContributionsScreen() {
   const { user } = useAuth();
+  const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [contributions, setContributions] = useState<Contribution[]>([]);
   const [summary, setSummary] = useState({ collected: 0, outstanding: 0, total_expected: 0, collection_rate: 0 });
@@ -107,20 +109,31 @@ export default function ContributionsScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header with Month Navigation */}
+      {/* Header with Month Navigation and Profile */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Contributions</Text>
-        <View style={styles.monthNav}>
-          <TouchableOpacity onPress={handlePreviousMonth} style={styles.monthButton}>
-            <Ionicons name="chevron-back" size={20} color={Colors.white} />
-          </TouchableOpacity>
-          <Text style={styles.monthText}>
-            {getMonthName(currentMonth)} {currentYear}
-          </Text>
-          <TouchableOpacity onPress={handleNextMonth} style={styles.monthButton}>
-            <Ionicons name="chevron-forward" size={20} color={Colors.white} />
-          </TouchableOpacity>
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerTitle}>Payments</Text>
+          <View style={styles.monthNav}>
+            <TouchableOpacity onPress={handlePreviousMonth} style={styles.monthButton}>
+              <Ionicons name="chevron-back" size={20} color={Colors.white} />
+            </TouchableOpacity>
+            <Text style={styles.monthText}>
+              {getMonthName(currentMonth)} {currentYear}
+            </Text>
+            <TouchableOpacity onPress={handleNextMonth} style={styles.monthButton}>
+              <Ionicons name="chevron-forward" size={20} color={Colors.white} />
+            </TouchableOpacity>
+          </View>
         </View>
+        <TouchableOpacity onPress={() => router.push('/(treasurer)/profile')} style={styles.profileButton}>
+          {user?.profile_photo ? (
+            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} />
+          ) : (
+            <View style={styles.profilePlaceholder}>
+              <Ionicons name="person" size={20} color={Colors.white} />
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       {/* Summary Totals */}
@@ -234,12 +247,36 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 20,
     paddingHorizontal: 24,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'flex-start',
+  },
+  headerLeft: {
+    flex: 1,
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: 'bold',
     color: Colors.white,
     marginBottom: 12,
+  },
+  profileButton: {
+    padding: 4,
+  },
+  profileImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: Colors.gold,
+  },
+  profilePlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.gold,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   monthNav: {
     flexDirection: 'row',

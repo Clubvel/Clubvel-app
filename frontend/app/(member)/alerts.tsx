@@ -1,8 +1,9 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity, Image } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
+import { useRouter } from 'expo-router';
 import axios from 'axios';
 import { format } from 'date-fns';
 
@@ -19,6 +20,7 @@ interface Alert {
 
 export default function AlertsScreen() {
   const { user } = useAuth();
+  const router = useRouter();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -120,9 +122,20 @@ export default function AlertsScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
+      {/* Header with Profile Photo */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Alerts</Text>
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerTitle}>Alerts</Text>
+        </View>
+        <TouchableOpacity onPress={() => router.push('/(member)/profile')} style={styles.profileButton}>
+          {user?.profile_photo ? (
+            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} />
+          ) : (
+            <View style={styles.profilePlaceholder}>
+              <Ionicons name="person" size={20} color={Colors.white} />
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       <ScrollView
@@ -191,11 +204,35 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 20,
     paddingHorizontal: 24,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerLeft: {
+    flex: 1,
   },
   headerTitle: {
     fontSize: 24,
     fontWeight: 'bold',
     color: Colors.white,
+  },
+  profileButton: {
+    padding: 4,
+  },
+  profileImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: Colors.gold,
+  },
+  profilePlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.gold,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   content: {
     flex: 1,

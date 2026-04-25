@@ -1,9 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, Alert, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, Alert, ActivityIndicator, Image } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
+import { useRouter } from 'expo-router';
 import axios from 'axios';
 
 interface Member {
@@ -23,6 +24,7 @@ interface Club {
 
 export default function MembersScreen() {
   const { user } = useAuth();
+  const router = useRouter();
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
   
   const [searchQuery, setSearchQuery] = useState('');
@@ -144,10 +146,21 @@ export default function MembersScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
+      {/* Header with Profile Photo */}
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Members</Text>
-        <Text style={styles.headerSubtitle}>{selectedClub?.name || 'Select a club'}</Text>
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerTitle}>Members</Text>
+          <Text style={styles.headerSubtitle}>{selectedClub?.name || 'Select a club'}</Text>
+        </View>
+        <TouchableOpacity onPress={() => router.push('/(treasurer)/profile')} style={styles.profileButton}>
+          {user?.profile_photo ? (
+            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} />
+          ) : (
+            <View style={styles.profilePlaceholder}>
+              <Ionicons name="person" size={20} color={Colors.white} />
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content}>
@@ -335,6 +348,12 @@ const styles = StyleSheet.create({
     paddingTop: 60,
     paddingBottom: 20,
     paddingHorizontal: 24,
+    flexDirection: 'row',
+    justifyContent: 'space-between',
+    alignItems: 'center',
+  },
+  headerLeft: {
+    flex: 1,
   },
   headerTitle: {
     fontSize: 24,
@@ -345,6 +364,24 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: 'rgba(255, 255, 255, 0.8)',
     marginTop: 4,
+  },
+  profileButton: {
+    padding: 4,
+  },
+  profileImage: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    borderWidth: 2,
+    borderColor: Colors.gold,
+  },
+  profilePlaceholder: {
+    width: 44,
+    height: 44,
+    borderRadius: 22,
+    backgroundColor: Colors.gold,
+    justifyContent: 'center',
+    alignItems: 'center',
   },
   content: {
     flex: 1,
