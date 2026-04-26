@@ -147,30 +147,11 @@ export default function AuthScreen() {
     try {
       const result = await login(phoneNumber, password);
       
-      // If user has multiple roles, show role selection
-      if (result.has_multiple_roles && result.roles.length > 1) {
-        Alert.alert(
-          'Choose Your View',
-          'You have both Member and Admin roles. Which view would you like to use?',
-          [
-            {
-              text: 'Member View',
-              onPress: () => {
-                router.replace('/(member)/dashboard');
-              }
-            },
-            {
-              text: 'Admin View',
-              onPress: () => {
-                router.replace('/(treasurer)/dashboard');
-              }
-            }
-          ]
-        );
+      // Navigate based on selected role
+      if (role === 'treasurer') {
+        router.replace('/(treasurer)/dashboard');
       } else {
-        setTimeout(() => {
-          router.replace('/');
-        }, 100);
+        router.replace('/(member)/dashboard');
       }
     } catch (error: any) {
       if (error.message.includes('Invalid phone number or password')) {
@@ -552,6 +533,45 @@ export default function AuthScreen() {
                 onChangeText={setPassword}
                 secureTextEntry
               />
+
+              <View style={styles.roleSelector}>
+                <Text style={styles.roleLabel}>Sign in as:</Text>
+                <View style={styles.roleButtons}>
+                  <TouchableOpacity
+                    style={[
+                      styles.roleButton,
+                      role === 'member' && styles.roleButtonActive,
+                    ]}
+                    onPress={() => setRole('member')}
+                  >
+                    <Text
+                      style={[
+                        styles.roleButtonText,
+                        role === 'member' && styles.roleButtonTextActive,
+                      ]}
+                    >
+                      Member
+                    </Text>
+                  </TouchableOpacity>
+
+                  <TouchableOpacity
+                    style={[
+                      styles.roleButton,
+                      role === 'treasurer' && styles.roleButtonActive,
+                    ]}
+                    onPress={() => setRole('treasurer')}
+                  >
+                    <Text
+                      style={[
+                        styles.roleButtonText,
+                        role === 'treasurer' && styles.roleButtonTextActive,
+                      ]}
+                    >
+                      Admin
+                    </Text>
+                  </TouchableOpacity>
+                </View>
+              </View>
 
               <TouchableOpacity
                 style={[styles.button, loading && styles.buttonDisabled]}
