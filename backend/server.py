@@ -1108,6 +1108,106 @@ async def create_group(data: CreateGroupRequest):
 
 
 
+class UpdateGroupRequest(BaseModel):
+    group_id: str
+    admin_user_id: str
+    group_name: Optional[str] = None
+    group_type: Optional[str] = None
+    monthly_contribution: Optional[float] = None
+    payment_due_date: Optional[int] = None
+    bank_name: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    bank_account_holder: Optional[str] = None
+    description: Optional[str] = None
+
+@api_router.put("/groups/update")
+async def update_group(data: UpdateGroupRequest):
+    """Update an existing club/group"""
+    # Find the group
+    group = await db.groups.find_one({"id": data.group_id})
+    if not group:
+        raise HTTPException(status_code=404, detail="Club not found")
+    
+    # Verify user is admin of this group
+    is_admin = (
+        group.get('treasurer_user_id') == data.admin_user_id or 
+        data.admin_user_id in group.get('admin_user_ids', [])
+    )
+    
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Only admins can update club details")
+    
+    # Build update dict with only provided fields
+    update_fields = {}
+    if data.group_name is not None:
+        update_fields['group_name'] = data.group_name
+    if data.group_type is not None:
+        update_fields['group_type'] = data.group_type
+    if data.monthly_contribution is not None:
+        update_fields['monthly_contribution'] = data.monthly_contribution
+    if data.payment_due_date is not None:
+        update_fields['payment_due_date'] = data.payment_due_date
+    if data.bank_name is not None:
+        update_fields['bank_name'] = encrypt_sensitive_field(data.bank_name)
+    if data.bank_account_number is not None:
+        update_fields['bank_account_number'] = encrypt_sensitive_field(data.bank_account_number)
+    if data.bank_account_holder is not None:
+        update_fields['bank_account_holder'] = encrypt_sensitive_field(data.bank_account_holder)
+    if data.description is not None:
+        update_fields['description'] = data.description
+    
+    if not update_fields:
+        return {"message": "No fields to update"}
+    
+    update_fields['updated_at'] = datetime.utcnow()
+    
+    await db.groups.update_one(
+        {"id": data.group_id},
+        {"$set": update_fields}
+    )
+    
+    logging.info(f"Group updated: {data.group_id} by user {data.admin_user_id}")
+    
+    return {
+        "message": "Club updated successfully",
+        "group_id": data.group_id
+    }
+
+@api_router.get("/groups/{group_id}")
+async def get_group_details(group_id: str, user_id: str):
+    """Get details of a specific group"""
+    group = await db.groups.find_one({"id": group_id})
+    if not group:
+        raise HTTPException(status_code=404, detail="Club not found")
+    
+    # Decrypt sensitive fields for authorized users
+    is_admin = (
+        group.get('treasurer_user_id') == user_id or 
+        user_id in group.get('admin_user_ids', [])
+    )
+    
+    # Get member count
+    member_count = await db.members.count_documents({"group_id": group_id, "status": "active"})
+    
+    return {
+        "id": group['id'],
+        "group_name": group['group_name'],
+        "group_type": group.get('group_type', 'savings'),
+        "monthly_contribution": group['monthly_contribution'],
+        "payment_due_date": group['payment_due_date'],
+        "bank_name": decrypt_sensitive_field(group.get('bank_name', '')) if is_admin else '****',
+        "bank_account_number": decrypt_sensitive_field(group.get('bank_account_number', '')) if is_admin else '****',
+        "bank_account_holder": decrypt_sensitive_field(group.get('bank_account_holder', '')) if is_admin else '****',
+        "description": group.get('description'),
+        "member_count": member_count,
+        "status": group.get('status', 'active'),
+        "created_at": group.get('created_at'),
+        "is_admin": is_admin
+    }
+
+
+
+
 # ==================== MEMBER ROUTES ====================
 
 class ProfilePhotoUpdate(BaseModel):
