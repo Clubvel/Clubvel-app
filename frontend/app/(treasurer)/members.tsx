@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
 import { useRouter } from 'expo-router';
+import { AdBanner } from '../../components/AdBanner';
 import axios from 'axios';
 
 interface Member {
@@ -227,6 +228,9 @@ export default function MembersScreen() {
           <Ionicons name="person-add" size={24} color={Colors.white} />
           <Text style={styles.inviteButtonText}>Invite New Member</Text>
         </TouchableOpacity>
+
+        {/* Ad Banner */}
+        <AdBanner size="banner" />
 
         <View style={{ height: 32 }} />
       </ScrollView>

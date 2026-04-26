@@ -4,6 +4,7 @@ import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useRouter } from 'expo-router';
+import { AdBanner } from '../../components/AdBanner';
 import { 
   generatePDFReport, 
   sharePDFReport, 
@@ -284,6 +285,9 @@ export default function ReportsScreen() {
             </TouchableOpacity>
           </View>
         </View>
+        
+        {/* Ad Banner */}
+        <AdBanner size="banner" />
       </ScrollView>
     </View>
   );

@@ -4,6 +4,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { AdBanner } from '../../components/AdBanner';
 import axios from 'axios';
 import { format } from 'date-fns';
 

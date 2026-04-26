@@ -5,6 +5,7 @@ import { StatusPill } from '../../components/StatusPill';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
+import { AdBanner } from '../../components/AdBanner';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
 

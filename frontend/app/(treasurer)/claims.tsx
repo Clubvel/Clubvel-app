@@ -4,6 +4,7 @@ import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useRouter } from 'expo-router';
+import { AdBanner } from '../../components/AdBanner';
 
 export default function TreasurerClaimsScreen() {
   const { user } = useAuth();
@@ -35,6 +36,9 @@ export default function TreasurerClaimsScreen() {
           <Text style={styles.emptyTitle}>No Claims Yet</Text>
           <Text style={styles.emptySubtitle}>Claims will appear here once you create a club and add members</Text>
         </View>
+        
+        {/* Ad Banner */}
+        <AdBanner size="banner" />
       </ScrollView>
     </View>
   );

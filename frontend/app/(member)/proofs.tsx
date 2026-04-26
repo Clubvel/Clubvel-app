@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
 import { useRouter } from 'expo-router';
+import { AdBanner } from '../../components/AdBanner';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system';
 import * as Sharing from 'expo-sharing';
@@ -309,6 +310,9 @@ export default function ProofOfPaymentsScreen() {
             </Text>
           </View>
         </View>
+        
+        {/* Ad Banner */}
+        <AdBanner size="banner" />
       </ScrollView>
 
       {/* Club Selection Modal */}

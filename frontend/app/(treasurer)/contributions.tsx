@@ -5,6 +5,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
 import { useRouter } from 'expo-router';
+import { AdBanner } from '../../components/AdBanner';
 import axios from 'axios';
 
 interface Contribution {
@@ -200,6 +201,9 @@ export default function ContributionsScreen() {
             )}
           </View>
         ))}
+        
+        {/* Ad Banner */}
+        <AdBanner size="banner" />
       </ScrollView>
 
       {/* Proof of Payment Modal */}

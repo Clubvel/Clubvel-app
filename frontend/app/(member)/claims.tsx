@@ -4,6 +4,7 @@ import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useRouter } from 'expo-router';
+import { AdBanner } from '../../components/AdBanner';
 
 export default function ClaimsScreen() {
   const { user } = useAuth();
@@ -34,6 +35,9 @@ export default function ClaimsScreen() {
           <Text style={styles.emptyTitle}>No Claims Yet</Text>
           <Text style={styles.emptySubtitle}>Join a stokvel, social club, or society to see your claims schedule</Text>
         </View>
+        
+        {/* Ad Banner */}
+        <AdBanner size="banner" />
       </ScrollView>
     </View>
   );
