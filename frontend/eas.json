@@ -24,8 +24,10 @@
       "android": {
         "buildType": "apk"
       },
+      "node": "18.18.0",
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://clubvel-production-5fd5.up.railway.app"
+        "EXPO_PUBLIC_BACKEND_URL": "https://clubvel-production-5fd5.up.railway.app",
+        "YARN_FROZEN_LOCKFILE": "false"
       }
     },
     "production": {
@@ -35,8 +37,10 @@
       "android": {
         "buildType": "app-bundle"
       },
+      "node": "18.18.0",
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://clubvel-production-5fd5.up.railway.app"
+        "EXPO_PUBLIC_BACKEND_URL": "https://clubvel-production-5fd5.up.railway.app",
+        "YARN_FROZEN_LOCKFILE": "false"
       }
     }
   },
