@@ -4205,7 +4205,9 @@ async def clubvel_website():
     return HTMLResponse(content=html_content)
 
 # Catch-all route to prevent 404 errors - redirects to main website
-@app.get("/{path:path}", response_class=HTMLResponse)
+# Uses api_route (all methods) so that POST/PUT/DELETE requests to unknown
+# non-API paths are handled gracefully instead of returning 405.
+@app.api_route("/{path:path}", methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS", "HEAD"], response_class=HTMLResponse)
 async def catch_all(path: str, request: Request):
     """Catch-all route for any unmatched paths - serves the main website"""
     # Skip API routes - they should return proper 404
