@@ -13,7 +13,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://your-production-api.com"
+        "EXPO_PUBLIC_BACKEND_URL": "https://clubvel-production-5fd5.up.railway.app"
       }
     },
     "preview": {
@@ -25,7 +25,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://clubvel-production.up.railway.app"
+        "EXPO_PUBLIC_BACKEND_URL": "https://clubvel-production-5fd5.up.railway.app"
       }
     },
     "production": {
@@ -36,7 +36,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://clubvel-production.up.railway.app"
+        "EXPO_PUBLIC_BACKEND_URL": "https://clubvel-production-5fd5.up.railway.app"
       }
     }
   },
