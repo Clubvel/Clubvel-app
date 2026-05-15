@@ -33,7 +33,7 @@ export default function AuthScreen() {
   const [resetLoading, setResetLoading] = useState(false);
   
   const router = useRouter();
-  const { login, register, verifyOTP, isFirebaseAvailable } = useAuth();
+  const { login, register, verifyOTP, isFirebaseAvailable, sendFirebaseOTP } = useAuth();
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
   const handleProceedToConsent = () => {
@@ -167,6 +167,9 @@ export default function AuthScreen() {
     }
   };
 
+  // Firebase confirmation object for reset password flow
+  const [resetConfirmation, setResetConfirmation] = useState<any>(null);
+
   // Forgot Password Functions
   const handleSendResetOTP = async () => {
     if (!forgotPhoneNumber) {
@@ -176,17 +179,33 @@ export default function AuthScreen() {
 
     setResetLoading(true);
     try {
+      // First check if user exists in backend
       await axios.post(`${API_URL}/api/auth/forgot-password`, {
         phone_number: forgotPhoneNumber
       });
-      Alert.alert(
-        'OTP Sent',
-        'A password reset code has been sent to your phone via SMS/WhatsApp.',
-        [{ text: 'OK' }]
-      );
+      
+      // Use Firebase to send OTP
+      if (isFirebaseAvailable) {
+        const result = await sendFirebaseOTP(forgotPhoneNumber);
+        if (result.confirmation) {
+          setResetConfirmation(result.confirmation);
+        }
+        Alert.alert(
+          'OTP Sent',
+          'A password reset code has been sent to your phone via SMS.',
+          [{ text: 'OK' }]
+        );
+      } else {
+        // Web fallback with mock OTP
+        Alert.alert(
+          'OTP Sent',
+          'For testing, use OTP: 1234',
+          [{ text: 'OK' }]
+        );
+      }
       setResetStep(2);
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to send reset code. Please check your phone number.');
+      Alert.alert('Error', error.response?.data?.detail || error.message || 'Failed to send reset code. Please check your phone number.');
     } finally {
       setResetLoading(false);
     }
@@ -200,13 +219,25 @@ export default function AuthScreen() {
 
     setResetLoading(true);
     try {
-      await axios.post(`${API_URL}/api/auth/verify-reset-otp`, {
-        phone_number: forgotPhoneNumber,
-        otp: resetOTP
-      });
+      // Verify with Firebase if available
+      if (resetConfirmation && isFirebaseAvailable) {
+        await resetConfirmation.confirm(resetOTP);
+      } else {
+        // Backend verification for web/mock
+        await axios.post(`${API_URL}/api/auth/verify-reset-otp`, {
+          phone_number: forgotPhoneNumber,
+          otp: resetOTP
+        });
+      }
       setResetStep(3);
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Invalid OTP. Please try again.');
+      if (error.code === 'auth/invalid-verification-code') {
+        Alert.alert('Error', 'Invalid OTP code. Please try again.');
+      } else if (error.code === 'auth/code-expired') {
+        Alert.alert('Error', 'OTP code has expired. Please request a new one.');
+      } else {
+        Alert.alert('Error', error.response?.data?.detail || 'Invalid OTP. Please try again.');
+      }
     } finally {
       setResetLoading(false);
     }
