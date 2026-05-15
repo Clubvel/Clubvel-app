@@ -618,7 +618,8 @@ async def login(request: Request, login_data: UserLogin):
     # Check if user has both member and admin roles based on their group memberships
     memberships = await db.members.find({"user_id": user['id'], "status": "active"}).to_list(100)
     has_admin_membership = any(m.get('role_in_group') == 'admin' or m.get('role_in_group') == 'treasurer' for m in memberships)
-    has_member_membership = any(m.get('role_in_group') == 'member' for m in memberships)
+    # Admins are also members - they can view as member too
+    has_member_membership = len(memberships) > 0  # Any membership counts as being a member
     
     # Also check if user is admin of any groups
     admin_groups = await db.groups.find({
@@ -631,10 +632,11 @@ async def login(request: Request, login_data: UserLogin):
     
     if admin_groups:
         has_admin_membership = True
+        has_member_membership = True  # Admins can also act as members
     
     # Update roles based on actual memberships
     actual_roles = []
-    if has_member_membership or 'member' in user_roles:
+    if has_member_membership:
         actual_roles.append('member')
     if has_admin_membership or 'treasurer' in user_roles or primary_role == 'treasurer':
         actual_roles.append('treasurer')

@@ -239,6 +239,7 @@ export default function ClubDetailScreen() {
       case 'confirmed': return Colors.statusPaid;
       case 'proof_uploaded': return Colors.gold;
       case 'late': return Colors.statusLate;
+      case 'active': return Colors.mediumGreen;
       default: return Colors.textMuted;
     }
   };
@@ -248,6 +249,7 @@ export default function ClubDetailScreen() {
       case 'confirmed': return 'Paid';
       case 'proof_uploaded': return 'Pending Review';
       case 'late': return 'Late';
+      case 'active': return 'Active';
       default: return 'Pending';
     }
   };
@@ -745,24 +747,26 @@ const styles = StyleSheet.create({
     marginHorizontal: 16,
     marginTop: 16,
     borderRadius: 12,
-    padding: 4,
+    padding: 6,
+    gap: 4,
   },
   tab: {
     flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    paddingVertical: 12,
-    gap: 6,
+    paddingVertical: 10,
+    paddingHorizontal: 4,
     borderRadius: 8,
   },
   activeTab: {
     backgroundColor: Colors.lightBackground,
   },
   tabText: {
-    fontSize: 14,
+    fontSize: 11,
     color: Colors.textMuted,
     fontWeight: '500',
+    marginLeft: 4,
   },
   activeTabText: {
     color: Colors.mediumGreen,

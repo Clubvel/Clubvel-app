@@ -633,7 +633,10 @@ export default function AuthScreen() {
         animationType="slide"
         onRequestClose={closeForgotPassword}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView 
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Reset Password</Text>
@@ -642,7 +645,11 @@ export default function AuthScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView style={styles.modalBody}>
+            <ScrollView 
+              style={styles.modalBody}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={true}
+            >
               {resetStep === 1 && (
                 <>
                   <Text style={styles.resetStepTitle}>Step 1: Enter your phone number</Text>
@@ -735,8 +742,10 @@ export default function AuthScreen() {
                 </>
               )}
             </ScrollView>
+            {/* Extra padding at bottom for keyboard */}
+            <View style={{ height: 20 }} />
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </KeyboardAvoidingView>
   );
