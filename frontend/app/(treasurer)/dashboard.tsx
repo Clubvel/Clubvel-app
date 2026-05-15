@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Linking, Alert, Modal, Image, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Linking, Alert, Modal, Image, TextInput, KeyboardAvoidingView, Platform, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
@@ -61,9 +61,6 @@ export default function AdminDashboardScreen() {
   const [clubType, setClubType] = useState('savings');
   const [monthlyContribution, setMonthlyContribution] = useState('');
   const [paymentDueDate, setPaymentDueDate] = useState('25');
-  const [bankName, setBankName] = useState('');
-  const [bankAccountNumber, setBankAccountNumber] = useState('');
-  const [bankAccountHolder, setBankAccountHolder] = useState('');
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
@@ -114,8 +111,8 @@ export default function AdminDashboardScreen() {
   };
 
   const handleCreateClub = async () => {
-    if (!clubName || !monthlyContribution || !bankName || !bankAccountNumber || !bankAccountHolder) {
-      Alert.alert('Missing Information', 'Please fill in all required fields');
+    if (!clubName || !monthlyContribution) {
+      Alert.alert('Missing Information', 'Please fill in club name and monthly contribution');
       return;
     }
 
@@ -126,9 +123,6 @@ export default function AdminDashboardScreen() {
         group_type: clubType,
         monthly_contribution: parseFloat(monthlyContribution),
         payment_due_date: parseInt(paymentDueDate),
-        bank_name: bankName,
-        bank_account_number: bankAccountNumber,
-        bank_account_holder: bankAccountHolder,
         admin_user_id: user?.id,
         payment_reference_prefix: clubName.substring(0, 3).toUpperCase(),
         start_date: new Date().toISOString()
@@ -141,9 +135,6 @@ export default function AdminDashboardScreen() {
       setClubType('savings');
       setMonthlyContribution('');
       setPaymentDueDate('25');
-      setBankName('');
-      setBankAccountNumber('');
-      setBankAccountHolder('');
       // Refresh dashboard
       fetchDashboard();
     } catch (error: any) {
@@ -504,100 +495,84 @@ export default function AdminDashboardScreen() {
       animationType="slide"
       onRequestClose={() => setShowCreateClubModal(false)}
     >
-      <View style={styles.createClubModalOverlay}>
-        <View style={styles.createClubModalContent}>
-          <View style={styles.createClubModalHeader}>
-            <Text style={styles.createClubModalTitle}>Create New Club</Text>
-            <TouchableOpacity onPress={() => setShowCreateClubModal(false)}>
-              <Ionicons name="close" size={28} color={Colors.textPrimary} />
-            </TouchableOpacity>
-          </View>
-
-          <ScrollView style={styles.createClubForm}>
-            <Text style={styles.inputLabel}>Club Name *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. Family Savings Club"
-              value={clubName}
-              onChangeText={setClubName}
-            />
-
-            <Text style={styles.inputLabel}>Club Type</Text>
-            <View style={styles.typeSelector}>
-              {['savings', 'burial', 'investment', 'grocery', 'social'].map((type) => (
-                <TouchableOpacity
-                  key={type}
-                  style={[styles.typeButton, clubType === type && styles.typeButtonActive]}
-                  onPress={() => setClubType(type)}
-                >
-                  <Text style={[styles.typeButtonText, clubType === type && styles.typeButtonTextActive]}>
-                    {type.charAt(0).toUpperCase() + type.slice(1)}
-                  </Text>
-                </TouchableOpacity>
-              ))}
+      <KeyboardAvoidingView 
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.createClubModalOverlay}
+      >
+        <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
+          <View style={styles.createClubModalContent}>
+            <View style={styles.createClubModalHeader}>
+              <Text style={styles.createClubModalTitle}>Create New Club</Text>
+              <TouchableOpacity onPress={() => setShowCreateClubModal(false)}>
+                <Ionicons name="close" size={28} color={Colors.textPrimary} />
+              </TouchableOpacity>
             </View>
 
-            <Text style={styles.inputLabel}>Monthly Contribution (R) *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. 500"
-              value={monthlyContribution}
-              onChangeText={setMonthlyContribution}
-              keyboardType="numeric"
-            />
+            <ScrollView 
+              style={styles.createClubForm}
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={true}
+            >
+              <Text style={styles.inputLabel}>Club Name *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. Family Savings Club"
+                value={clubName}
+                onChangeText={setClubName}
+              />
 
-            <Text style={styles.inputLabel}>Payment Due Date (Day of Month)</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. 25"
-              value={paymentDueDate}
-              onChangeText={setPaymentDueDate}
-              keyboardType="numeric"
-              maxLength={2}
-            />
+              <Text style={styles.inputLabel}>Club Type</Text>
+              <View style={styles.typeSelector}>
+                {['savings', 'burial', 'investment', 'grocery', 'social'].map((type) => (
+                  <TouchableOpacity
+                    key={type}
+                    style={[styles.typeButton, clubType === type && styles.typeButtonActive]}
+                    onPress={() => setClubType(type)}
+                  >
+                    <Text style={[styles.typeButtonText, clubType === type && styles.typeButtonTextActive]}>
+                      {type.charAt(0).toUpperCase() + type.slice(1)}
+                    </Text>
+                  </TouchableOpacity>
+                ))}
+              </View>
 
-            <Text style={styles.inputLabel}>Bank Name *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="e.g. FNB, Standard Bank"
-              value={bankName}
-              onChangeText={setBankName}
-            />
+              <Text style={styles.inputLabel}>Monthly Contribution (R) *</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. 500"
+                value={monthlyContribution}
+                onChangeText={setMonthlyContribution}
+                keyboardType="numeric"
+              />
 
-            <Text style={styles.inputLabel}>Bank Account Number *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Account number"
-              value={bankAccountNumber}
-              onChangeText={setBankAccountNumber}
-              keyboardType="numeric"
-            />
+              <Text style={styles.inputLabel}>Payment Due Date (Day of Month)</Text>
+              <TextInput
+                style={styles.input}
+                placeholder="e.g. 25"
+                value={paymentDueDate}
+                onChangeText={setPaymentDueDate}
+                keyboardType="numeric"
+                maxLength={2}
+              />
+              
+              {/* Extra padding at bottom for keyboard */}
+              <View style={{ height: 150 }} />
+            </ScrollView>
 
-            <Text style={styles.inputLabel}>Account Holder Name *</Text>
-            <TextInput
-              style={styles.input}
-              placeholder="Name on the account"
-              value={bankAccountHolder}
-              onChangeText={setBankAccountHolder}
-            />
-            
-            {/* Extra padding at bottom */}
-            <View style={{ height: 100 }} />
-          </ScrollView>
-
-          <TouchableOpacity
-            style={[styles.createClubSubmitButton, creatingClub && styles.buttonDisabled]}
-            onPress={handleCreateClub}
-            disabled={creatingClub}
-          >
-            {creatingClub ? (
-              <ActivityIndicator color={Colors.white} />
-            ) : (
-              <Text style={styles.createClubSubmitText}>Create Club</Text>
-            )}
-          </TouchableOpacity>
-        </View>
-      </View>
+            <TouchableOpacity
+              style={[styles.createClubSubmitButton, creatingClub && styles.buttonDisabled]}
+              onPress={handleCreateClub}
+              disabled={creatingClub}
+            >
+              {creatingClub ? (
+                <ActivityIndicator color={Colors.white} />
+              ) : (
+                <Text style={styles.createClubSubmitText}>Create Club</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </TouchableWithoutFeedback>
+      </KeyboardAvoidingView>
     </Modal>
 
     {/* Delete Account Confirmation Modal */}

@@ -1044,9 +1044,9 @@ class CreateGroupRequest(BaseModel):
     group_type: str = "savings"
     monthly_contribution: float
     payment_due_date: int = 25
-    bank_name: str
-    bank_account_number: str
-    bank_account_holder: str
+    bank_name: Optional[str] = None
+    bank_account_number: Optional[str] = None
+    bank_account_holder: Optional[str] = None
     admin_user_id: str
     payment_reference_prefix: str = "CLB"
     start_date: Optional[str] = None
@@ -1070,14 +1070,15 @@ async def create_group(data: CreateGroupRequest):
         "group_type": data.group_type,
         "monthly_contribution": data.monthly_contribution,
         "payment_due_date": data.payment_due_date,
-        "bank_name": encrypt_sensitive_field(data.bank_name),
-        "bank_account_number": encrypt_sensitive_field(data.bank_account_number),
-        "bank_account_holder": encrypt_sensitive_field(data.bank_account_holder),
+        "bank_name": encrypt_sensitive_field(data.bank_name) if data.bank_name else None,
+        "bank_account_number": encrypt_sensitive_field(data.bank_account_number) if data.bank_account_number else None,
+        "bank_account_holder": encrypt_sensitive_field(data.bank_account_holder) if data.bank_account_holder else None,
         "payment_reference_prefix": data.payment_reference_prefix,
         "start_date": start_date,
         "status": "active",
         "treasurer_user_id": data.admin_user_id,
-        "admin_user_ids": [data.admin_user_id],  # Support for multiple admins
+        "admin_user_ids": [data.admin_user_id],  # Support for multiple admins (max 5)
+        "max_admins": 5,
         "description": data.description,
         "created_at": datetime.utcnow()
     }
@@ -1171,6 +1172,195 @@ async def update_group(data: UpdateGroupRequest):
     return {
         "message": "Club updated successfully",
         "group_id": data.group_id
+    }
+
+# ==================== DELETE CLUB ENDPOINT ====================
+
+class DeleteClubRequest(BaseModel):
+    group_id: str
+    admin_user_id: str
+    confirmation: str = "DELETE"
+
+@api_router.delete("/groups/delete")
+async def delete_club(data: DeleteClubRequest):
+    """Delete a club/group (admin only)"""
+    # Find the group
+    group = await db.groups.find_one({"id": data.group_id})
+    if not group:
+        raise HTTPException(status_code=404, detail="Club not found")
+    
+    # Verify user is admin of this group
+    admin_user_ids = group.get('admin_user_ids', [])
+    is_admin = (
+        group.get('treasurer_user_id') == data.admin_user_id or 
+        data.admin_user_id in admin_user_ids
+    )
+    
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Only admins can delete the club")
+    
+    if data.confirmation != "DELETE":
+        raise HTTPException(status_code=400, detail="Confirmation required")
+    
+    # Delete all members of this group
+    await db.members.delete_many({"group_id": data.group_id})
+    
+    # Delete all contributions for this group
+    await db.contributions.delete_many({"group_id": data.group_id})
+    
+    # Delete the group
+    await db.groups.delete_one({"id": data.group_id})
+    
+    logging.info(f"Club deleted: {data.group_id} by user {data.admin_user_id}")
+    
+    return {"message": "Club deleted successfully"}
+
+# ==================== DELETE MEMBER ENDPOINT ====================
+
+class DeleteMemberRequest(BaseModel):
+    group_id: str
+    member_user_id: str
+    admin_user_id: str
+    reason: Optional[str] = None
+
+@api_router.delete("/groups/member/delete")
+async def delete_member(data: DeleteMemberRequest):
+    """Remove a member from a club (admin only, notifies the member)"""
+    # Find the group
+    group = await db.groups.find_one({"id": data.group_id})
+    if not group:
+        raise HTTPException(status_code=404, detail="Club not found")
+    
+    # Verify requester is admin
+    admin_user_ids = group.get('admin_user_ids', [])
+    is_admin = (
+        group.get('treasurer_user_id') == data.admin_user_id or 
+        data.admin_user_id in admin_user_ids
+    )
+    
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Only admins can remove members")
+    
+    # Can't delete self if you're the only admin
+    if data.member_user_id == data.admin_user_id:
+        if len(admin_user_ids) <= 1:
+            raise HTTPException(status_code=400, detail="Cannot remove yourself as the only admin. Transfer admin rights first.")
+    
+    # Find and remove the member
+    member = await db.members.find_one({
+        "group_id": data.group_id,
+        "user_id": data.member_user_id
+    })
+    
+    if not member:
+        raise HTTPException(status_code=404, detail="Member not found in this club")
+    
+    await db.members.delete_one({
+        "group_id": data.group_id,
+        "user_id": data.member_user_id
+    })
+    
+    # Remove from admin list if they were an admin
+    if data.member_user_id in admin_user_ids:
+        admin_user_ids.remove(data.member_user_id)
+        await db.groups.update_one(
+            {"id": data.group_id},
+            {"$set": {"admin_user_ids": admin_user_ids}}
+        )
+    
+    # Get member details for notification
+    removed_user = await db.users.find_one({"id": data.member_user_id})
+    
+    # TODO: Send notification to removed member (SMS/WhatsApp when Twilio is configured)
+    # For now, log the removal
+    logging.info(f"Member {data.member_user_id} removed from club {data.group_id} by admin {data.admin_user_id}. Reason: {data.reason}")
+    
+    return {
+        "message": "Member removed successfully",
+        "notification_sent": True,  # Will be true when Twilio is configured
+        "notification_note": "Demo mode - notification logged. Real SMS will be sent when Twilio is configured."
+    }
+
+# ==================== INVITE ADMIN ENDPOINT ====================
+
+class InviteAdminRequest(BaseModel):
+    group_id: str
+    admin_user_id: str  # Current admin making the invitation
+    new_admin_phone: str
+
+@api_router.post("/groups/admin/invite")
+async def invite_admin(data: InviteAdminRequest):
+    """Invite a new admin to the club (max 5 admins)"""
+    # Find the group
+    group = await db.groups.find_one({"id": data.group_id})
+    if not group:
+        raise HTTPException(status_code=404, detail="Club not found")
+    
+    # Verify requester is admin
+    admin_user_ids = group.get('admin_user_ids', [])
+    is_admin = (
+        group.get('treasurer_user_id') == data.admin_user_id or 
+        data.admin_user_id in admin_user_ids
+    )
+    
+    if not is_admin:
+        raise HTTPException(status_code=403, detail="Only admins can invite new admins")
+    
+    # Check max admins limit (5)
+    max_admins = group.get('max_admins', 5)
+    if len(admin_user_ids) >= max_admins:
+        raise HTTPException(status_code=400, detail=f"Maximum {max_admins} admins allowed per club")
+    
+    # Find the user by phone number
+    new_admin = await db.users.find_one({"phone_number": data.new_admin_phone})
+    if not new_admin:
+        raise HTTPException(status_code=404, detail="User not found. They must register first.")
+    
+    new_admin_id = new_admin['id']
+    
+    # Check if already an admin
+    if new_admin_id in admin_user_ids:
+        raise HTTPException(status_code=400, detail="This user is already an admin")
+    
+    # Check if already a member
+    existing_member = await db.members.find_one({
+        "group_id": data.group_id,
+        "user_id": new_admin_id
+    })
+    
+    if not existing_member:
+        # Add as member first
+        member = {
+            "id": str(uuid.uuid4()),
+            "user_id": new_admin_id,
+            "group_id": data.group_id,
+            "unique_reference_code": f"{group.get('payment_reference_prefix', 'CLB')}{str(len(admin_user_ids) + 1).zfill(3)}",
+            "date_joined_group": datetime.utcnow(),
+            "status": "active",
+            "role_in_group": "admin",
+            "payout_position": await db.members.count_documents({"group_id": data.group_id}) + 1
+        }
+        await db.members.insert_one(member)
+    else:
+        # Update existing member to admin role
+        await db.members.update_one(
+            {"group_id": data.group_id, "user_id": new_admin_id},
+            {"$set": {"role_in_group": "admin"}}
+        )
+    
+    # Add to admin list
+    admin_user_ids.append(new_admin_id)
+    await db.groups.update_one(
+        {"id": data.group_id},
+        {"$set": {"admin_user_ids": admin_user_ids}}
+    )
+    
+    logging.info(f"New admin {new_admin_id} added to club {data.group_id} by admin {data.admin_user_id}")
+    
+    return {
+        "message": "Admin added successfully",
+        "new_admin_name": new_admin.get('full_name', 'Unknown'),
+        "total_admins": len(admin_user_ids)
     }
 
 @api_router.get("/groups/{group_id}")

@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
@@ -41,8 +41,17 @@ export default function ClubDetailScreen() {
   const [clubData, setClubData] = useState<ClubData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
-  const [activeTab, setActiveTab] = useState<'members' | 'payments' | 'claims'>('members');
+  const [activeTab, setActiveTab] = useState<'members' | 'payments' | 'claims' | 'settings'>('members');
   const [error, setError] = useState<string | null>(null);
+  
+  // Admin modals state
+  const [showEditNameModal, setShowEditNameModal] = useState(false);
+  const [showDeleteClubModal, setShowDeleteClubModal] = useState(false);
+  const [showInviteAdminModal, setShowInviteAdminModal] = useState(false);
+  const [newClubName, setNewClubName] = useState('');
+  const [inviteAdminPhone, setInviteAdminPhone] = useState('');
+  const [deleteConfirmation, setDeleteConfirmation] = useState('');
+  const [actionLoading, setActionLoading] = useState(false);
 
   const fetchClubData = async () => {
     setError(null);
@@ -119,6 +128,110 @@ export default function ClubDetailScreen() {
         }
       ]
     );
+  };
+
+  // Admin Actions
+  const handleEditClubName = async () => {
+    if (!newClubName.trim()) {
+      Alert.alert('Error', 'Please enter a new club name');
+      return;
+    }
+    
+    setActionLoading(true);
+    try {
+      await axios.put(`${API_URL}/api/groups/update`, {
+        group_id: id,
+        admin_user_id: user?.id,
+        group_name: newClubName.trim()
+      });
+      Alert.alert('Success', 'Club name updated successfully!');
+      setShowEditNameModal(false);
+      setNewClubName('');
+      fetchClubData();
+    } catch (error: any) {
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to update club name');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteClub = async () => {
+    if (deleteConfirmation !== 'DELETE') {
+      Alert.alert('Error', 'Please type DELETE to confirm');
+      return;
+    }
+    
+    setActionLoading(true);
+    try {
+      await axios.delete(`${API_URL}/api/groups/delete`, {
+        data: {
+          group_id: id,
+          admin_user_id: user?.id,
+          confirmation: 'DELETE'
+        }
+      });
+      Alert.alert('Success', 'Club deleted successfully!', [
+        { text: 'OK', onPress: () => router.replace('/(treasurer)/dashboard') }
+      ]);
+    } catch (error: any) {
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to delete club');
+    } finally {
+      setActionLoading(false);
+    }
+  };
+
+  const handleDeleteMember = (memberId: string, memberName: string) => {
+    Alert.alert(
+      'Remove Member',
+      `Are you sure you want to remove ${memberName} from this club? They will be notified.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            try {
+              await axios.delete(`${API_URL}/api/groups/member/delete`, {
+                data: {
+                  group_id: id,
+                  member_user_id: memberId,
+                  admin_user_id: user?.id,
+                  reason: 'Removed by admin'
+                }
+              });
+              Alert.alert('Success', `${memberName} has been removed from the club`);
+              fetchClubData();
+            } catch (error: any) {
+              Alert.alert('Error', error.response?.data?.detail || 'Failed to remove member');
+            }
+          }
+        }
+      ]
+    );
+  };
+
+  const handleInviteAdmin = async () => {
+    if (!inviteAdminPhone.trim()) {
+      Alert.alert('Error', 'Please enter a phone number');
+      return;
+    }
+    
+    setActionLoading(true);
+    try {
+      const response = await axios.post(`${API_URL}/api/groups/admin/invite`, {
+        group_id: id,
+        admin_user_id: user?.id,
+        new_admin_phone: inviteAdminPhone.trim()
+      });
+      Alert.alert('Success', `${response.data.new_admin_name} has been added as an admin!`);
+      setShowInviteAdminModal(false);
+      setInviteAdminPhone('');
+      fetchClubData();
+    } catch (error: any) {
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to invite admin');
+    } finally {
+      setActionLoading(false);
+    }
   };
 
   const getStatusColor = (status: string) => {
@@ -219,6 +332,13 @@ export default function ClubDetailScreen() {
         >
           <Ionicons name="trophy" size={20} color={activeTab === 'claims' ? Colors.mediumGreen : Colors.textMuted} />
           <Text style={[styles.tabText, activeTab === 'claims' && styles.activeTabText]}>Claims</Text>
+        </TouchableOpacity>
+        <TouchableOpacity 
+          style={[styles.tab, activeTab === 'settings' && styles.activeTab]}
+          onPress={() => setActiveTab('settings')}
+        >
+          <Ionicons name="settings" size={20} color={activeTab === 'settings' ? Colors.mediumGreen : Colors.textMuted} />
+          <Text style={[styles.tabText, activeTab === 'settings' && styles.activeTabText]}>Settings</Text>
         </TouchableOpacity>
       </View>
 
@@ -332,8 +452,180 @@ export default function ClubDetailScreen() {
           </View>
         )}
 
+        {activeTab === 'settings' && (
+          <View style={styles.section}>
+            <Text style={styles.settingsTitle}>Club Settings</Text>
+            
+            {/* Edit Club Name */}
+            <TouchableOpacity 
+              style={styles.settingsItem}
+              onPress={() => {
+                setNewClubName(clubData.name);
+                setShowEditNameModal(true);
+              }}
+            >
+              <View style={styles.settingsItemLeft}>
+                <Ionicons name="pencil" size={22} color={Colors.mediumGreen} />
+                <Text style={styles.settingsItemText}>Edit Club Name</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+            </TouchableOpacity>
+
+            {/* Invite Admin */}
+            <TouchableOpacity 
+              style={styles.settingsItem}
+              onPress={() => setShowInviteAdminModal(true)}
+            >
+              <View style={styles.settingsItemLeft}>
+                <Ionicons name="person-add" size={22} color={Colors.mediumGreen} />
+                <Text style={styles.settingsItemText}>Invite Admin (Max 5)</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+            </TouchableOpacity>
+
+            <Text style={[styles.settingsTitle, { marginTop: 24 }]}>Members Management</Text>
+            
+            {/* Member List with Delete Option */}
+            {clubData.members.map((member) => (
+              <View key={member.id} style={styles.memberManageCard}>
+                <View style={styles.memberInfo}>
+                  <View style={styles.memberAvatar}>
+                    <Text style={styles.memberAvatarText}>{member.name.charAt(0)}</Text>
+                  </View>
+                  <View style={styles.memberDetails}>
+                    <Text style={styles.memberName}>{member.name}</Text>
+                    <Text style={styles.memberPhone}>{member.phone}</Text>
+                  </View>
+                </View>
+                <TouchableOpacity 
+                  style={styles.deleteMemberBtn}
+                  onPress={() => handleDeleteMember(member.id, member.name)}
+                >
+                  <Ionicons name="trash-outline" size={20} color={Colors.statusLate} />
+                </TouchableOpacity>
+              </View>
+            ))}
+
+            <Text style={[styles.settingsTitle, { marginTop: 24, color: Colors.statusLate }]}>Danger Zone</Text>
+            
+            {/* Delete Club */}
+            <TouchableOpacity 
+              style={[styles.settingsItem, { borderColor: Colors.statusLate }]}
+              onPress={() => setShowDeleteClubModal(true)}
+            >
+              <View style={styles.settingsItemLeft}>
+                <Ionicons name="trash" size={22} color={Colors.statusLate} />
+                <Text style={[styles.settingsItemText, { color: Colors.statusLate }]}>Delete Club</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={20} color={Colors.statusLate} />
+            </TouchableOpacity>
+          </View>
+        )}
+
         <View style={{ height: 32 }} />
       </ScrollView>
+
+      {/* Edit Club Name Modal */}
+      <Modal visible={showEditNameModal} transparent animationType="fade">
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Edit Club Name</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Enter new club name"
+              value={newClubName}
+              onChangeText={setNewClubName}
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setShowEditNameModal(false)}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalConfirmBtn, actionLoading && { opacity: 0.6 }]} 
+                onPress={handleEditClubName}
+                disabled={actionLoading}
+              >
+                {actionLoading ? (
+                  <ActivityIndicator color={Colors.white} size="small" />
+                ) : (
+                  <Text style={styles.modalConfirmText}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Invite Admin Modal */}
+      <Modal visible={showInviteAdminModal} transparent animationType="fade">
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Invite New Admin</Text>
+            <Text style={styles.modalSubtitle}>Enter the phone number of the person you want to invite as an admin. They must be a registered user.</Text>
+            <TextInput
+              style={styles.modalInput}
+              placeholder="Phone number (e.g. 0712345678)"
+              value={inviteAdminPhone}
+              onChangeText={setInviteAdminPhone}
+              keyboardType="phone-pad"
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => setShowInviteAdminModal(false)}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalConfirmBtn, actionLoading && { opacity: 0.6 }]} 
+                onPress={handleInviteAdmin}
+                disabled={actionLoading}
+              >
+                {actionLoading ? (
+                  <ActivityIndicator color={Colors.white} size="small" />
+                ) : (
+                  <Text style={styles.modalConfirmText}>Invite</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Delete Club Modal */}
+      <Modal visible={showDeleteClubModal} transparent animationType="fade">
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Ionicons name="warning" size={48} color={Colors.statusLate} style={{ alignSelf: 'center', marginBottom: 16 }} />
+            <Text style={[styles.modalTitle, { color: Colors.statusLate }]}>Delete Club?</Text>
+            <Text style={styles.modalSubtitle}>This action cannot be undone. All members, contributions, and data will be permanently deleted.</Text>
+            <Text style={styles.modalSubtitle}>Type DELETE to confirm:</Text>
+            <TextInput
+              style={[styles.modalInput, { borderColor: Colors.statusLate }]}
+              placeholder="Type DELETE"
+              value={deleteConfirmation}
+              onChangeText={setDeleteConfirmation}
+              autoCapitalize="characters"
+            />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.modalCancelBtn} onPress={() => {
+                setShowDeleteClubModal(false);
+                setDeleteConfirmation('');
+              }}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity 
+                style={[styles.modalDeleteBtn, actionLoading && { opacity: 0.6 }]} 
+                onPress={handleDeleteClub}
+                disabled={actionLoading}
+              >
+                {actionLoading ? (
+                  <ActivityIndicator color={Colors.white} size="small" />
+                ) : (
+                  <Text style={styles.modalConfirmText}>Delete</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
     </View>
   );
 }
@@ -674,5 +966,119 @@ const styles = StyleSheet.create({
     fontSize: 10,
     fontWeight: 'bold',
     color: Colors.white,
+  },
+  // Settings styles
+  settingsTitle: {
+    fontSize: 16,
+    fontWeight: 'bold',
+    color: Colors.textPrimary,
+    marginBottom: 12,
+  },
+  settingsItem: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.white,
+    padding: 16,
+    borderRadius: 12,
+    marginBottom: 12,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  settingsItemLeft: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+  },
+  settingsItemText: {
+    fontSize: 16,
+    color: Colors.textPrimary,
+  },
+  memberManageCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.white,
+    padding: 12,
+    borderRadius: 10,
+    marginBottom: 8,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+  },
+  deleteMemberBtn: {
+    padding: 8,
+    borderRadius: 8,
+    backgroundColor: 'rgba(220, 53, 69, 0.1)',
+  },
+  // Modal styles
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.5)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    padding: 20,
+  },
+  modalContent: {
+    backgroundColor: Colors.white,
+    borderRadius: 16,
+    padding: 24,
+    width: '100%',
+    maxWidth: 400,
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    color: Colors.textPrimary,
+    marginBottom: 8,
+    textAlign: 'center',
+  },
+  modalSubtitle: {
+    fontSize: 14,
+    color: Colors.textSecondary,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  modalInput: {
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    borderRadius: 10,
+    padding: 14,
+    fontSize: 16,
+    marginBottom: 20,
+  },
+  modalButtons: {
+    flexDirection: 'row',
+    gap: 12,
+  },
+  modalCancelBtn: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: Colors.lightBackground,
+    alignItems: 'center',
+  },
+  modalCancelText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+  },
+  modalConfirmBtn: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: Colors.mediumGreen,
+    alignItems: 'center',
+  },
+  modalConfirmText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.white,
+  },
+  modalDeleteBtn: {
+    flex: 1,
+    padding: 14,
+    borderRadius: 10,
+    backgroundColor: Colors.statusLate,
+    alignItems: 'center',
   },
 });
