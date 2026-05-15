@@ -479,24 +479,30 @@ const styles = StyleSheet.create({
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
+    alignItems: 'flex-end',
   },
   summaryItem: {
     alignItems: 'center',
     flex: 1,
+    justifyContent: 'flex-end',
   },
   summaryDivider: {
     width: 1,
     backgroundColor: Colors.cardBorder,
+    alignSelf: 'stretch',
   },
   summaryLabel: {
     fontSize: 12,
     color: Colors.textSecondary,
     marginBottom: 6,
+    textAlign: 'center',
+    minHeight: 32,
   },
   summaryValue: {
     fontSize: 24,
     fontWeight: 'bold',
     color: Colors.textPrimary,
+    textAlign: 'center',
   },
   confirmedValue: {
     color: Colors.statusPaid,
