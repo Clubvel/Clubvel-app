@@ -303,6 +303,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingVertical: 16,
     gap: 12,
+    alignItems: 'stretch',
   },
   summaryCard: {
     flex: 1,
@@ -312,16 +313,21 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.cardBorder,
     alignItems: 'center',
+    justifyContent: 'space-between',
+    minHeight: 80,
   },
   summaryLabel: {
     fontSize: 11,
     color: Colors.textSecondary,
     marginBottom: 4,
+    textAlign: 'center',
+    minHeight: 30,
   },
   summaryValue: {
     fontSize: 16,
     fontWeight: 'bold',
     color: Colors.textPrimary,
+    textAlign: 'center',
   },
   collectedValue: {
     color: Colors.statusPaid,
