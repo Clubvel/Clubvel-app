@@ -1,6 +1,15 @@
 {
   "expo": {
     "name": "Clubvel",
+        "web": {
+      "meta": [
+        {
+          "name": "google-site-verification",
+          "content": "r-xt51IGc-WCi5UHh1icvg_2gLkdE8Vf7N5rBhVtWGc"
+        }
+      ]
+    },
+
     "slug": "clubvel",
     "version": "1.0.0",
     "runtimeVersion": {
