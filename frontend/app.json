@@ -42,7 +42,7 @@
       "versionCode": 13,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/adaptive-icon.png",
-        "backgroundColor": "#0E2318"
+        "backgroundColor": "#0082C3"
       },
       "edgeToEdgeEnabled": true,
       "permissions": [
@@ -68,7 +68,7 @@
           "image": "./assets/images/splash-icon.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#0E2318"
+          "backgroundColor": "#0082C3"
         }
       ],
       "expo-secure-store",
