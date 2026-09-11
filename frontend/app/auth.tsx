@@ -17,7 +17,6 @@ export default function AuthScreen() {
   const [fullName, setFullName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
-  const [role, setRole] = useState('member');
   const [otp, setOtp] = useState('');
   const [tempPhone, setTempPhone] = useState('');
   const [firebaseConfirmation, setFirebaseConfirmation] = useState<any>(null);
@@ -52,13 +51,14 @@ export default function AuthScreen() {
 
     setLoading(true);
     try {
-      const result = await register(fullName, phoneNumber, password, role);
+      // Send only phone_number, password, and full_name - no role
+      const result = await register(fullName, phoneNumber, password);
       
-      // Check if phone was already registered and role was added
+      // Check if phone was already registered
       if (result.already_registered) {
         Alert.alert(
-          'Role Added!',
-          `Your ${role === 'treasurer' ? 'Admin' : 'Member'} role has been added to your existing account. Please sign in with your password.`,
+          'Account Exists',
+          'This phone number is already registered. Please sign in with your password.',
           [{ 
             text: 'Sign In', 
             onPress: () => {
@@ -92,7 +92,7 @@ export default function AuthScreen() {
         );
       }
     } catch (error: any) {
-      // If phone exists with same role, prompt to login
+      // If phone exists, prompt to login
       if (error.message.includes('already registered')) {
         Alert.alert(
           'Account Exists',
@@ -145,14 +145,11 @@ export default function AuthScreen() {
 
     setLoading(true);
     try {
+      // Send only phone_number and password - no role
       const result = await login(phoneNumber, password);
       
-      // Navigate based on selected role
-      if (role === 'treasurer') {
-        router.replace('/(treasurer)/dashboard');
-      } else {
-        router.replace('/(member)/dashboard');
-      }
+      // Force navigate to member home as default home
+      router.replace('/(member)/home');
     } catch (error: any) {
       if (error.message.includes('Invalid phone number or password')) {
         Alert.alert(
@@ -490,45 +487,6 @@ export default function AuthScreen() {
                 secureTextEntry
               />
 
-              <View style={styles.roleSelector}>
-                <Text style={styles.roleLabel}>I am a:</Text>
-                <View style={styles.roleButtons}>
-                  <TouchableOpacity
-                    style={[
-                      styles.roleButton,
-                      role === 'member' && styles.roleButtonActive,
-                    ]}
-                    onPress={() => setRole('member')}
-                  >
-                    <Text
-                      style={[
-                        styles.roleButtonText,
-                        role === 'member' && styles.roleButtonTextActive,
-                      ]}
-                    >
-                      Member
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.roleButton,
-                      role === 'treasurer' && styles.roleButtonActive,
-                    ]}
-                    onPress={() => setRole('treasurer')}
-                  >
-                    <Text
-                      style={[
-                        styles.roleButtonText,
-                        role === 'treasurer' && styles.roleButtonTextActive,
-                      ]}
-                    >
-                      Admin
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
-
               <TouchableOpacity
                 style={[styles.button, loading && styles.buttonDisabled]}
                 onPress={handleProceedToConsent}
@@ -564,45 +522,6 @@ export default function AuthScreen() {
                 onChangeText={setPassword}
                 secureTextEntry
               />
-
-              <View style={styles.roleSelector}>
-                <Text style={styles.roleLabel}>Sign in as:</Text>
-                <View style={styles.roleButtons}>
-                  <TouchableOpacity
-                    style={[
-                      styles.roleButton,
-                      role === 'member' && styles.roleButtonActive,
-                    ]}
-                    onPress={() => setRole('member')}
-                  >
-                    <Text
-                      style={[
-                        styles.roleButtonText,
-                        role === 'member' && styles.roleButtonTextActive,
-                      ]}
-                    >
-                      Member
-                    </Text>
-                  </TouchableOpacity>
-
-                  <TouchableOpacity
-                    style={[
-                      styles.roleButton,
-                      role === 'treasurer' && styles.roleButtonActive,
-                    ]}
-                    onPress={() => setRole('treasurer')}
-                  >
-                    <Text
-                      style={[
-                        styles.roleButtonText,
-                        role === 'treasurer' && styles.roleButtonTextActive,
-                      ]}
-                    >
-                      Admin
-                    </Text>
-                  </TouchableOpacity>
-                </View>
-              </View>
 
               <TouchableOpacity
                 style={[styles.button, loading && styles.buttonDisabled]}

@@ -12,12 +12,8 @@ export default function SplashScreen() {
     const timer = setTimeout(() => {
       if (!loading) {
         if (user) {
-          // Navigate based on role
-          if (user.role === 'treasurer') {
-            router.replace('/(treasurer)/dashboard');
-          } else {
-            router.replace('/(member)/home');
-          }
+          // Always navigate to member home as default home
+          router.replace('/(member)/home');
         } else {
           router.replace('/onboarding');
         }
@@ -43,7 +39,7 @@ export default function SplashScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.darkGreen,
+    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -53,7 +49,7 @@ const styles = StyleSheet.create({
   logoBox: {
     width: 100,
     height: 100,
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.accent,
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',

@@ -31,7 +31,7 @@ interface AuthContextType {
   token: string | null;
   loading: boolean;
   login: (phone: string, password: string) => Promise<{ has_multiple_roles: boolean; roles: string[] }>;
-  register: (fullName: string, phone: string, password: string, role: string) => Promise<{ userId: string; otp: string; confirmation?: any; already_registered?: boolean }>;
+  register: (fullName: string, phone: string, password: string) => Promise<{ userId: string; otp: string; confirmation?: any; already_registered?: boolean }>;
   verifyOTP: (phone: string, otp: string, confirmation?: any) => Promise<void>;
   sendFirebaseOTP: (phone: string) => Promise<any>;
   logout: () => Promise<void>;
@@ -192,17 +192,16 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     }
   };
 
-  const register = async (fullName: string, phone: string, password: string, role: string) => {
+  const register = async (fullName: string, phone: string, password: string) => {
     try {
-      // Register user in backend
+      // Register user in backend - no role required, defaults to member
       const response = await axios.post(`${API_URL}/api/auth/register`, {
         full_name: fullName,
         phone_number: phone,
-        password,
-        role
+        password
       });
       
-      // Check if this was an existing user who just got a new role added
+      // Check if this was an existing user
       if (response.data.already_registered) {
         return {
           userId: response.data.user_id,

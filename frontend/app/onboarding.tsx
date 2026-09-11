@@ -77,26 +77,26 @@ export default function OnboardingScreen() {
             onPress={handleiPhoneStart}
             activeOpacity={0.8}
           >
-            <Ionicons name="arrow-forward-circle" size={24} color={Colors.darkGreen} />
+            <Ionicons name="arrow-forward-circle" size={24} color={Colors.white} />
             <Text style={styles.androidButtonText}>Get Started</Text>
           </TouchableOpacity>
 
           {/* Features recap */}
           <View style={styles.featuresBox}>
             <View style={styles.featureRow}>
-              <Ionicons name="checkmark-circle" size={20} color={Colors.gold} />
+              <Ionicons name="checkmark-circle" size={20} color={Colors.accent} />
               <Text style={styles.featureText}>Track contributions in real-time</Text>
             </View>
             <View style={styles.featureRow}>
-              <Ionicons name="checkmark-circle" size={20} color={Colors.gold} />
+              <Ionicons name="checkmark-circle" size={20} color={Colors.accent} />
               <Text style={styles.featureText}>Upload proof of payment instantly</Text>
             </View>
             <View style={styles.featureRow}>
-              <Ionicons name="checkmark-circle" size={20} color={Colors.gold} />
+              <Ionicons name="checkmark-circle" size={20} color={Colors.accent} />
               <Text style={styles.featureText}>Get smart payment reminders</Text>
             </View>
             <View style={styles.featureRow}>
-              <Ionicons name="checkmark-circle" size={20} color={Colors.gold} />
+              <Ionicons name="checkmark-circle" size={20} color={Colors.accent} />
               <Text style={styles.featureText}>POPIA compliant & secure</Text>
             </View>
           </View>
@@ -158,7 +158,7 @@ export default function OnboardingScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.darkGreen,
+    backgroundColor: Colors.primary,
     paddingHorizontal: 24,
     paddingVertical: 48,
   },
@@ -211,11 +211,11 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255, 255, 255, 0.3)',
   },
   activeDot: {
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.accent,
     width: 24,
   },
   nextButton: {
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.accent,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
@@ -234,12 +234,12 @@ const styles = StyleSheet.create({
   logoBox: {
     width: 100,
     height: 100,
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.accent,
     borderRadius: 24,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 24,
-    shadowColor: Colors.gold,
+    shadowColor: Colors.accent,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 12,
@@ -266,7 +266,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.accent,
     paddingVertical: 16,
     paddingHorizontal: 32,
     borderRadius: 12,

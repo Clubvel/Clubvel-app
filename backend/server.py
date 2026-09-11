@@ -121,7 +121,7 @@ class UserCreate(BaseModel):
     phone_number: str
     email: Optional[str] = None
     password: str
-    role: str = "member"  # member or treasurer
+    role: Optional[str] = "member"  # Optional - defaults to member for backward compatibility
 
 class UserLogin(BaseModel):
     phone_number: str
@@ -139,14 +139,24 @@ class ResendOTPRequest(BaseModel):
     phone_number: str
     channel: str = "whatsapp"  # whatsapp or sms
 
+class StokvelMembership(BaseModel):
+    """Represents a user's role in a specific stokvel/group"""
+    stokvel_id: str
+    role: str  # "treasurer", "admin", or "member"
+    joined_at: datetime = Field(default_factory=datetime.utcnow)
+    status: str = "active"
+
 class User(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     full_name: str
     phone_number: str
     email: Optional[str] = None
     password_hash: str
-    role: str  # member or treasurer (primary role)
-    roles: List[str] = ["member"]  # All roles: ["member"], ["treasurer"], or ["member", "treasurer"]
+    # Legacy fields - kept for backward compatibility, defaults to member
+    role: str = "member"  # Deprecated: Use stokvel_memberships instead
+    roles: List[str] = ["member"]  # Deprecated: Use stokvel_memberships instead
+    # New contextual membership array - maps roles per stokvel dynamically
+    stokvel_memberships: List[dict] = []  # Format: [{"stokvel_id": "string", "role": "treasurer/admin/member", "joined_at": datetime, "status": "active"}]
     profile_photo: Optional[str] = None  # base64
     date_joined: datetime = Field(default_factory=datetime.utcnow)
     status: str = "active"  # active or inactive
@@ -470,15 +480,18 @@ async def register(request: Request, user_data: UserCreate):
                 "already_registered": True
             }
     
-    # Create new user
-    initial_role = 'treasurer' if user_data.role == 'treasurer' else 'member'
+    # Create new user with default member role for backward compatibility
+    initial_role = user_data.role if user_data.role else 'member'
+    initial_role = 'treasurer' if initial_role == 'treasurer' else 'member'
+    
     user = User(
         full_name=user_data.full_name,
         phone_number=user_data.phone_number,
         email=user_data.email,
         password_hash=hash_password(user_data.password),
-        role=initial_role,
-        roles=[initial_role],
+        role=initial_role,  # Legacy field - defaults to member
+        roles=[initial_role],  # Legacy field - defaults to [member]
+        stokvel_memberships=[],  # New contextual membership array - populated when joining stokvels
         otp_verified=False
     )
     
@@ -509,6 +522,21 @@ async def register(request: Request, user_data: UserCreate):
         await db.invitations.update_one(
             {"id": invitation['id']},
             {"$set": {"status": "accepted", "accepted_at": datetime.utcnow()}}
+        )
+        
+        # Add to user's stokvel_memberships array
+        await db.users.update_one(
+            {"id": user.id},
+            {
+                "$push": {
+                    "stokvel_memberships": {
+                        "stokvel_id": invitation['group_id'],
+                        "role": "member",
+                        "joined_at": datetime.utcnow(),
+                        "status": "active"
+                    }
+                }
+            }
         )
         
         groups_joined.append(invitation['group_name'])
@@ -611,15 +639,19 @@ async def login(request: Request, login_data: UserLogin):
     if not verify_password(login_data.password, user['password_hash']):
         raise HTTPException(status_code=401, detail="Invalid phone number or password")
     
-    # Get user's roles - check both old 'role' field and new 'roles' array
+    # Get user's roles - check old 'roles' field and new 'stokvel_memberships' array
     user_roles = user.get('roles', [user.get('role', 'member')])
     primary_role = user.get('role', user_roles[0] if user_roles else 'member')
     
-    # Check if user has both member and admin roles based on their group memberships
+    # Check stokvel_memberships for contextual roles (new system)
+    stokvel_memberships = user.get('stokvel_memberships', [])
+    has_treasurer_in_memberships = any(m.get('role') in ['treasurer', 'admin'] for m in stokvel_memberships)
+    has_member_in_memberships = any(m.get('role') == 'member' for m in stokvel_memberships)
+    
+    # Also check legacy group memberships from members collection
     memberships = await db.members.find({"user_id": user['id'], "status": "active"}).to_list(100)
-    has_admin_membership = any(m.get('role_in_group') == 'admin' or m.get('role_in_group') == 'treasurer' for m in memberships)
-    # Admins are also members - they can view as member too
-    has_member_membership = len(memberships) > 0  # Any membership counts as being a member
+    has_admin_membership = any(m.get('role_in_group') in ['admin', 'treasurer'] for m in memberships)
+    has_member_membership = len(memberships) > 0 or has_member_in_memberships  # Any membership counts
     
     # Also check if user is admin of any groups
     admin_groups = await db.groups.find({
@@ -630,13 +662,13 @@ async def login(request: Request, login_data: UserLogin):
         "status": "active"
     }).to_list(100)
     
-    if admin_groups:
+    if admin_groups or has_treasurer_in_memberships:
         has_admin_membership = True
         has_member_membership = True  # Admins can also act as members
     
-    # Update roles based on actual memberships
+    # Update roles based on actual memberships (including stokvel_memberships)
     actual_roles = []
-    if has_member_membership:
+    if has_member_membership or 'member' in user_roles:
         actual_roles.append('member')
     if has_admin_membership or 'treasurer' in user_roles or primary_role == 'treasurer':
         actual_roles.append('treasurer')
@@ -1101,6 +1133,22 @@ async def create_group(data: CreateGroupRequest):
     
     await db.members.insert_one(member)
     
+    # Update user's stokvel_memberships array with contextual role
+    await db.users.update_one(
+        {"id": data.admin_user_id},
+        {
+            "$push": {
+                "stokvel_memberships": {
+                    "stokvel_id": group_id,
+                    "role": "treasurer",  # Creator becomes treasurer/admin
+                    "joined_at": datetime.utcnow(),
+                    "status": "active"
+                }
+            },
+            "$addToSet": {"roles": "treasurer"}  # Also update legacy roles field
+        }
+    )
+    
     logging.info(f"Group created: {data.group_name} by user {data.admin_user_id}")
     
     return {
@@ -1355,6 +1403,22 @@ async def invite_admin(data: InviteAdminRequest):
     await db.groups.update_one(
         {"id": data.group_id},
         {"$set": {"admin_user_ids": admin_user_ids}}
+    )
+    
+    # Update new admin's stokvel_memberships array
+    await db.users.update_one(
+        {"id": new_admin_id},
+        {
+            "$push": {
+                "stokvel_memberships": {
+                    "stokvel_id": data.group_id,
+                    "role": "admin",
+                    "joined_at": datetime.utcnow(),
+                    "status": "active"
+                }
+            },
+            "$addToSet": {"roles": "treasurer"}  # Also update legacy roles field
+        }
     )
     
     logging.info(f"New admin {new_admin_id} added to club {data.group_id} by admin {data.admin_user_id}")
