@@ -1,11 +1,11 @@
 export const Colors = {
-  // Primary Capitec-inspired Corporate Colors
-  primary: '#0082C3',          // Capitec Blue - Headers, Primary Buttons, Active Tabs
-  primaryDark: '#006699',      // Darker blue for pressed states
-  primaryLight: '#E6F4FA',     // Light blue for backgrounds
+  // Primary Deep Financial Corporate Blue
+  primary: '#005CA9',          // Deep Financial Indigo Blue - Headers, Primary Buttons, Active Tabs
+  primaryDark: '#004A87',      // Darker blue for pressed states
+  primaryLight: '#E3F0FA',     // Light blue for backgrounds
   
   // Alert/Accent Colors
-  accent: '#E31B23',           // Capitec Red - Alerts, Urgent Actions, Payout Schedules
+  accent: '#E31B23',           // Corporate Red - Alerts, Urgent Actions, Payout Schedules
   accentLight: '#FDEAEA',      // Light red for backgrounds
   
   // Background Colors
@@ -15,7 +15,7 @@ export const Colors = {
   cardBorder: '#E5E7EB',       // Light gray borders
   
   // Typography Colors
-  textPrimary: '#333333',      // Dark graphite gray - high contrast readability
+  textPrimary: '#1F2937',      // Dark graphite gray - high contrast readability
   textSecondary: '#6B7280',    // Medium gray for secondary text
   textMuted: '#9CA3AF',        // Light gray for muted text
   
@@ -30,8 +30,8 @@ export const Colors = {
   black: '#000000',
   
   // Legacy color mappings (for backward compatibility)
-  darkGreen: '#0082C3',        // Mapped to primary blue
-  mediumGreen: '#0082C3',      // Mapped to primary blue
+  darkGreen: '#005CA9',        // Mapped to deep financial blue
+  mediumGreen: '#005CA9',      // Mapped to deep financial blue
   gold: '#F59E0B',             // Mapped to amber
   lightGold: '#FEF3C7',        // Light amber
 };

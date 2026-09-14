@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, Linking, Modal, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, Modal, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import { Colors } from '../constants/Colors';
@@ -12,6 +12,11 @@ export default function AuthScreen() {
   const [isConsentScreen, setIsConsentScreen] = useState(false);
   const [consentChecked, setConsentChecked] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [showPassword, setShowPassword] = useState(false);
+  
+  // Registration path: 'creator' for admins, 'member' for joining
+  const [registrationPath, setRegistrationPath] = useState<'select' | 'creator' | 'member'>('select');
+  const [inviteCode, setInviteCode] = useState('');
   
   // Form fields
   const [fullName, setFullName] = useState('');
@@ -20,7 +25,6 @@ export default function AuthScreen() {
   const [otp, setOtp] = useState('');
   const [tempPhone, setTempPhone] = useState('');
   const [firebaseConfirmation, setFirebaseConfirmation] = useState<any>(null);
-  const [useFirebaseOTP, setUseFirebaseOTP] = useState(false);
   
   // Forgot Password State
   const [showForgotPassword, setShowForgotPassword] = useState(false);
@@ -464,38 +468,121 @@ export default function AuthScreen() {
             <>
               <Text style={styles.sectionTitle}>Sign Up</Text>
               
-              <TextInput
-                style={styles.input}
-                placeholder="Full Name"
-                value={fullName}
-                onChangeText={setFullName}
-              />
+              {/* Registration Path Selection */}
+              {registrationPath === 'select' && (
+                <View style={styles.pathSelection}>
+                  <Text style={styles.pathTitle}>How would you like to start?</Text>
+                  
+                  <TouchableOpacity
+                    style={styles.pathCard}
+                    onPress={() => setRegistrationPath('creator')}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.pathIconContainer}>
+                      <Ionicons name="add-circle" size={32} color={Colors.primary} />
+                    </View>
+                    <View style={styles.pathContent}>
+                      <Text style={styles.pathCardTitle}>Create a New Stokvel</Text>
+                      <Text style={styles.pathCardDesc}>Start your own savings club and invite members</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={24} color={Colors.primary} />
+                  </TouchableOpacity>
+                  
+                  <TouchableOpacity
+                    style={styles.pathCard}
+                    onPress={() => setRegistrationPath('member')}
+                    activeOpacity={0.8}
+                  >
+                    <View style={styles.pathIconContainer}>
+                      <Ionicons name="enter" size={32} color={Colors.primary} />
+                    </View>
+                    <View style={styles.pathContent}>
+                      <Text style={styles.pathCardTitle}>Join an Existing Stokvel</Text>
+                      <Text style={styles.pathCardDesc}>Use an invite code to join a club</Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={24} color={Colors.primary} />
+                  </TouchableOpacity>
+                </View>
+              )}
+              
+              {/* Registration Form */}
+              {registrationPath !== 'select' && (
+                <>
+                  <TouchableOpacity 
+                    style={styles.pathBackButton}
+                    onPress={() => setRegistrationPath('select')}
+                  >
+                    <Ionicons name="arrow-back" size={20} color={Colors.primary} />
+                    <Text style={styles.pathBackText}>Change registration type</Text>
+                  </TouchableOpacity>
+                  
+                  <View style={styles.selectedPathBadge}>
+                    <Ionicons 
+                      name={registrationPath === 'creator' ? 'add-circle' : 'enter'} 
+                      size={16} 
+                      color={Colors.primary} 
+                    />
+                    <Text style={styles.selectedPathText}>
+                      {registrationPath === 'creator' ? 'Creating a new club' : 'Joining a club'}
+                    </Text>
+                  </View>
+              
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Full Name"
+                    value={fullName}
+                    onChangeText={setFullName}
+                  />
 
-              <TextInput
-                style={styles.input}
-                placeholder="Phone Number"
-                value={phoneNumber}
-                onChangeText={setPhoneNumber}
-                keyboardType="phone-pad"
-              />
+                  <TextInput
+                    style={styles.input}
+                    placeholder="Phone Number"
+                    value={phoneNumber}
+                    onChangeText={setPhoneNumber}
+                    keyboardType="phone-pad"
+                  />
+                  
+                  {registrationPath === 'member' && (
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Invite Code (optional)"
+                      value={inviteCode}
+                      onChangeText={setInviteCode}
+                      autoCapitalize="characters"
+                    />
+                  )}
 
-              <TextInput
-                style={styles.input}
-                placeholder="Password"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-              />
+                  <View style={styles.passwordContainer}>
+                    <TextInput
+                      style={styles.passwordInput}
+                      placeholder="Password"
+                      value={password}
+                      onChangeText={setPassword}
+                      secureTextEntry={!showPassword}
+                    />
+                    <TouchableOpacity
+                      style={styles.eyeButton}
+                      onPress={() => setShowPassword(!showPassword)}
+                    >
+                      <Ionicons 
+                        name={showPassword ? 'eye-off' : 'eye'} 
+                        size={22} 
+                        color={Colors.textMuted} 
+                      />
+                    </TouchableOpacity>
+                  </View>
 
-              <TouchableOpacity
-                style={[styles.button, loading && styles.buttonDisabled]}
-                onPress={handleProceedToConsent}
-                disabled={loading}
-              >
-                <Text style={styles.buttonText}>
-                  {loading ? 'Creating Account...' : 'Sign Up'}
-                </Text>
-              </TouchableOpacity>
+                  <TouchableOpacity
+                    style={[styles.button, loading && styles.buttonDisabled]}
+                    onPress={handleProceedToConsent}
+                    disabled={loading}
+                  >
+                    <Text style={styles.buttonText}>
+                      {loading ? 'Creating Account...' : 'Sign Up'}
+                    </Text>
+                  </TouchableOpacity>
+                </>
+              )}
 
               <TouchableOpacity onPress={() => setIsLogin(true)}>
                 <Text style={styles.switchText}>Already a member? Sign In</Text>
@@ -515,13 +602,25 @@ export default function AuthScreen() {
                 keyboardType="phone-pad"
               />
 
-              <TextInput
-                style={styles.input}
-                placeholder="Password"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-              />
+              <View style={styles.passwordContainer}>
+                <TextInput
+                  style={styles.passwordInput}
+                  placeholder="Password"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                />
+                <TouchableOpacity
+                  style={styles.eyeButton}
+                  onPress={() => setShowPassword(!showPassword)}
+                >
+                  <Ionicons 
+                    name={showPassword ? 'eye-off' : 'eye'} 
+                    size={22} 
+                    color={Colors.textMuted} 
+                  />
+                </TouchableOpacity>
+              </View>
 
               <TouchableOpacity
                 style={[styles.button, loading && styles.buttonDisabled]}
@@ -537,7 +636,7 @@ export default function AuthScreen() {
                 <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
               </TouchableOpacity>
 
-              <TouchableOpacity onPress={() => setIsLogin(false)}>
+              <TouchableOpacity onPress={() => { setIsLogin(false); setRegistrationPath('select'); }}>
                 <Text style={styles.switchText}>New to Clubvel? Sign Up</Text>
               </TouchableOpacity>
             </>
@@ -713,6 +812,92 @@ const styles = StyleSheet.create({
     paddingVertical: 14,
     fontSize: 16,
     marginBottom: 16,
+  },
+  passwordContainer: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.white,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    borderRadius: 12,
+    marginBottom: 16,
+  },
+  passwordInput: {
+    flex: 1,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+    fontSize: 16,
+  },
+  eyeButton: {
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  pathSelection: {
+    marginBottom: 24,
+  },
+  pathTitle: {
+    fontSize: 16,
+    color: Colors.textSecondary,
+    marginBottom: 16,
+    textAlign: 'center',
+  },
+  pathCard: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.white,
+    borderWidth: 2,
+    borderColor: Colors.cardBorder,
+    borderRadius: 16,
+    padding: 16,
+    marginBottom: 12,
+  },
+  pathIconContainer: {
+    width: 56,
+    height: 56,
+    borderRadius: 12,
+    backgroundColor: Colors.primaryLight,
+    justifyContent: 'center',
+    alignItems: 'center',
+    marginRight: 12,
+  },
+  pathContent: {
+    flex: 1,
+  },
+  pathCardTitle: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    marginBottom: 4,
+  },
+  pathCardDesc: {
+    fontSize: 13,
+    color: Colors.textSecondary,
+  },
+  pathBackButton: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 16,
+    gap: 8,
+  },
+  pathBackText: {
+    fontSize: 14,
+    color: Colors.primary,
+  },
+  selectedPathBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.primaryLight,
+    paddingHorizontal: 12,
+    paddingVertical: 8,
+    borderRadius: 8,
+    marginBottom: 16,
+    gap: 8,
+    alignSelf: 'flex-start',
+  },
+  selectedPathText: {
+    fontSize: 13,
+    color: Colors.primary,
+    fontWeight: '500',
   },
   roleSelector: {
     marginBottom: 24,

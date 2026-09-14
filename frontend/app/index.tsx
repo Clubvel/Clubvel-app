@@ -49,11 +49,13 @@ const styles = StyleSheet.create({
   logoBox: {
     width: 100,
     height: 100,
-    backgroundColor: Colors.accent,
+    backgroundColor: 'rgba(255, 255, 255, 0.15)',
     borderRadius: 20,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 20,
+    borderWidth: 2,
+    borderColor: 'rgba(255, 255, 255, 0.3)',
   },
   logoText: {
     fontSize: 48,
