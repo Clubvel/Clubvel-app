@@ -17,6 +17,7 @@ export default function AuthScreen() {
   const [fullName, setFullName] = useState('');
   const [phoneNumber, setPhoneNumber] = useState('');
   const [password, setPassword] = useState('');
+  const [showPassword, setShowPassword] = useState(false);
   const [otp, setOtp] = useState('');
   const [tempPhone, setTempPhone] = useState('');
   const [firebaseConfirmation, setFirebaseConfirmation] = useState<any>(null);
@@ -515,14 +516,21 @@ export default function AuthScreen() {
                 keyboardType="phone-pad"
               />
 
-              <TextInput
+              <View style={{ position: 'relative' }}>
+                <TextInput
                 style={styles.input}
                 placeholder="Password"
                 value={password}
                 onChangeText={setPassword}
-                secureTextEntry
+                secureTextEntry={!showPassword}
               />
-
+              <TouchableOpacity
+              onPress={() => setShowPassword(!showPassword)}
+              style={{ position: 'absolute', right: 18, top: 18 }}
+              >
+              <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={24} color="gray" />
+              </TouchableOpacity>
+            </View>
               <TouchableOpacity
                 style={[styles.button, loading && styles.buttonDisabled]}
                 onPress={handleLogin}
