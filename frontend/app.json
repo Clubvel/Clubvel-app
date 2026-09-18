@@ -16,7 +16,7 @@
       "policy": "appVersion"
     },
     "orientation": "portrait",
-    "icon": "./assets/images/icon.png",
+    "icon": "./assets/images/clubvel-final-icon.png",
     "scheme": "clubvel",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -41,7 +41,7 @@
       "googleServicesFile": "./google-services.json",
       "versionCode": 13,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/adaptive-icon.png",
+        "foregroundImage": "./assets/images/clubvel-android-icon-final.png",
         "backgroundColor": "#FFFFFF"
       },
       "edgeToEdgeEnabled": true,
@@ -65,10 +65,10 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/splash-icon.png",
-          "imageWidth": 200,
+          "image":  "./assets/images/clubvel-final-splash.png",
+          "imageWidth": 300,
           "resizeMode": "contain",
-          "backgroundColor": "#0082C3"
+          "backgroundColor": "#FFFFFF"
         }
       ],
       "expo-secure-store",

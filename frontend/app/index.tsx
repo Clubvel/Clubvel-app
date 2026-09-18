@@ -1,74 +1,21 @@
 import React, { useEffect } from 'react';
-import { View, Text, StyleSheet, Image } from 'react-native';
+import { View } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
-import { Colors } from '../constants/Colors';
 
-export default function SplashScreen() {
+export default function Index() {
   const router = useRouter();
   const { user, loading } = useAuth();
 
   useEffect(() => {
-    const timer = setTimeout(() => {
-      if (!loading) {
-        if (user) {
-          // Always navigate to member home as default home
-          router.replace('/(member)/home');
-        } else {
-          router.replace('/onboarding');
-        }
+    if (!loading) {
+      if (user) {
+        router.replace('/(member)/home');
+      } else {
+        router.replace('/auth');
       }
-    }, 2000);
+    }
+  }, [user, loading, router]);
 
-    return () => clearTimeout(timer);
-  }, [user, loading]);
-
-  return (
-    <View style={styles.container}>
-      <View style={styles.logoContainer}>
-        <View style={styles.logoBox}>
-          <Text style={styles.logoText}>CV</Text>
-        </View>
-        <Text style={styles.brandName}>Clubvel</Text>
-        <Text style={styles.tagline}>Your club. Your money. Your rules.</Text>
-      </View>
-    </View>
-  );
+  return <View style={{ flex: 1, backgroundColor: '#FFFFFF' }} />;
 }
-
-const styles = StyleSheet.create({
-  container: {
-    flex: 1,
-    backgroundColor: Colors.primary,
-    justifyContent: 'center',
-    alignItems: 'center',
-  },
-  logoContainer: {
-    alignItems: 'center',
-  },
-  logoBox: {
-    width: 100,
-    height: 100,
-    backgroundColor: Colors.accent,
-    borderRadius: 20,
-    justifyContent: 'center',
-    alignItems: 'center',
-    marginBottom: 20,
-  },
-  logoText: {
-    fontSize: 48,
-    fontWeight: 'bold',
-    color: Colors.white,
-  },
-  brandName: {
-    fontSize: 36,
-    fontWeight: 'bold',
-    color: Colors.white,
-    marginBottom: 8,
-  },
-  tagline: {
-    fontSize: 16,
-    color: 'rgba(255, 255, 255, 0.8)',
-    textAlign: 'center',
-  },
-});
