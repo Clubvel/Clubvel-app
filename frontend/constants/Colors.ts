@@ -1,12 +1,12 @@
 export const Colors = {
-  // Primary Capitec-inspired Corporate Colors
-  primary: '#0082C3',          // Capitec Blue - Headers, Primary Buttons, Active Tabs
-  primaryDark: '#006699',      // Darker blue for pressed states
-  primaryLight: '#E6F4FA',     // Light blue for backgrounds
+  // Approved Clubvel charcoal and clementine identity
+  primary: '#3F4145',
+  primaryDark: '#292B2E',
+  primaryLight: '#F3F4F6',
   
   // Alert/Accent Colors
-  accent: '#E31B23',           // Capitec Red - Alerts, Urgent Actions, Payout Schedules
-  accentLight: '#FDEAEA',      // Light red for backgrounds
+  accent: '#F97316',
+  accentLight: '#FFF1E8',
   
   // Background Colors
   background: '#FFFFFF',       // Crisp white canvas
@@ -30,8 +30,10 @@ export const Colors = {
   black: '#000000',
   
   // Legacy color mappings (for backward compatibility)
-  darkGreen: '#0082C3',        // Mapped to primary blue
-  mediumGreen: '#0082C3',      // Mapped to primary blue
-  gold: '#F59E0B',             // Mapped to amber
-  lightGold: '#FEF3C7',        // Light amber
+  darkGreen: '#3F4145',
+  mediumGreen: '#3F4145',
+  primaryGreen: '#3F4145',
+  lightGreen: '#F3F4F6',
+  gold: '#F97316',
+  lightGold: '#FFF1E8',
 };
