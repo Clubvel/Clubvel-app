@@ -111,7 +111,7 @@ export default function MembersScreen() {
 
     setSending(true);
     try {
-      const response = await axios.post(`${API_URL}/api/treasurer/invite-member`, {
+      await axios.post(`${API_URL}/api/treasurer/invite-member`, {
         phone_number: formattedPhone,
         name: inviteName.trim() || undefined,
         group_id: selectedClub.id,
@@ -122,7 +122,7 @@ export default function MembersScreen() {
 
       Alert.alert(
         'Invitation Sent!',
-        `An SMS invitation has been sent to ${formattedPhone}. They will be automatically added to ${selectedClub.name} when they register.`,
+        `An SMS invitation has been sent to ${formattedPhone}. They must accept it in My Clubvel before joining ${selectedClub.name}.`,
         [{ text: 'OK', onPress: () => {
           setShowInviteModal(false);
           setInvitePhone('');
@@ -132,13 +132,8 @@ export default function MembersScreen() {
     } catch (error: any) {
       console.error('Error sending invite:', error);
       Alert.alert(
-        'Invitation Sent!',
-        `An SMS invitation has been sent to ${formattedPhone}. They will be automatically added to ${selectedClub.name} when they register.`,
-        [{ text: 'OK', onPress: () => {
-          setShowInviteModal(false);
-          setInvitePhone('');
-          setInviteName('');
-        }}]
+        'Could not send invitation',
+        error.response?.data?.detail || 'Please try again.',
       );
     } finally {
       setSending(false);

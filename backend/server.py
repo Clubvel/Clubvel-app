@@ -121,7 +121,8 @@ class UserCreate(BaseModel):
     phone_number: str
     email: Optional[str] = None
     password: str
-    role: Optional[str] = "member"  # Optional - defaults to member for backward compatibility
+    # Accepted and ignored only so older installed clients do not fail validation.
+    role: Optional[str] = None
 
 class UserLogin(BaseModel):
     phone_number: str
@@ -152,15 +153,23 @@ class User(BaseModel):
     phone_number: str
     email: Optional[str] = None
     password_hash: str
-    # Legacy fields - kept for backward compatibility, defaults to member
-    role: str = "member"  # Deprecated: Use stokvel_memberships instead
-    roles: List[str] = ["member"]  # Deprecated: Use stokvel_memberships instead
+    # Deprecated compatibility fields. They are never authorization inputs.
+    role: Optional[str] = None
+    roles: List[str] = Field(default_factory=list)
     # New contextual membership array - maps roles per stokvel dynamically
-    stokvel_memberships: List[dict] = []  # Format: [{"stokvel_id": "string", "role": "treasurer/admin/member", "joined_at": datetime, "status": "active"}]
+    stokvel_memberships: List[dict] = Field(default_factory=list)
     profile_photo: Optional[str] = None  # base64
     date_joined: datetime = Field(default_factory=datetime.utcnow)
     status: str = "active"  # active or inactive
     otp_verified: bool = False
+
+
+def person_document(user: User) -> dict:
+    """Serialize a new identity without deprecated account-wide role fields."""
+    document = user.dict()
+    document.pop("role", None)
+    document.pop("roles", None)
+    return document
 
 class Group(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -313,25 +322,34 @@ async def verify_user_is_group_member(user_id: str, group_id: str) -> dict:
 
 
 async def verify_user_is_group_treasurer(user_id: str, group_id: str) -> dict:
-    """Verify user is the treasurer of the specified group"""
+    """Verify the user's active membership grants administration in this group."""
     group = await db.groups.find_one({"id": group_id})
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
-    
-    if group.get('treasurer_user_id') != user_id:
+
+    membership = await db.members.find_one({
+        "user_id": user_id,
+        "group_id": group_id,
+        "status": "active",
+        "role_in_group": {"$in": ["admin", "treasurer"]}
+    })
+    if not membership:
         raise HTTPException(
             status_code=403, 
-            detail="Access denied: You are not the treasurer of this group"
+            detail="Access denied: Group admin access required"
         )
     return group
 
 
 async def verify_treasurer_owns_groups(user_id: str) -> list:
-    """Get all groups where user is treasurer"""
-    groups = await db.groups.find({
-        "treasurer_user_id": user_id, 
-        "status": "active"
+    """Get groups where the user's contextual membership is administrative."""
+    memberships = await db.members.find({
+        "user_id": user_id,
+        "status": "active",
+        "role_in_group": {"$in": ["admin", "treasurer"]}
     }).to_list(100)
+    group_ids = [membership["group_id"] for membership in memberships]
+    groups = await db.groups.find({"id": {"$in": group_ids}, "status": "active"}).to_list(100)
     return groups
 
 
@@ -359,9 +377,11 @@ async def verify_contribution_access(user_id: str, contribution_id: str, require
             )
         return contribution
     
-    # Check if user is treasurer of the group
-    group = await db.groups.find_one({"id": contribution['group_id']})
-    if group and group.get('treasurer_user_id') == user_id:
+    admin_membership = await db.members.find_one({
+        "user_id": user_id, "group_id": contribution['group_id'], "status": "active",
+        "role_in_group": {"$in": ["admin", "treasurer"]}
+    })
+    if admin_membership:
         return contribution
     
     raise HTTPException(
@@ -384,9 +404,11 @@ async def verify_member_access(user_id: str, member_id: str) -> dict:
     if member['user_id'] == user_id:
         return member
     
-    # Check if user is treasurer of the group
-    group = await db.groups.find_one({"id": member['group_id']})
-    if group and group.get('treasurer_user_id') == user_id:
+    admin_membership = await db.members.find_one({
+        "user_id": user_id, "group_id": member['group_id'], "status": "active",
+        "role_in_group": {"$in": ["admin", "treasurer"]}
+    })
+    if admin_membership:
         return member
     
     raise HTTPException(
@@ -453,93 +475,29 @@ async def register(request: Request, user_data: UserCreate):
     existing_user = await db.users.find_one({"phone_number": user_data.phone_number})
     
     if existing_user:
-        # Phone exists - check if they're trying to add a different role
-        existing_roles = existing_user.get('roles', [existing_user.get('role', 'member')])
-        requested_role = 'treasurer' if user_data.role == 'treasurer' else 'member'
-        
-        if requested_role in existing_roles:
-            # Already has this role - return success instead of error
-            return {
-                "message": f"This phone number is already registered with {requested_role} role. Please login.",
-                "user_id": existing_user['id'],
-                "roles": existing_roles,
-                "already_registered": True
-            }
-        else:
-            # Add the new role to existing user
-            new_roles = list(set(existing_roles + [requested_role]))
-            await db.users.update_one(
-                {"phone_number": user_data.phone_number},
-                {"$set": {"roles": new_roles}}
-            )
-            
-            return {
-                "message": f"Role '{requested_role}' added to your account. Please login.",
-                "user_id": existing_user['id'],
-                "roles": new_roles,
-                "already_registered": True
-            }
+        # A phone number identifies one person. Never create another identity or
+        # mutate account-wide roles during registration.
+        return {
+            "message": "This phone number already has a Clubvel account. Please login.",
+            "user_id": existing_user['id'],
+            "already_registered": True
+        }
     
-    # Create new user with default member role for backward compatibility
-    initial_role = user_data.role if user_data.role else 'member'
-    initial_role = 'treasurer' if initial_role == 'treasurer' else 'member'
-    
+    # Account creation establishes identity only. Group roles are created in members.
     user = User(
         full_name=user_data.full_name,
         phone_number=user_data.phone_number,
         email=user_data.email,
         password_hash=hash_password(user_data.password),
-        role=initial_role,  # Legacy field - defaults to member
-        roles=[initial_role],  # Legacy field - defaults to [member]
         stokvel_memberships=[],  # New contextual membership array - populated when joining stokvels
         otp_verified=False
     )
     
-    await db.users.insert_one(user.dict())
+    await db.users.insert_one(person_document(user))
     
     # Create initial trust score
     trust_score = TrustScore(user_id=user.id)
     await db.trust_scores.insert_one(trust_score.dict())
-    
-    # Check for pending invitations and auto-add to clubs
-    pending_invitations = await db.invitations.find({
-        "phone_number": user_data.phone_number,
-        "status": "pending",
-        "expires_at": {"$gt": datetime.utcnow()}
-    }).to_list(10)
-    
-    groups_joined = []
-    for invitation in pending_invitations:
-        # Create member record
-        member = Member(
-            user_id=user.id,
-            group_id=invitation['group_id'],
-            membership_status="active"
-        )
-        await db.members.insert_one(member.dict())
-        
-        # Update invitation status
-        await db.invitations.update_one(
-            {"id": invitation['id']},
-            {"$set": {"status": "accepted", "accepted_at": datetime.utcnow()}}
-        )
-        
-        # Add to user's stokvel_memberships array
-        await db.users.update_one(
-            {"id": user.id},
-            {
-                "$push": {
-                    "stokvel_memberships": {
-                        "stokvel_id": invitation['group_id'],
-                        "role": "member",
-                        "joined_at": datetime.utcnow(),
-                        "status": "active"
-                    }
-                }
-            }
-        )
-        
-        groups_joined.append(invitation['group_name'])
     
     # Send OTP via WhatsApp (with SMS fallback)
     otp_result = await send_otp(user_data.phone_number, preferred_channel='whatsapp')
@@ -553,11 +511,6 @@ async def register(request: Request, user_data: UserCreate):
         "otp_channel": otp_result.get('channel', 'whatsapp'),
         "notification_mode": notif_status['mode']
     }
-    
-    # Include groups joined via invitation
-    if groups_joined:
-        response["groups_joined"] = groups_joined
-        response["invitation_note"] = f"You've been automatically added to: {', '.join(groups_joined)}"
     
     # Include mock OTP in response if in mock mode
     if notif_status['mode'] == 'mock':
@@ -639,46 +592,10 @@ async def login(request: Request, login_data: UserLogin):
     if not verify_password(login_data.password, user['password_hash']):
         raise HTTPException(status_code=401, detail="Invalid phone number or password")
     
-    # Get user's roles - check old 'roles' field and new 'stokvel_memberships' array
-    user_roles = user.get('roles', [user.get('role', 'member')])
-    primary_role = user.get('role', user_roles[0] if user_roles else 'member')
-    
-    # Check stokvel_memberships for contextual roles (new system)
-    stokvel_memberships = user.get('stokvel_memberships', [])
-    has_treasurer_in_memberships = any(m.get('role') in ['treasurer', 'admin'] for m in stokvel_memberships)
-    has_member_in_memberships = any(m.get('role') == 'member' for m in stokvel_memberships)
-    
-    # Also check legacy group memberships from members collection
-    memberships = await db.members.find({"user_id": user['id'], "status": "active"}).to_list(100)
-    has_admin_membership = any(m.get('role_in_group') in ['admin', 'treasurer'] for m in memberships)
-    has_member_membership = len(memberships) > 0 or has_member_in_memberships  # Any membership counts
-    
-    # Also check if user is admin of any groups
-    admin_groups = await db.groups.find({
-        "$or": [
-            {"treasurer_user_id": user['id']},
-            {"admin_user_ids": user['id']}
-        ],
-        "status": "active"
-    }).to_list(100)
-    
-    if admin_groups or has_treasurer_in_memberships:
-        has_admin_membership = True
-        has_member_membership = True  # Admins can also act as members
-    
-    # Update roles based on actual memberships (including stokvel_memberships)
-    actual_roles = []
-    if has_member_membership or 'member' in user_roles:
-        actual_roles.append('member')
-    if has_admin_membership or 'treasurer' in user_roles or primary_role == 'treasurer':
-        actual_roles.append('treasurer')
-    
-    if not actual_roles:
-        actual_roles = [primary_role]
-    
-    # Create access token
+    # The session identifies a person only. Authorization loads the selected
+    # group's active membership instead of embedding global roles in the token.
     access_token = create_access_token(
-        data={"user_id": user['id'], "role": primary_role, "roles": actual_roles, "phone": user['phone_number']}
+        data={"user_id": user['id'], "phone": user['phone_number']}
     )
     
     return {
@@ -688,9 +605,6 @@ async def login(request: Request, login_data: UserLogin):
             "id": user['id'],
             "full_name": user['full_name'],
             "phone_number": user['phone_number'],
-            "role": primary_role,
-            "roles": actual_roles,
-            "has_multiple_roles": len(actual_roles) > 1,
             "profile_photo": user.get('profile_photo')
         }
     }
@@ -882,13 +796,7 @@ async def get_admin_stats(user_id: str):
         raise HTTPException(status_code=404, detail="User not found")
     
     # Get all groups managed by this admin
-    groups = await db.groups.find({
-        "$or": [
-            {"treasurer_user_id": user_id},
-            {"admin_user_ids": user_id}
-        ],
-        "status": "active"
-    }).to_list(100)
+    groups = await verify_treasurer_owns_groups(user_id)
     
     clubs_managed = len(groups)
     total_members = 0
@@ -921,13 +829,7 @@ async def get_admin_clubs(user_id: str):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    groups = await db.groups.find({
-        "$or": [
-            {"treasurer_user_id": user_id},
-            {"admin_user_ids": user_id}
-        ],
-        "status": "active"
-    }).to_list(100)
+    groups = await verify_treasurer_owns_groups(user_id)
     
     clubs = []
     for group in groups:
@@ -948,13 +850,7 @@ async def get_admin_payout_schedules(user_id: str):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    groups = await db.groups.find({
-        "$or": [
-            {"treasurer_user_id": user_id},
-            {"admin_user_ids": user_id}
-        ],
-        "status": "active"
-    }).to_list(100)
+    groups = await verify_treasurer_owns_groups(user_id)
     
     schedules = []
     for group in groups:
@@ -987,13 +883,7 @@ async def get_admin_dashboard(user_id: str):
         raise HTTPException(status_code=404, detail="User not found")
     
     # Get all groups managed by this admin
-    groups = await db.groups.find({
-        "$or": [
-            {"treasurer_user_id": user_id},
-            {"admin_user_ids": user_id}
-        ],
-        "status": "active"
-    }).to_list(100)
+    groups = await verify_treasurer_owns_groups(user_id)
     
     total_clubs = len(groups)
     total_members = 0
@@ -1137,15 +1027,14 @@ async def create_group(data: CreateGroupRequest):
     await db.users.update_one(
         {"id": data.admin_user_id},
         {
-            "$push": {
+            "$addToSet": {
                 "stokvel_memberships": {
                     "stokvel_id": group_id,
-                    "role": "treasurer",  # Creator becomes treasurer/admin
+                    "role": "admin",
                     "joined_at": datetime.utcnow(),
                     "status": "active"
                 }
-            },
-            "$addToSet": {"roles": "treasurer"}  # Also update legacy roles field
+            }
         }
     )
     
@@ -1179,14 +1068,7 @@ async def update_group(data: UpdateGroupRequest):
     if not group:
         raise HTTPException(status_code=404, detail="Club not found")
     
-    # Verify user is admin of this group
-    is_admin = (
-        group.get('treasurer_user_id') == data.admin_user_id or 
-        data.admin_user_id in group.get('admin_user_ids', [])
-    )
-    
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only admins can update club details")
+    await verify_user_is_group_treasurer(data.admin_user_id, data.group_id)
     
     # Build update dict with only provided fields
     update_fields = {}
@@ -1239,15 +1121,7 @@ async def delete_club(data: DeleteClubRequest):
     if not group:
         raise HTTPException(status_code=404, detail="Club not found")
     
-    # Verify user is admin of this group
-    admin_user_ids = group.get('admin_user_ids', [])
-    is_admin = (
-        group.get('treasurer_user_id') == data.admin_user_id or 
-        data.admin_user_id in admin_user_ids
-    )
-    
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only admins can delete the club")
+    await verify_user_is_group_treasurer(data.admin_user_id, data.group_id)
     
     if data.confirmation != "DELETE":
         raise HTTPException(status_code=400, detail="Confirmation required")
@@ -1281,15 +1155,8 @@ async def delete_member(data: DeleteMemberRequest):
     if not group:
         raise HTTPException(status_code=404, detail="Club not found")
     
-    # Verify requester is admin
+    await verify_user_is_group_treasurer(data.admin_user_id, data.group_id)
     admin_user_ids = group.get('admin_user_ids', [])
-    is_admin = (
-        group.get('treasurer_user_id') == data.admin_user_id or 
-        data.admin_user_id in admin_user_ids
-    )
-    
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only admins can remove members")
     
     # Can't delete self if you're the only admin
     if data.member_user_id == data.admin_user_id:
@@ -1346,15 +1213,8 @@ async def invite_admin(data: InviteAdminRequest):
     if not group:
         raise HTTPException(status_code=404, detail="Club not found")
     
-    # Verify requester is admin
+    await verify_user_is_group_treasurer(data.admin_user_id, data.group_id)
     admin_user_ids = group.get('admin_user_ids', [])
-    is_admin = (
-        group.get('treasurer_user_id') == data.admin_user_id or 
-        data.admin_user_id in admin_user_ids
-    )
-    
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only admins can invite new admins")
     
     # Check max admins limit (5)
     max_admins = group.get('max_admins', 5)
@@ -1416,8 +1276,7 @@ async def invite_admin(data: InviteAdminRequest):
                     "joined_at": datetime.utcnow(),
                     "status": "active"
                 }
-            },
-            "$addToSet": {"roles": "treasurer"}  # Also update legacy roles field
+            }
         }
     )
     
@@ -1436,11 +1295,8 @@ async def get_group_details(group_id: str, user_id: str):
     if not group:
         raise HTTPException(status_code=404, detail="Club not found")
     
-    # Decrypt sensitive fields for authorized users
-    is_admin = (
-        group.get('treasurer_user_id') == user_id or 
-        user_id in group.get('admin_user_ids', [])
-    )
+    membership = await verify_user_is_group_member(user_id, group_id)
+    is_admin = membership.get('role_in_group') in ['admin', 'treasurer']
     
     # Get member count
     member_count = await db.members.count_documents({"group_id": group_id, "status": "active"})
@@ -1684,6 +1540,7 @@ async def get_member_dashboard(user_id: str):
     total_saved = 0.0
     clubs = []
     overdue_count = 0
+    upcoming_payments = 0
     days_until_next_claim = None
     
     for membership in memberships:
@@ -1717,6 +1574,8 @@ async def get_member_dashboard(user_id: str):
         
         if status == "late":
             overdue_count += 1
+        elif status in ("pending", "due", "proof_uploaded"):
+            upcoming_payments += 1
         
         # Get all confirmed contributions for this member
         confirmed_contributions = await db.contributions.find({
@@ -1735,6 +1594,7 @@ async def get_member_dashboard(user_id: str):
             "name": group['group_name'],
             "member_count": member_count,
             "monthly_contribution": group['monthly_contribution'],
+            "role": membership.get('role_in_group', 'member'),
             "status": status,
             "status_label": {
                 "confirmed": "Paid",
@@ -1753,6 +1613,10 @@ async def get_member_dashboard(user_id: str):
     
     if next_claim:
         days_until_next_claim = (next_claim['scheduled_claim_date'] - datetime.utcnow()).days
+
+    claims_count = await db.claims.count_documents({
+        "member_id": {"$in": [m['id'] for m in memberships]}
+    })
     
     return {
         "user": {
@@ -1764,6 +1628,8 @@ async def get_member_dashboard(user_id: str):
         "summary": {
             "total_saved": total_saved,
             "active_clubs": len(clubs),
+            "upcoming_payments": upcoming_payments,
+            "claims_count": claims_count,
             "days_until_next_claim": days_until_next_claim,
             "overdue_contributions": overdue_count
         },
@@ -1912,17 +1778,15 @@ async def get_contribution_proof(contribution_id: str, user_id: str):
     if not member:
         raise HTTPException(status_code=404, detail="Member record not found")
     
-    # Get the group to check if user is admin/treasurer
-    group = await db.groups.find_one({"id": contribution['group_id']})
-    
     # AUTHORIZATION CHECK: User must be either:
     # 1. The member who made this contribution
     # 2. An admin/treasurer of this group
     is_owner = member['user_id'] == user_id
-    is_admin = group and (
-        group.get('treasurer_user_id') == user_id or 
-        user_id in group.get('admin_user_ids', [])
-    )
+    admin_membership = await db.members.find_one({
+        "user_id": user_id, "group_id": contribution['group_id'], "status": "active",
+        "role_in_group": {"$in": ["admin", "treasurer"]}
+    })
+    is_admin = bool(admin_membership)
     
     if not is_owner and not is_admin:
         raise HTTPException(
@@ -1955,17 +1819,7 @@ async def admin_upload_proof_of_payment(proof_data: ProofUpload):
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     
-    # AUTHORIZATION CHECK: User must be admin/treasurer of this group
-    is_admin = (
-        group.get('treasurer_user_id') == proof_data.user_id or 
-        proof_data.user_id in group.get('admin_user_ids', [])
-    )
-    
-    if not is_admin:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access denied: Only admins can upload proof on behalf of members"
-        )
+    await verify_user_is_group_treasurer(proof_data.user_id, contribution['group_id'])
     
     # Update contribution with proof
     await db.contributions.update_one(
@@ -1991,7 +1845,7 @@ async def admin_upload_proof_of_payment(proof_data: ProofUpload):
 @api_router.get("/treasurer/dashboard/{user_id}")
 async def get_treasurer_dashboard(user_id: str):
     # Get all groups where user is treasurer
-    groups = await db.groups.find({"treasurer_user_id": user_id, "status": "active"}).to_list(100)
+    groups = await verify_treasurer_owns_groups(user_id)
     
     total_members = 0
     total_collected_this_month = 0.0
@@ -2058,8 +1912,9 @@ async def get_treasurer_dashboard(user_id: str):
         })
     
     # Get next upcoming claim
+    managed_group_ids = [group['id'] for group in groups]
     next_claim = await db.claims.find_one(
-        {"claim_status": "upcoming"},
+        {"group_id": {"$in": managed_group_ids}, "claim_status": "upcoming"},
         sort=[("scheduled_claim_date", 1)]
     )
     
@@ -2095,12 +1950,7 @@ async def get_group_contributions(group_id: str, month: int, year: int, treasure
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     
-    # AUTHORIZATION CHECK: Only the treasurer of this group can view all contributions
-    if group.get('treasurer_user_id') != treasurer_id:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access denied: You are not the treasurer of this group"
-        )
+    await verify_user_is_group_treasurer(treasurer_id, group_id)
     
     # Get all members
     members = await db.members.find({"group_id": group_id, "status": "active"}).to_list(1000)
@@ -2186,12 +2036,7 @@ async def get_club_detail(group_id: str, treasurer_id: str):
     if not group:
         raise HTTPException(status_code=404, detail="Club not found")
     
-    # AUTHORIZATION CHECK: Only the treasurer of this group can view club details
-    if group.get('treasurer_user_id') != treasurer_id:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access denied: You are not the treasurer of this group"
-        )
+    await verify_user_is_group_treasurer(treasurer_id, group_id)
     
     # Get all members of this club
     members = await db.members.find({"group_id": group_id}).to_list(100)
@@ -2262,12 +2107,7 @@ async def confirm_payment(confirm_data: ConfirmPayment):
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     
-    # AUTHORIZATION CHECK: Only the treasurer of this group can confirm payments
-    if group.get('treasurer_user_id') != confirm_data.treasurer_id:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access denied: You are not the treasurer of this group"
-        )
+    await verify_user_is_group_treasurer(confirm_data.treasurer_id, contribution['group_id'])
     
     # Update contribution
     await db.contributions.update_one(
@@ -2343,12 +2183,7 @@ async def invite_member(request: InviteMemberRequest):
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     
-    # AUTHORIZATION CHECK: Only the treasurer of this group can invite members
-    if group.get('treasurer_user_id') != request.invited_by:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access denied: You are not the treasurer of this group"
-        )
+    await verify_user_is_group_treasurer(request.invited_by, request.group_id)
     
     # Check if user already exists
     existing_user = await db.users.find_one({"phone_number": request.phone_number})
@@ -2376,9 +2211,9 @@ async def invite_member(request: InviteMemberRequest):
     }
     
     await db.invitations.insert_one(invitation)
-    
+
     # Send SMS invitation
-    invite_message = f"Hi{' ' + request.name if request.name else ''}! You've been invited by {request.treasurer_name} to join {request.group_name} on Clubvel - the smart stokvel app. Download Clubvel and register with this number ({request.phone_number}) to join automatically. https://clubvel.co.za/download"
+    invite_message = f"Hi{' ' + request.name if request.name else ''}! You've been invited by {request.treasurer_name} to join {request.group_name} on Clubvel. Sign in or register with this number ({request.phone_number}), then accept the invitation in My Clubvel. https://clubvel.co.za/download"
     
     # Use the notification service to send SMS
     try:
@@ -2399,6 +2234,108 @@ async def invite_member(request: InviteMemberRequest):
     }
 
 
+class AcceptInvitationRequest(BaseModel):
+    invitation_id: str
+    user_id: str
+
+
+@api_router.get("/invitations/pending/{user_id}")
+async def get_pending_invitations(user_id: str):
+    """Return active invitations addressed to this person's account phone."""
+    user = await verify_user_exists(user_id)
+    invitations = await db.invitations.find({
+        "phone_number": user['phone_number'],
+        "status": "pending",
+        "expires_at": {"$gt": datetime.utcnow()}
+    }).to_list(100)
+    return {"invitations": [{
+        "id": invitation['id'],
+        "group_id": invitation['group_id'],
+        "group_name": invitation['group_name'],
+        "invited_by_name": invitation.get('treasurer_name'),
+        "expires_at": invitation['expires_at'].isoformat()
+    } for invitation in invitations]}
+
+
+@api_router.post("/invitations/accept")
+async def accept_invitation(request: AcceptInvitationRequest):
+    """Create contextual membership only after the addressed person accepts."""
+    user = await verify_user_exists(request.user_id)
+    invitation = await db.invitations.find_one({
+        "id": request.invitation_id,
+        "phone_number": user['phone_number'],
+        "status": "pending",
+        "expires_at": {"$gt": datetime.utcnow()}
+    })
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Pending invitation not found or expired")
+
+    existing_member = await db.members.find_one({
+        "user_id": request.user_id,
+        "group_id": invitation['group_id']
+    })
+    if existing_member:
+        raise HTTPException(status_code=400, detail="You already belong to this group")
+
+    group = await db.groups.find_one({"id": invitation['group_id'], "status": "active"})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    # Claim the invitation before creating membership so repeated taps cannot
+    # create duplicate contextual memberships.
+    claimed = await db.invitations.update_one(
+        {"id": invitation['id'], "status": "pending"},
+        {"$set": {"status": "accepting", "accepting_by": request.user_id}}
+    )
+    if claimed.modified_count != 1:
+        raise HTTPException(status_code=409, detail="Invitation is already being accepted")
+
+    member_count = await db.members.count_documents({"group_id": invitation['group_id']})
+    member = Member(
+        user_id=request.user_id,
+        group_id=invitation['group_id'],
+        unique_reference_code=generate_reference_code(
+            group.get('payment_reference_prefix', 'CLB'), member_count + 1
+        ),
+        status="active",
+        role_in_group="member",
+        payout_position=member_count + 1
+    )
+    try:
+        await db.members.insert_one(member.dict())
+        await db.users.update_one(
+            {"id": request.user_id},
+            {"$addToSet": {"stokvel_memberships": {
+                "stokvel_id": invitation['group_id'],
+                "role": "member",
+                "status": "active"
+            }}}
+        )
+        await db.invitations.update_one(
+            {"id": invitation['id'], "status": "accepting",
+             "accepting_by": request.user_id},
+            {"$set": {"status": "accepted", "accepted_at": datetime.utcnow(),
+                      "accepted_by": request.user_id},
+             "$unset": {"accepting_by": ""}}
+        )
+    except Exception:
+        await db.members.delete_one({"id": member.id})
+        await db.users.update_one(
+            {"id": request.user_id},
+            {"$pull": {"stokvel_memberships": {
+                "stokvel_id": invitation['group_id'],
+                "role": "member"
+            }}}
+        )
+        await db.invitations.update_one(
+            {"id": invitation['id'], "status": "accepting",
+             "accepting_by": request.user_id},
+            {"$set": {"status": "pending"}, "$unset": {"accepting_by": ""}}
+        )
+        raise
+    return {"message": "Invitation accepted", "group_id": invitation['group_id']}
+
+
 class SendReminderRequest(BaseModel):
     member_id: str
     group_id: str
@@ -2413,12 +2350,7 @@ async def send_payment_reminder_endpoint(request: SendReminderRequest):
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     
-    # AUTHORIZATION CHECK: Only the treasurer of this group can send reminders
-    if group.get('treasurer_user_id') != request.treasurer_id:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access denied: You are not the treasurer of this group"
-        )
+    await verify_user_is_group_treasurer(request.treasurer_id, request.group_id)
     
     # Get member and user info
     member = await db.members.find_one({"id": request.member_id})
@@ -2628,7 +2560,6 @@ async def seed_demo_data():
         full_name="Thabo Mokoena",
         phone_number="0821234567",
         password_hash=hash_password("Pass&Word76"),
-        role="member",
         otp_verified=True
     )
     
@@ -2637,7 +2568,6 @@ async def seed_demo_data():
         full_name="Lerato Nkosi",
         phone_number="0827654321",
         password_hash=hash_password("Pass&Word76"),
-        role="member",
         otp_verified=True
     )
     
@@ -2646,11 +2576,12 @@ async def seed_demo_data():
         full_name="Sipho Dlamini",
         phone_number="0829876543",
         password_hash=hash_password("Pass&Word76"),
-        role="treasurer",
         otp_verified=True
     )
     
-    await db.users.insert_many([member1.dict(), member2.dict(), treasurer1.dict()])
+    await db.users.insert_many([
+        person_document(member1), person_document(member2), person_document(treasurer1)
+    ])
     
     # Create trust scores
     trust1 = TrustScore(user_id="member1", overall_score=87)
@@ -2714,8 +2645,29 @@ async def seed_demo_data():
         unique_reference_code="SSH002",
         payout_position=2
     )
+
+    admin_membership1 = Member(
+        id="admin-membership1",
+        user_id="treasurer1",
+        group_id="group1",
+        unique_reference_code="SSH003",
+        role_in_group="admin",
+        payout_position=3
+    )
+
+    admin_membership2 = Member(
+        id="admin-membership2",
+        user_id="treasurer1",
+        group_id="group2",
+        unique_reference_code="MBS002",
+        role_in_group="admin",
+        payout_position=2
+    )
     
-    await db.members.insert_many([membership1.dict(), membership2.dict(), membership3.dict()])
+    await db.members.insert_many([
+        membership1.dict(), membership2.dict(), membership3.dict(),
+        admin_membership1.dict(), admin_membership2.dict()
+    ])
     
     # Create some contributions
     now = datetime.utcnow()
@@ -2783,9 +2735,9 @@ async def seed_demo_data():
     return {
         "message": "Demo data seeded successfully",
         "demo_accounts": [
-            {"phone": "0821234567", "password": "Pass&Word76", "role": "member", "name": "Thabo Mokoena"},
-            {"phone": "0827654321", "password": "Pass&Word76", "role": "member", "name": "Lerato Nkosi"},
-            {"phone": "0829876543", "password": "Pass&Word76", "role": "treasurer", "name": "Sipho Dlamini"}
+            {"phone": "0821234567", "password": "Pass&Word76", "name": "Thabo Mokoena"},
+            {"phone": "0827654321", "password": "Pass&Word76", "name": "Lerato Nkosi"},
+            {"phone": "0829876543", "password": "Pass&Word76", "name": "Sipho Dlamini"}
         ]
     }
 
