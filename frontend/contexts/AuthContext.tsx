@@ -20,9 +20,6 @@ interface User {
   id: string;
   full_name: string;
   phone_number: string;
-  role: string;
-  roles?: string[];
-  has_multiple_roles?: boolean;
   profile_photo?: string;
 }
 
@@ -30,7 +27,7 @@ interface AuthContextType {
   user: User | null;
   token: string | null;
   loading: boolean;
-  login: (phone: string, password: string) => Promise<{ has_multiple_roles: boolean; roles: string[] }>;
+  login: (phone: string, password: string) => Promise<void>;
   register: (fullName: string, phone: string, password: string) => Promise<{ userId: string; otp: string; confirmation?: any; already_registered?: boolean }>;
   verifyOTP: (phone: string, otp: string, confirmation?: any) => Promise<void>;
   sendFirebaseOTP: (phone: string) => Promise<any>;
@@ -38,7 +35,6 @@ interface AuthContextType {
   updateProfilePhoto: (photoBase64: string) => Promise<void>;
   refreshSession: () => void;
   isFirebaseAvailable: boolean;
-  switchRole: (newRole: string) => Promise<void>;
 }
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
@@ -194,7 +190,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const register = async (fullName: string, phone: string, password: string) => {
     try {
-      // Register user in backend - no role required, defaults to member
+      // Registration creates a person only; group roles are established separately.
       const response = await axios.post(`${API_URL}/api/auth/register`, {
         full_name: fullName,
         phone_number: phone,
@@ -207,7 +203,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
           userId: response.data.user_id,
           otp: '',
           already_registered: true,
-          roles: response.data.roles
         };
       }
       
@@ -278,13 +273,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       refreshSession();
       
       console.log('✅ Login successful, user:', userData.full_name);
-      console.log('✅ User roles:', userData.roles);
-      console.log('✅ Has multiple roles:', userData.has_multiple_roles);
-      
-      return {
-        has_multiple_roles: userData.has_multiple_roles || false,
-        roles: userData.roles || [userData.role]
-      };
     } catch (error: any) {
       console.error('❌ Login error:', error);
       console.error('❌ Error details:', error.response?.data);
@@ -298,17 +286,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     await AsyncStorage.removeItem('last_activity');  // Clear session tracking
     setToken(null);
     setUser(null);
-  };
-
-  const switchRole = async (newRole: string) => {
-    if (!user) return;
-    
-    // Update user's active role locally
-    const updatedUser = { ...user, role: newRole };
-    setUser(updatedUser);
-    await AsyncStorage.setItem('user_data', JSON.stringify(updatedUser));
-    
-    console.log('🔄 Switched role to:', newRole);
   };
 
   const updateProfilePhoto = async (photoBase64: string) => {
@@ -342,7 +319,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       updateProfilePhoto, 
       refreshSession,
       isFirebaseAvailable,
-      switchRole
     }}>
       {children}
     </AuthContext.Provider>
