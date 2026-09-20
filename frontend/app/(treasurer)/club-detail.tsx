@@ -11,6 +11,8 @@ interface Member {
   id: string;
   name: string;
   phone: string;
+  membership_status: string;
+  role_in_group: 'member' | 'admin' | 'treasurer';
   status: string;
   amount_paid: number;
   amount_due: number;
@@ -361,9 +363,9 @@ export default function ClubDetailScreen() {
                     <Text style={styles.memberPhone}>{member.phone}</Text>
                   </View>
                 </View>
-                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(member.status) + '20' }]}>
-                  <Text style={[styles.statusText, { color: getStatusColor(member.status) }]}>
-                    {getStatusLabel(member.status)}
+                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(member.membership_status) + '20' }]}>
+                  <Text style={[styles.statusText, { color: getStatusColor(member.membership_status) }]}>
+                    {getStatusLabel(member.membership_status)}
                   </Text>
                 </View>
               </View>

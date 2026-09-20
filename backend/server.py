@@ -2038,8 +2038,12 @@ async def get_club_detail(group_id: str, treasurer_id: str):
     
     await verify_user_is_group_treasurer(treasurer_id, group_id)
     
-    # Get all members of this club
-    members = await db.members.find({"group_id": group_id}).to_list(100)
+    # A group's member count and roster include active memberships only. Pending
+    # invitations do not have member records and therefore never appear here.
+    members = await db.members.find({
+        "group_id": group_id,
+        "status": "active"
+    }).to_list(100)
     
     now = datetime.now()
     month = now.month
@@ -2075,6 +2079,11 @@ async def get_club_detail(group_id: str, treasurer_id: str):
             "id": member['id'],
             "name": user['full_name'],
             "phone": user['phone_number'],
+            "reference": member['unique_reference_code'],
+            "membership_status": member['status'],
+            "role_in_group": member.get('role_in_group', 'member'),
+            # Payment status is intentionally separate from membership status.
+            # A new active admin may not have a contribution yet.
             "status": status,
             "amount_paid": amount_paid,
             "amount_due": group['monthly_contribution'],

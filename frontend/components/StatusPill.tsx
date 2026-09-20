@@ -12,6 +12,7 @@ export const StatusPill: React.FC<StatusPillProps> = ({ status, label }) => {
     switch (status) {
       case 'confirmed':
       case 'paid':
+      case 'active':
         return Colors.statusPaid;
       case 'late':
         return Colors.statusLate;
@@ -30,6 +31,8 @@ export const StatusPill: React.FC<StatusPillProps> = ({ status, label }) => {
     switch (status) {
       case 'confirmed':
         return 'Paid';
+      case 'active':
+        return 'Active';
       case 'late':
         return 'Late';
       case 'due':
