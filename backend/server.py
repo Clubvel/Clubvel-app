@@ -306,6 +306,71 @@ async def verify_member_owns_data(user_id: str, target_user_id: str) -> bool:
     return True
 
 
+def get_legacy_group_admin_role(user_id: str, group: dict) -> Optional[str]:
+    """Return a contextual role only when legacy group metadata proves admin access."""
+    if group.get("treasurer_user_id") == user_id:
+        return "treasurer"
+    if user_id in (group.get("admin_user_ids") or []):
+        return "admin"
+    return None
+
+
+async def reconcile_legacy_group_admin_membership(user_id: str, group: dict) -> Optional[dict]:
+    """Lazily migrate a proven legacy group administrator into members.
+
+    Group ownership metadata is used only as migration evidence. The resulting
+    active members record remains the authorization source for the request and
+    all subsequent requests.
+    """
+    role_in_group = get_legacy_group_admin_role(user_id, group)
+    if not role_in_group:
+        return None
+
+    group_id = group["id"]
+    existing_membership = await db.members.find_one({
+        "user_id": user_id,
+        "group_id": group_id,
+        "status": "active",
+        "role_in_group": {"$in": ["admin", "treasurer"]}
+    })
+    if existing_membership:
+        return existing_membership
+
+    member_count = await db.members.count_documents({"group_id": group_id})
+    reference_prefix = group.get("payment_reference_prefix", "CLB")
+    await db.members.update_one(
+        {"user_id": user_id, "group_id": group_id},
+        {
+            "$set": {"status": "active", "role_in_group": role_in_group},
+            "$setOnInsert": {
+                "id": str(uuid.uuid4()),
+                "unique_reference_code": generate_reference_code(
+                    reference_prefix, member_count + 1
+                ),
+                "date_joined_group": datetime.utcnow(),
+                "payout_position": member_count + 1
+            }
+        },
+        upsert=True
+    )
+    membership = await db.members.find_one({"user_id": user_id, "group_id": group_id})
+    logging.info("Reconciled legacy admin membership for user %s in group %s", user_id, group_id)
+    return membership
+
+
+async def reconcile_legacy_admin_memberships(user_id: str) -> None:
+    """Migrate active groups that explicitly name this person as an administrator."""
+    legacy_groups = await db.groups.find({
+        "$or": [
+            {"treasurer_user_id": user_id},
+            {"admin_user_ids": user_id}
+        ],
+        "status": "active"
+    }).to_list(100)
+    for group in legacy_groups:
+        await reconcile_legacy_group_admin_membership(user_id, group)
+
+
 async def verify_user_is_group_member(user_id: str, group_id: str) -> dict:
     """Verify user is an active member of the specified group"""
     membership = await db.members.find_one({
@@ -313,6 +378,12 @@ async def verify_user_is_group_member(user_id: str, group_id: str) -> dict:
         "group_id": group_id,
         "status": "active"
     })
+    if not membership or membership.get("role_in_group") not in ("admin", "treasurer"):
+        group = await db.groups.find_one({"id": group_id})
+        if group:
+            reconciled = await reconcile_legacy_group_admin_membership(user_id, group)
+            if reconciled:
+                membership = reconciled
     if not membership:
         raise HTTPException(
             status_code=403, 
@@ -334,6 +405,8 @@ async def verify_user_is_group_treasurer(user_id: str, group_id: str) -> dict:
         "role_in_group": {"$in": ["admin", "treasurer"]}
     })
     if not membership:
+        membership = await reconcile_legacy_group_admin_membership(user_id, group)
+    if not membership:
         raise HTTPException(
             status_code=403, 
             detail="Access denied: Group admin access required"
@@ -343,6 +416,8 @@ async def verify_user_is_group_treasurer(user_id: str, group_id: str) -> dict:
 
 async def verify_treasurer_owns_groups(user_id: str) -> list:
     """Get groups where the user's contextual membership is administrative."""
+    await reconcile_legacy_admin_memberships(user_id)
+
     memberships = await db.members.find({
         "user_id": user_id,
         "status": "active",
@@ -591,6 +666,10 @@ async def login(request: Request, login_data: UserLogin):
     # Verify password
     if not verify_password(login_data.password, user['password_hash']):
         raise HTTPException(status_code=401, detail="Invalid phone number or password")
+
+    # One-time/lazy compatibility migration for groups that explicitly identify
+    # this existing person as a legacy treasurer or administrator.
+    await reconcile_legacy_admin_memberships(user['id'])
     
     # The session identifies a person only. Authorization loads the selected
     # group's active membership instead of embedding global roles in the token.
@@ -1255,7 +1334,7 @@ async def invite_admin(data: InviteAdminRequest):
         # Update existing member to admin role
         await db.members.update_one(
             {"group_id": data.group_id, "user_id": new_admin_id},
-            {"$set": {"role_in_group": "admin"}}
+            {"$set": {"role_in_group": "admin", "status": "active"}}
         )
     
     # Add to admin list
@@ -1533,6 +1612,10 @@ async def get_member_dashboard(user_id: str):
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
+
+    # Make proven legacy group administrators visible on their personal home
+    # while converting their old ownership metadata into authoritative members.
+    await reconcile_legacy_admin_memberships(user_id)
     
     # Get all groups this user is a member of
     memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(100)
