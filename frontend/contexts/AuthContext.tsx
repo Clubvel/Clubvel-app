@@ -44,7 +44,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [token, setToken] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const lastActivityRef = useRef<number>(Date.now());
-  const sessionCheckIntervalRef = useRef<NodeJS.Timeout | null>(null);
+  const sessionCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
