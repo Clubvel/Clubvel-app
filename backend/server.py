@@ -1,8 +1,9 @@
-from fastapi import FastAPI, APIRouter, HTTPException, status as http_status, Request
+from fastapi import FastAPI, APIRouter, Header, HTTPException, status as http_status, Request
 from fastapi.responses import HTMLResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import DuplicateKeyError
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -518,6 +519,27 @@ def verify_token(token: str) -> dict:
             status_code=401,
             detail="Session expired or invalid. Please log in again."
         )
+
+
+def authenticated_user_id(authorization: Optional[str]) -> str:
+    """Return the person identified by a Bearer session token."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    payload = verify_token(authorization[7:])
+    user_id = payload.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    return user_id
+
+
+def phone_variants(phone_number: str) -> list[str]:
+    """Match current E.164 and legacy local formatting for the same SA number."""
+    normalized = format_phone_number(phone_number)
+    variants = {phone_number, normalized}
+    if normalized.startswith("+27"):
+        variants.add("0" + normalized[3:])
+        variants.add(normalized[1:])
+    return list(variants)
 
 def generate_reference_code(prefix: str, member_position: int) -> str:
     """Generate unique reference code for member"""
@@ -2277,8 +2299,10 @@ async def invite_member(request: InviteMemberRequest):
     
     await verify_user_is_group_treasurer(request.invited_by, request.group_id)
     
-    # Check if user already exists
-    existing_user = await db.users.find_one({"phone_number": request.phone_number})
+    invited_phone = format_phone_number(request.phone_number)
+
+    # Check if user already exists, including accounts stored in legacy local format.
+    existing_user = await db.users.find_one({"phone_number": {"$in": phone_variants(request.phone_number)}})
     if existing_user:
         # Check if already a member of this group
         existing_member = await db.members.find_one({
@@ -2287,11 +2311,20 @@ async def invite_member(request: InviteMemberRequest):
         })
         if existing_member:
             raise HTTPException(status_code=400, detail="This person is already a member of this club")
+
+    existing_invitation = await db.invitations.find_one({
+        "phone_number": {"$in": phone_variants(request.phone_number)},
+        "group_id": request.group_id,
+        "status": "pending",
+        "expires_at": {"$gt": datetime.utcnow()}
+    })
+    if existing_invitation:
+        raise HTTPException(status_code=400, detail="This person already has a pending invitation")
     
     # Store the invitation
     invitation = {
-        "id": f"inv_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{request.phone_number[-4:]}",
-        "phone_number": request.phone_number,
+        "id": f"inv_{uuid.uuid4().hex}",
+        "phone_number": invited_phone,
         "name": request.name,
         "group_id": request.group_id,
         "group_name": request.group_name,
@@ -2310,17 +2343,17 @@ async def invite_member(request: InviteMemberRequest):
     # Use the notification service to send SMS
     try:
         from services.notification_service import send_sms_otp
-        sms_result = await send_sms_otp(request.phone_number, "0000")  # We're just using the SMS functionality
-        print(f"[INVITE SMS] To: {request.phone_number}")
+        sms_result = await send_sms_otp(invited_phone, "0000")  # We're just using the SMS functionality
+        print(f"[INVITE SMS] To: {invited_phone}")
         print(f"[INVITE SMS] Message: {invite_message}")
     except Exception as e:
-        print(f"[INVITE SMS MOCK] To: {request.phone_number}")
+        print(f"[INVITE SMS MOCK] To: {invited_phone}")
         print(f"[INVITE SMS MOCK] Message: {invite_message}")
     
     return {
         "message": "Invitation sent successfully",
         "invitation_id": invitation['id'],
-        "phone_number": request.phone_number,
+        "phone_number": invited_phone,
         "group_name": request.group_name,
         "expires_at": invitation['expires_at'].isoformat()
     }
@@ -2332,11 +2365,13 @@ class AcceptInvitationRequest(BaseModel):
 
 
 @api_router.get("/invitations/pending/{user_id}")
-async def get_pending_invitations(user_id: str):
+async def get_pending_invitations(user_id: str, authorization: Optional[str] = Header(None)):
     """Return active invitations addressed to this person's account phone."""
+    if authenticated_user_id(authorization) != user_id:
+        raise HTTPException(status_code=403, detail="You can only view your own invitations")
     user = await verify_user_exists(user_id)
     invitations = await db.invitations.find({
-        "phone_number": user['phone_number'],
+        "phone_number": {"$in": phone_variants(user['phone_number'])},
         "status": "pending",
         "expires_at": {"$gt": datetime.utcnow()}
     }).to_list(100)
@@ -2350,12 +2385,14 @@ async def get_pending_invitations(user_id: str):
 
 
 @api_router.post("/invitations/accept")
-async def accept_invitation(request: AcceptInvitationRequest):
+async def accept_invitation(request: AcceptInvitationRequest, authorization: Optional[str] = Header(None)):
     """Create contextual membership only after the addressed person accepts."""
+    if authenticated_user_id(authorization) != request.user_id:
+        raise HTTPException(status_code=403, detail="You can only accept your own invitations")
     user = await verify_user_exists(request.user_id)
     invitation = await db.invitations.find_one({
         "id": request.invitation_id,
-        "phone_number": user['phone_number'],
+        "phone_number": {"$in": phone_variants(user['phone_number'])},
         "status": "pending",
         "expires_at": {"$gt": datetime.utcnow()}
     })
@@ -2394,7 +2431,11 @@ async def accept_invitation(request: AcceptInvitationRequest):
         payout_position=member_count + 1
     )
     try:
-        await db.members.insert_one(member.dict())
+        member_document = member.dict()
+        # A deterministic Mongo key closes the race between two invitations for
+        # the same person and group, while the lookup above handles legacy rows.
+        member_document["_id"] = f"membership:{request.user_id}:{invitation['group_id']}"
+        await db.members.insert_one(member_document)
         await db.users.update_one(
             {"id": request.user_id},
             {"$addToSet": {"stokvel_memberships": {
@@ -2410,7 +2451,14 @@ async def accept_invitation(request: AcceptInvitationRequest):
                       "accepted_by": request.user_id},
              "$unset": {"accepting_by": ""}}
         )
-    except Exception:
+    except Exception as error:
+        await db.invitations.update_one(
+            {"id": invitation['id'], "status": "accepting",
+             "accepting_by": request.user_id},
+            {"$set": {"status": "pending"}, "$unset": {"accepting_by": ""}}
+        )
+        if isinstance(error, DuplicateKeyError):
+            raise HTTPException(status_code=400, detail="You already belong to this group")
         await db.members.delete_one({"id": member.id})
         await db.users.update_one(
             {"id": request.user_id},
@@ -2418,11 +2466,6 @@ async def accept_invitation(request: AcceptInvitationRequest):
                 "stokvel_id": invitation['group_id'],
                 "role": "member"
             }}}
-        )
-        await db.invitations.update_one(
-            {"id": invitation['id'], "status": "accepting",
-             "accepting_by": request.user_id},
-            {"$set": {"status": "pending"}, "$unset": {"accepting_by": ""}}
         )
         raise
     return {"message": "Invitation accepted", "group_id": invitation['group_id']}

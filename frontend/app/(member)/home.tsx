@@ -45,7 +45,7 @@ interface PendingInvitation {
 }
 
 export default function MemberHomeScreen() {
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
   const router = useRouter();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -59,6 +59,9 @@ export default function MemberHomeScreen() {
   const [monthlyContribution, setMonthlyContribution] = useState('');
   const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([]);
   const [acceptingInvitation, setAcceptingInvitation] = useState<string | null>(null);
+  const [showInvitations, setShowInvitations] = useState(false);
+  const [invitationsLoading, setInvitationsLoading] = useState(false);
+  const [invitationsError, setInvitationsError] = useState<string | null>(null);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
@@ -124,7 +127,9 @@ export default function MemberHomeScreen() {
     try {
       const [dashboardResponse, invitationsResponse] = await Promise.all([
         axios.get(`${API_URL}/api/member/dashboard/${user?.id}`),
-        axios.get(`${API_URL}/api/invitations/pending/${user?.id}`),
+        axios.get(`${API_URL}/api/invitations/pending/${user?.id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
       ]);
       setDashboardData(dashboardResponse.data);
       setPendingInvitations(invitationsResponse.data.invitations || []);
@@ -140,7 +145,7 @@ export default function MemberHomeScreen() {
     if (user) {
       fetchDashboard();
     }
-  }, [user]);
+  }, [user, token]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -206,13 +211,20 @@ export default function MemberHomeScreen() {
     }
   };
 
-  const explainInvitations = () => {
-    Alert.alert(
-      'Join via invitation',
-      pendingInvitations.length > 0
-        ? 'Your pending invitations are shown on this page. Choose Accept to join a group.'
-        : 'Ask a group admin to invite the phone number on your Clubvel account. You can accept the invitation here after it arrives.',
-    );
+  const openInvitations = async () => {
+    setShowInvitations(true);
+    setInvitationsLoading(true);
+    setInvitationsError(null);
+    try {
+      const response = await axios.get(`${API_URL}/api/invitations/pending/${user?.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setPendingInvitations(response.data.invitations || []);
+    } catch (error: any) {
+      setInvitationsError(error.response?.data?.detail || 'Could not load invitations. Please try again.');
+    } finally {
+      setInvitationsLoading(false);
+    }
   };
 
   const acceptInvitation = async (invitation: PendingInvitation) => {
@@ -221,6 +233,8 @@ export default function MemberHomeScreen() {
       await axios.post(`${API_URL}/api/invitations/accept`, {
         invitation_id: invitation.id,
         user_id: user?.id,
+      }, {
+        headers: { Authorization: `Bearer ${token}` },
       });
       await fetchDashboard();
       Alert.alert('Group joined', `You are now a member of ${invitation.group_name}.`);
@@ -355,7 +369,7 @@ export default function MemberHomeScreen() {
             <Ionicons name="add" size={20} color={Colors.white} />
             <Text style={styles.createButtonText}>Create a Group</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.inviteButton} onPress={explainInvitations}>
+          <TouchableOpacity style={styles.inviteButton} onPress={openInvitations}>
             <Ionicons name="mail-outline" size={20} color={Colors.accent} />
             <Text style={styles.inviteButtonText}>Join a Group</Text>
           </TouchableOpacity>
@@ -512,6 +526,65 @@ export default function MemberHomeScreen() {
               {creatingGroup ? <ActivityIndicator color={Colors.white} /> : <Text style={styles.submitButtonText}>Create</Text>}
             </TouchableOpacity>
           </View>
+        </View>
+      </View>
+    </Modal>
+
+    <Modal visible={showInvitations} transparent animationType="slide" onRequestClose={() => setShowInvitations(false)}>
+      <View style={styles.formOverlay}>
+        <View style={styles.formCard}>
+          <View style={styles.invitationModalHeader}>
+            <View style={styles.invitationInfo}>
+              <Text style={styles.formTitle}>Join a Group</Text>
+              <Text style={styles.formHelp}>Accept an invitation sent to your Clubvel phone number.</Text>
+            </View>
+            <TouchableOpacity onPress={() => setShowInvitations(false)} accessibilityLabel="Close invitations">
+              <Ionicons name="close" size={26} color={Colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
+
+          {invitationsLoading ? (
+            <ActivityIndicator style={styles.invitationModalStatus} color={Colors.accent} />
+          ) : invitationsError ? (
+            <View style={styles.invitationEmptyState}>
+              <Text style={styles.invitationEmptyTitle}>Invitations unavailable</Text>
+              <Text style={styles.invitationEmptyText}>{invitationsError}</Text>
+              <TouchableOpacity style={styles.retryButton} onPress={openInvitations}>
+                <Text style={styles.retryButtonText}>Try Again</Text>
+              </TouchableOpacity>
+            </View>
+          ) : pendingInvitations.length === 0 ? (
+            <View style={styles.invitationEmptyState}>
+              <Ionicons name="mail-open-outline" size={44} color={Colors.textMuted} />
+              <Text style={styles.invitationEmptyTitle}>No pending invitations</Text>
+              <Text style={styles.invitationEmptyText}>
+                Ask a group admin to invite the phone number on your Clubvel account, then check again here.
+              </Text>
+              <TouchableOpacity style={styles.retryButton} onPress={openInvitations}>
+                <Text style={styles.retryButtonText}>Check Again</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            pendingInvitations.map((invitation) => (
+              <View key={invitation.id} style={styles.invitationCard}>
+                <View style={styles.invitationInfo}>
+                  <Text style={styles.invitationGroup}>{invitation.group_name}</Text>
+                  <Text style={styles.invitationFrom}>
+                    {invitation.invited_by_name ? `Invited by ${invitation.invited_by_name}` : 'Group invitation'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.acceptButton}
+                  onPress={() => acceptInvitation(invitation)}
+                  disabled={acceptingInvitation === invitation.id}
+                >
+                  {acceptingInvitation === invitation.id
+                    ? <ActivityIndicator size="small" color={Colors.white} />
+                    : <Text style={styles.acceptButtonText}>Accept</Text>}
+                </TouchableOpacity>
+              </View>
+            ))
+          )}
         </View>
       </View>
     </Modal>
@@ -858,6 +931,13 @@ const styles = StyleSheet.create({
   invitationInfo: { flex: 1 },
   invitationGroup: { color: Colors.textPrimary, fontSize: 16, fontWeight: '700' },
   invitationFrom: { color: Colors.textSecondary, fontSize: 13, marginTop: 3 },
+  invitationModalHeader: { alignItems: 'flex-start', flexDirection: 'row', gap: 12 },
+  invitationModalStatus: { marginVertical: 32 },
+  invitationEmptyState: { alignItems: 'center', paddingHorizontal: 12, paddingVertical: 24 },
+  invitationEmptyTitle: { color: Colors.textPrimary, fontSize: 17, fontWeight: '700', marginTop: 10 },
+  invitationEmptyText: { color: Colors.textSecondary, fontSize: 14, lineHeight: 20, marginTop: 6, textAlign: 'center' },
+  retryButton: { borderColor: Colors.accent, borderRadius: 9, borderWidth: 1, marginTop: 18, paddingHorizontal: 18, paddingVertical: 10 },
+  retryButtonText: { color: Colors.accent, fontSize: 14, fontWeight: '700' },
   acceptButton: {
     alignItems: 'center', backgroundColor: Colors.accent, borderRadius: 9,
     justifyContent: 'center', minHeight: 38, minWidth: 76, paddingHorizontal: 14,
