@@ -197,7 +197,6 @@ export default function ProofOfPaymentsScreen() {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.headerTitle}>Proof of Payments</Text>
-          <Text style={styles.headerSubtitle}>Upload and view your payment proofs</Text>
         </View>
         <TouchableOpacity onPress={() => router.push('/(member)/profile')} style={styles.profileButton}>
           {user?.profile_photo ? (
