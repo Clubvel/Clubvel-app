@@ -237,17 +237,6 @@ class Alert(BaseModel):
     read_status: bool = False
     action_url: Optional[str] = None
 
-class TrustScore(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    user_id: str
-    overall_score: int = 50  # out of 100
-    payment_consistency_score: int = 50
-    months_active_score: int = 50
-    groups_joined_score: int = 50
-    disputes_score: int = 50
-    last_calculated: datetime = Field(default_factory=datetime.utcnow)
-
-
 class NotificationPreferences(BaseModel):
     """User notification preferences - all default to OFF for POPIA compliance"""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -370,6 +359,18 @@ async def reconcile_legacy_admin_memberships(user_id: str) -> None:
     }).to_list(100)
     for group in legacy_groups:
         await reconcile_legacy_group_admin_membership(user_id, group)
+
+
+async def get_active_membership_contexts(user_id: str) -> list[tuple[dict, dict]]:
+    """Return authoritative active membership/group pairs for a person."""
+    await reconcile_legacy_admin_memberships(user_id)
+    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(100)
+    contexts = []
+    for membership in memberships:
+        group = await db.groups.find_one({"id": membership["group_id"], "status": "active"})
+        if group:
+            contexts.append((membership, group))
+    return contexts
 
 
 async def verify_user_is_group_member(user_id: str, group_id: str) -> dict:
@@ -591,11 +592,7 @@ async def register(request: Request, user_data: UserCreate):
     )
     
     await db.users.insert_one(person_document(user))
-    
-    # Create initial trust score
-    trust_score = TrustScore(user_id=user.id)
-    await db.trust_scores.insert_one(trust_score.dict())
-    
+        
     # Send OTP via WhatsApp (with SMS fallback)
     otp_result = await send_otp(user_data.phone_number, preferred_channel='whatsapp')
     
@@ -790,100 +787,42 @@ async def reset_password(data: ResetPasswordRequest):
 
 @api_router.get("/user/stats/{user_id}")
 async def get_user_stats(user_id: str):
-    """Get user statistics for profile display"""
+    """Get truthful profile statistics from authoritative records."""
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # Get all memberships
-    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(100)
-    clubs_count = len(memberships)
-    
-    # Calculate total saved
+    contexts = await get_active_membership_contexts(user_id)
     total_saved = 0.0
     total_contributions = 0
     on_time_contributions = 0
-    
-    for membership in memberships:
-        contributions = await db.contributions.find({
-            "member_id": membership['id'],
-            "contribution_status": "confirmed"
-        }).to_list(1000)
-        
-        for c in contributions:
-            total_saved += c.get('amount_paid', 0)
+    for membership, _group in contexts:
+        contributions = await db.contributions.find({"member_id": membership["id"], "contribution_status": "confirmed"}).to_list(1000)
+        for contribution in contributions:
+            total_saved += contribution.get("amount_paid", 0)
             total_contributions += 1
-            # Check if paid on time (within 2 days of due date)
-            if c.get('payment_date') and c.get('confirmation_date'):
+            if contribution.get("payment_date") and contribution.get("confirmation_date"):
                 on_time_contributions += 1
-    
-    on_time_percentage = int((on_time_contributions / total_contributions * 100) if total_contributions > 0 else 0)
-    
-    # Get trust score
-    trust_score_record = await db.trust_scores.find_one({"user_id": user_id})
-    trust_score = trust_score_record.get('overall_score', 50) if trust_score_record else 50
-    
-    return {
-        "clubs_count": clubs_count,
-        "total_saved": total_saved,
-        "on_time_percentage": on_time_percentage,
-        "trust_score": trust_score
-    }
+    on_time_percentage = int(on_time_contributions / total_contributions * 100) if total_contributions else 0
+    return {"clubs_count": len(contexts), "total_saved": total_saved, "on_time_percentage": on_time_percentage, "trust_score": None, "date_joined": user.get("date_joined")}
 
 @api_router.get("/member/clubs/{user_id}")
 async def get_member_clubs(user_id: str):
-    """Get all clubs a member belongs to"""
-    user = await db.users.find_one({"id": user_id})
-    if not user:
+    if not await db.users.find_one({"id": user_id}):
         raise HTTPException(status_code=404, detail="User not found")
-    
-    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(100)
-    
-    clubs = []
-    for membership in memberships:
-        group = await db.groups.find_one({"id": membership['group_id']})
-        if group:
-            clubs.append({
-                "id": group['id'],
-                "name": group['group_name'],
-                "monthly_contribution": group['monthly_contribution']
-            })
-    
+    clubs = [{"id": group["id"], "name": group["group_name"], "monthly_contribution": group["monthly_contribution"]} for _membership, group in await get_active_membership_contexts(user_id)]
     return {"clubs": clubs}
 
 @api_router.get("/member/payout-schedule/{user_id}")
 async def get_member_payout_schedule(user_id: str):
-    """Get payout schedule for a member"""
-    user = await db.users.find_one({"id": user_id})
-    if not user:
+    """Return only stored payout/claim records; never manufacture dates or amounts."""
+    if not await db.users.find_one({"id": user_id}):
         raise HTTPException(status_code=404, detail="User not found")
-    
-    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(100)
-    
     schedules = []
-    for membership in memberships:
-        group = await db.groups.find_one({"id": membership['group_id']})
-        if group:
-            # Calculate payout based on position
-            member_count = await db.members.count_documents({"group_id": membership['group_id'], "status": "active"})
-            payout_position = membership.get('payout_position', 1)
-            monthly_contribution = group['monthly_contribution']
-            estimated_payout = monthly_contribution * member_count
-            
-            # Calculate payout date based on position
-            start_date = group.get('start_date', datetime.utcnow())
-            if isinstance(start_date, str):
-                start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-            
-            payout_month = start_date + timedelta(days=30 * payout_position)
-            
-            schedules.append({
-                "club_name": group['group_name'],
-                "payout_date": payout_month.strftime("%B %Y"),
-                "amount": estimated_payout,
-                "position": payout_position
-            })
-    
+    for membership, group in await get_active_membership_contexts(user_id):
+        claims = await db.claims.find({"member_id": membership["id"], "group_id": group["id"]}).sort("scheduled_claim_date", 1).to_list(100)
+        for claim in claims:
+            scheduled = claim.get("scheduled_claim_date")
+            schedules.append({"club_name": group["group_name"], "payout_date": scheduled.strftime("%B %Y") if scheduled else None, "amount": claim.get("claim_amount"), "position": membership.get("payout_position")})
     return {"schedules": schedules}
 
 
@@ -1635,25 +1574,14 @@ async def get_member_dashboard(user_id: str):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    # Make proven legacy group administrators visible on their personal home
-    # while converting their old ownership metadata into authoritative members.
-    await reconcile_legacy_admin_memberships(user_id)
-    
-    # Get all groups this user is a member of
-    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(100)
-    
+    contexts = await get_active_membership_contexts(user_id)\n    memberships = [membership for membership, _group in contexts]\n    
     total_saved = 0.0
     clubs = []
     overdue_count = 0
     upcoming_payments = 0
     days_until_next_claim = None
     
-    for membership in memberships:
-        # Get group details
-        group = await db.groups.find_one({"id": membership['group_id']})
-        if not group:
-            continue
-        
+    for membership, group in contexts:\n        
         # Get current month contribution
         now = datetime.utcnow()
         current_contribution = await db.contributions.find_one({
