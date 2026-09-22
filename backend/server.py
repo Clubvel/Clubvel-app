@@ -1574,14 +1574,17 @@ async def get_member_dashboard(user_id: str):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
 
-    contexts = await get_active_membership_contexts(user_id)\n    memberships = [membership for membership, _group in contexts]\n    
+    contexts = await get_active_membership_contexts(user_id)
+    memberships = [membership for membership, _group in contexts]
+    
     total_saved = 0.0
     clubs = []
     overdue_count = 0
     upcoming_payments = 0
     days_until_next_claim = None
     
-    for membership, group in contexts:\n        
+    for membership, group in contexts:
+        
         # Get current month contribution
         now = datetime.utcnow()
         current_contribution = await db.contributions.find_one({
@@ -1603,7 +1606,7 @@ async def get_member_dashboard(user_id: str):
                     {"$set": {"contribution_status": status}}
                 )
         else:
-            status = "pending"
+            status = None
         
         if status == "late":
             overdue_count += 1
@@ -1631,11 +1634,11 @@ async def get_member_dashboard(user_id: str):
             "status": status,
             "status_label": {
                 "confirmed": "Paid",
-                "pending": "Upcoming",
+                "pending": "Pending",
                 "due": "Due Today",
                 "late": "Late",
                 "proof_uploaded": "Pending Confirmation"
-            }.get(status, "Pending")
+            }.get(status, "No contribution recorded")
         })
     
     # Get next claim
