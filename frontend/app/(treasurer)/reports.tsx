@@ -154,7 +154,6 @@ export default function ReportsScreen() {
         </TouchableOpacity>
         <View>
           <Text style={styles.headerTitle}>Reports</Text>
-          <Text style={styles.headerSubtitle}>Financial Reports</Text>
         </View>
       </View>
 
