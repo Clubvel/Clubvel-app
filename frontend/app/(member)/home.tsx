@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image, TextInput } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image, TextInput, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { StatusPill } from '../../components/StatusPill';
@@ -65,8 +65,18 @@ export default function MemberHomeScreen() {
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setShowProfileMenu(false);
+
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm('Are you sure you want to sign out?');
+      if (!confirmed) return;
+
+      await logout();
+      router.replace('/auth');
+      return;
+    }
+
     Alert.alert(
       'Sign Out',
       'Are you sure you want to sign out?',
@@ -77,7 +87,7 @@ export default function MemberHomeScreen() {
           style: 'destructive',
           onPress: async () => {
             await logout();
-            router.replace('/');
+            router.replace('/auth');
           },
         },
       ]
