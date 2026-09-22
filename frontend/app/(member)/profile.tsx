@@ -11,7 +11,8 @@ interface UserStats {
   clubs_count: number;
   total_saved: number;
   on_time_percentage: number;
-  trust_score: number;
+  trust_score: number | null;
+  date_joined?: string | null;
 }
 
 interface Club {
@@ -22,9 +23,9 @@ interface Club {
 
 interface PayoutSchedule {
   club_name: string;
-  payout_date: string;
-  amount: number;
-  position: number;
+  payout_date: string | null;
+  amount: number | null;
+  position: number | null;
 }
 
 export default function ProfileScreen() {
@@ -32,7 +33,7 @@ export default function ProfileScreen() {
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<UserStats>({ clubs_count: 0, total_saved: 0, on_time_percentage: 0, trust_score: 0 });
+  const [stats, setStats] = useState<UserStats>({ clubs_count: 0, total_saved: 0, on_time_percentage: 0, trust_score: null, date_joined: null });
   const [clubs, setClubs] = useState<Club[]>([]);
   const [payoutSchedules, setPayoutSchedules] = useState<PayoutSchedule[]>([]);
   const [showClubsModal, setShowClubsModal] = useState(false);
@@ -60,7 +61,7 @@ export default function ProfileScreen() {
     } catch (error) {
       console.error('Error fetching profile data:', error);
       // Set defaults if API fails
-      setStats({ clubs_count: 0, total_saved: 0, on_time_percentage: 0, trust_score: 0 });
+      setStats({ clubs_count: 0, total_saved: 0, on_time_percentage: 0, trust_score: null, date_joined: null });
       setClubs([]);
       setPayoutSchedules([]);
     } finally {
@@ -141,7 +142,7 @@ export default function ProfileScreen() {
           </View>
         </TouchableOpacity>
         <Text style={styles.name}>{user?.full_name}</Text>
-        <Text style={styles.memberSince}>Member since 2024</Text>
+        <Text style={styles.memberSince}>{stats.date_joined ? `Member since ${new Date(stats.date_joined).getFullYear()}` : 'Member since date unavailable'}</Text>
       </View>
 
       <ScrollView style={styles.content}>
@@ -165,7 +166,7 @@ export default function ProfileScreen() {
               <Text style={styles.statLabel}>On Time</Text>
             </View>
             <View style={styles.statCard}>
-              <Text style={[styles.statValue, styles.trustScoreValue]}>{stats.trust_score}</Text>
+              <Text style={[styles.statValue, styles.trustScoreValue]}>{stats.trust_score ?? '--'}</Text>
               <Text style={styles.statLabel}>Trust Score</Text>
             </View>
           </View>
@@ -205,7 +206,7 @@ export default function ProfileScreen() {
             </View>
             <View style={styles.menuItemRight}>
               <View style={styles.trustScoreBadge}>
-                <Text style={styles.trustScoreBadgeText}>{stats.trust_score || '--'}</Text>
+                <Text style={styles.trustScoreBadgeText}>{stats.trust_score ?? 'Not scored'}</Text>
               </View>
               <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
             </View>
@@ -258,14 +259,6 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Ad at bottom */}
-        <View style={styles.adContainer}>
-          <Text style={styles.adLabel}>Sponsored</Text>
-          <View style={styles.adCard}>
-            <Text style={styles.adTitle}>Your trust score opens doors</Text>
-            <Text style={styles.adBody}>Pre-approved for a R50,000 personal loan at 15% interest. Apply now with no paperwork.</Text>
-          </View>
-        </View>
       </ScrollView>
 
       {/* My Clubs Modal */}
@@ -332,11 +325,11 @@ export default function ProfileScreen() {
                     </View>
                     <View style={styles.scheduleInfo}>
                       <Text style={styles.scheduleName}>{schedule.club_name}</Text>
-                      <Text style={styles.scheduleDate}>{schedule.payout_date}</Text>
-                      <Text style={styles.scheduleAmount}>R{schedule.amount.toLocaleString()}</Text>
+                      <Text style={styles.scheduleDate}>{schedule.payout_date || 'Date unavailable'}</Text>
+                      <Text style={styles.scheduleAmount}>{schedule.amount == null ? 'Amount unavailable' : `R${schedule.amount.toLocaleString()}`}</Text>
                     </View>
                     <View style={styles.schedulePosition}>
-                      <Text style={styles.positionText}>#{schedule.position}</Text>
+                      <Text style={styles.positionText}>{schedule.position == null ? '--' : `#${schedule.position}`}</Text>
                     </View>
                   </View>
                 ))
@@ -344,7 +337,7 @@ export default function ProfileScreen() {
                 <View style={styles.emptyState}>
                   <Ionicons name="calendar-outline" size={48} color={Colors.textMuted} />
                   <Text style={styles.emptyStateText}>No Payout Schedule</Text>
-                  <Text style={styles.emptyStateSubtext}>Join a club to see your payout schedule</Text>
+                  <Text style={styles.emptyStateSubtext}>No recorded payout schedule is available yet</Text>
                 </View>
               )}
             </ScrollView>
