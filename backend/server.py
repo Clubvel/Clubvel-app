@@ -1,8 +1,9 @@
-from fastapi import FastAPI, APIRouter, HTTPException, status as http_status, Request
+from fastapi import FastAPI, APIRouter, Header, HTTPException, status as http_status, Request
 from fastapi.responses import HTMLResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import DuplicateKeyError
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
@@ -121,7 +122,8 @@ class UserCreate(BaseModel):
     phone_number: str
     email: Optional[str] = None
     password: str
-    role: Optional[str] = "member"  # Optional - defaults to member for backward compatibility
+    # Accepted and ignored only so older installed clients do not fail validation.
+    role: Optional[str] = None
 
 class UserLogin(BaseModel):
     phone_number: str
@@ -152,15 +154,23 @@ class User(BaseModel):
     phone_number: str
     email: Optional[str] = None
     password_hash: str
-    # Legacy fields - kept for backward compatibility, defaults to member
-    role: str = "member"  # Deprecated: Use stokvel_memberships instead
-    roles: List[str] = ["member"]  # Deprecated: Use stokvel_memberships instead
+    # Deprecated compatibility fields. They are never authorization inputs.
+    role: Optional[str] = None
+    roles: List[str] = Field(default_factory=list)
     # New contextual membership array - maps roles per stokvel dynamically
-    stokvel_memberships: List[dict] = []  # Format: [{"stokvel_id": "string", "role": "treasurer/admin/member", "joined_at": datetime, "status": "active"}]
+    stokvel_memberships: List[dict] = Field(default_factory=list)
     profile_photo: Optional[str] = None  # base64
     date_joined: datetime = Field(default_factory=datetime.utcnow)
     status: str = "active"  # active or inactive
     otp_verified: bool = False
+
+
+def person_document(user: User) -> dict:
+    """Serialize a new identity without deprecated account-wide role fields."""
+    document = user.dict()
+    document.pop("role", None)
+    document.pop("roles", None)
+    return document
 
 class Group(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -227,17 +237,6 @@ class Alert(BaseModel):
     read_status: bool = False
     action_url: Optional[str] = None
 
-class TrustScore(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    user_id: str
-    overall_score: int = 50  # out of 100
-    payment_consistency_score: int = 50
-    months_active_score: int = 50
-    groups_joined_score: int = 50
-    disputes_score: int = 50
-    last_calculated: datetime = Field(default_factory=datetime.utcnow)
-
-
 class NotificationPreferences(BaseModel):
     """User notification preferences - all default to OFF for POPIA compliance"""
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -297,6 +296,83 @@ async def verify_member_owns_data(user_id: str, target_user_id: str) -> bool:
     return True
 
 
+def get_legacy_group_admin_role(user_id: str, group: dict) -> Optional[str]:
+    """Return a contextual role only when legacy group metadata proves admin access."""
+    if group.get("treasurer_user_id") == user_id:
+        return "treasurer"
+    if user_id in (group.get("admin_user_ids") or []):
+        return "admin"
+    return None
+
+
+async def reconcile_legacy_group_admin_membership(user_id: str, group: dict) -> Optional[dict]:
+    """Lazily migrate a proven legacy group administrator into members.
+
+    Group ownership metadata is used only as migration evidence. The resulting
+    active members record remains the authorization source for the request and
+    all subsequent requests.
+    """
+    role_in_group = get_legacy_group_admin_role(user_id, group)
+    if not role_in_group:
+        return None
+
+    group_id = group["id"]
+    existing_membership = await db.members.find_one({
+        "user_id": user_id,
+        "group_id": group_id,
+        "status": "active",
+        "role_in_group": {"$in": ["admin", "treasurer"]}
+    })
+    if existing_membership:
+        return existing_membership
+
+    member_count = await db.members.count_documents({"group_id": group_id})
+    reference_prefix = group.get("payment_reference_prefix", "CLB")
+    await db.members.update_one(
+        {"user_id": user_id, "group_id": group_id},
+        {
+            "$set": {"status": "active", "role_in_group": role_in_group},
+            "$setOnInsert": {
+                "id": str(uuid.uuid4()),
+                "unique_reference_code": generate_reference_code(
+                    reference_prefix, member_count + 1
+                ),
+                "date_joined_group": datetime.utcnow(),
+                "payout_position": member_count + 1
+            }
+        },
+        upsert=True
+    )
+    membership = await db.members.find_one({"user_id": user_id, "group_id": group_id})
+    logging.info("Reconciled legacy admin membership for user %s in group %s", user_id, group_id)
+    return membership
+
+
+async def reconcile_legacy_admin_memberships(user_id: str) -> None:
+    """Migrate active groups that explicitly name this person as an administrator."""
+    legacy_groups = await db.groups.find({
+        "$or": [
+            {"treasurer_user_id": user_id},
+            {"admin_user_ids": user_id}
+        ],
+        "status": "active"
+    }).to_list(100)
+    for group in legacy_groups:
+        await reconcile_legacy_group_admin_membership(user_id, group)
+
+
+async def get_active_membership_contexts(user_id: str) -> list[tuple[dict, dict]]:
+    """Return authoritative active membership/group pairs for a person."""
+    await reconcile_legacy_admin_memberships(user_id)
+    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(100)
+    contexts = []
+    for membership in memberships:
+        group = await db.groups.find_one({"id": membership["group_id"], "status": "active"})
+        if group:
+            contexts.append((membership, group))
+    return contexts
+
+
 async def verify_user_is_group_member(user_id: str, group_id: str) -> dict:
     """Verify user is an active member of the specified group"""
     membership = await db.members.find_one({
@@ -304,6 +380,12 @@ async def verify_user_is_group_member(user_id: str, group_id: str) -> dict:
         "group_id": group_id,
         "status": "active"
     })
+    if not membership or membership.get("role_in_group") not in ("admin", "treasurer"):
+        group = await db.groups.find_one({"id": group_id})
+        if group:
+            reconciled = await reconcile_legacy_group_admin_membership(user_id, group)
+            if reconciled:
+                membership = reconciled
     if not membership:
         raise HTTPException(
             status_code=403, 
@@ -313,25 +395,38 @@ async def verify_user_is_group_member(user_id: str, group_id: str) -> dict:
 
 
 async def verify_user_is_group_treasurer(user_id: str, group_id: str) -> dict:
-    """Verify user is the treasurer of the specified group"""
+    """Verify the user's active membership grants administration in this group."""
     group = await db.groups.find_one({"id": group_id})
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
-    
-    if group.get('treasurer_user_id') != user_id:
+
+    membership = await db.members.find_one({
+        "user_id": user_id,
+        "group_id": group_id,
+        "status": "active",
+        "role_in_group": {"$in": ["admin", "treasurer"]}
+    })
+    if not membership:
+        membership = await reconcile_legacy_group_admin_membership(user_id, group)
+    if not membership:
         raise HTTPException(
             status_code=403, 
-            detail="Access denied: You are not the treasurer of this group"
+            detail="Access denied: Group admin access required"
         )
     return group
 
 
 async def verify_treasurer_owns_groups(user_id: str) -> list:
-    """Get all groups where user is treasurer"""
-    groups = await db.groups.find({
-        "treasurer_user_id": user_id, 
-        "status": "active"
+    """Get groups where the user's contextual membership is administrative."""
+    await reconcile_legacy_admin_memberships(user_id)
+
+    memberships = await db.members.find({
+        "user_id": user_id,
+        "status": "active",
+        "role_in_group": {"$in": ["admin", "treasurer"]}
     }).to_list(100)
+    group_ids = [membership["group_id"] for membership in memberships]
+    groups = await db.groups.find({"id": {"$in": group_ids}, "status": "active"}).to_list(100)
     return groups
 
 
@@ -359,9 +454,11 @@ async def verify_contribution_access(user_id: str, contribution_id: str, require
             )
         return contribution
     
-    # Check if user is treasurer of the group
-    group = await db.groups.find_one({"id": contribution['group_id']})
-    if group and group.get('treasurer_user_id') == user_id:
+    admin_membership = await db.members.find_one({
+        "user_id": user_id, "group_id": contribution['group_id'], "status": "active",
+        "role_in_group": {"$in": ["admin", "treasurer"]}
+    })
+    if admin_membership:
         return contribution
     
     raise HTTPException(
@@ -384,9 +481,11 @@ async def verify_member_access(user_id: str, member_id: str) -> dict:
     if member['user_id'] == user_id:
         return member
     
-    # Check if user is treasurer of the group
-    group = await db.groups.find_one({"id": member['group_id']})
-    if group and group.get('treasurer_user_id') == user_id:
+    admin_membership = await db.members.find_one({
+        "user_id": user_id, "group_id": member['group_id'], "status": "active",
+        "role_in_group": {"$in": ["admin", "treasurer"]}
+    })
+    if admin_membership:
         return member
     
     raise HTTPException(
@@ -422,6 +521,27 @@ def verify_token(token: str) -> dict:
             detail="Session expired or invalid. Please log in again."
         )
 
+
+def authenticated_user_id(authorization: Optional[str]) -> str:
+    """Return the person identified by a Bearer session token."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    payload = verify_token(authorization[7:])
+    user_id = payload.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    return user_id
+
+
+def phone_variants(phone_number: str) -> list[str]:
+    """Match current E.164 and legacy local formatting for the same SA number."""
+    normalized = format_phone_number(phone_number)
+    variants = {phone_number, normalized}
+    if normalized.startswith("+27"):
+        variants.add("0" + normalized[3:])
+        variants.add(normalized[1:])
+    return list(variants)
+
 def generate_reference_code(prefix: str, member_position: int) -> str:
     """Generate unique reference code for member"""
     return f"{prefix}{member_position:03d}"
@@ -453,94 +573,26 @@ async def register(request: Request, user_data: UserCreate):
     existing_user = await db.users.find_one({"phone_number": user_data.phone_number})
     
     if existing_user:
-        # Phone exists - check if they're trying to add a different role
-        existing_roles = existing_user.get('roles', [existing_user.get('role', 'member')])
-        requested_role = 'treasurer' if user_data.role == 'treasurer' else 'member'
-        
-        if requested_role in existing_roles:
-            # Already has this role - return success instead of error
-            return {
-                "message": f"This phone number is already registered with {requested_role} role. Please login.",
-                "user_id": existing_user['id'],
-                "roles": existing_roles,
-                "already_registered": True
-            }
-        else:
-            # Add the new role to existing user
-            new_roles = list(set(existing_roles + [requested_role]))
-            await db.users.update_one(
-                {"phone_number": user_data.phone_number},
-                {"$set": {"roles": new_roles}}
-            )
-            
-            return {
-                "message": f"Role '{requested_role}' added to your account. Please login.",
-                "user_id": existing_user['id'],
-                "roles": new_roles,
-                "already_registered": True
-            }
+        # A phone number identifies one person. Never create another identity or
+        # mutate account-wide roles during registration.
+        return {
+            "message": "This phone number already has a Clubvel account. Please login.",
+            "user_id": existing_user['id'],
+            "already_registered": True
+        }
     
-    # Create new user with default member role for backward compatibility
-    initial_role = user_data.role if user_data.role else 'member'
-    initial_role = 'treasurer' if initial_role == 'treasurer' else 'member'
-    
+    # Account creation establishes identity only. Group roles are created in members.
     user = User(
         full_name=user_data.full_name,
         phone_number=user_data.phone_number,
         email=user_data.email,
         password_hash=hash_password(user_data.password),
-        role=initial_role,  # Legacy field - defaults to member
-        roles=[initial_role],  # Legacy field - defaults to [member]
         stokvel_memberships=[],  # New contextual membership array - populated when joining stokvels
         otp_verified=False
     )
     
-    await db.users.insert_one(user.dict())
-    
-    # Create initial trust score
-    trust_score = TrustScore(user_id=user.id)
-    await db.trust_scores.insert_one(trust_score.dict())
-    
-    # Check for pending invitations and auto-add to clubs
-    pending_invitations = await db.invitations.find({
-        "phone_number": user_data.phone_number,
-        "status": "pending",
-        "expires_at": {"$gt": datetime.utcnow()}
-    }).to_list(10)
-    
-    groups_joined = []
-    for invitation in pending_invitations:
-        # Create member record
-        member = Member(
-            user_id=user.id,
-            group_id=invitation['group_id'],
-            membership_status="active"
-        )
-        await db.members.insert_one(member.dict())
+    await db.users.insert_one(person_document(user))
         
-        # Update invitation status
-        await db.invitations.update_one(
-            {"id": invitation['id']},
-            {"$set": {"status": "accepted", "accepted_at": datetime.utcnow()}}
-        )
-        
-        # Add to user's stokvel_memberships array
-        await db.users.update_one(
-            {"id": user.id},
-            {
-                "$push": {
-                    "stokvel_memberships": {
-                        "stokvel_id": invitation['group_id'],
-                        "role": "member",
-                        "joined_at": datetime.utcnow(),
-                        "status": "active"
-                    }
-                }
-            }
-        )
-        
-        groups_joined.append(invitation['group_name'])
-    
     # Send OTP via WhatsApp (with SMS fallback)
     otp_result = await send_otp(user_data.phone_number, preferred_channel='whatsapp')
     
@@ -553,11 +605,6 @@ async def register(request: Request, user_data: UserCreate):
         "otp_channel": otp_result.get('channel', 'whatsapp'),
         "notification_mode": notif_status['mode']
     }
-    
-    # Include groups joined via invitation
-    if groups_joined:
-        response["groups_joined"] = groups_joined
-        response["invitation_note"] = f"You've been automatically added to: {', '.join(groups_joined)}"
     
     # Include mock OTP in response if in mock mode
     if notif_status['mode'] == 'mock':
@@ -638,47 +685,15 @@ async def login(request: Request, login_data: UserLogin):
     # Verify password
     if not verify_password(login_data.password, user['password_hash']):
         raise HTTPException(status_code=401, detail="Invalid phone number or password")
+
+    # One-time/lazy compatibility migration for groups that explicitly identify
+    # this existing person as a legacy treasurer or administrator.
+    await reconcile_legacy_admin_memberships(user['id'])
     
-    # Get user's roles - check old 'roles' field and new 'stokvel_memberships' array
-    user_roles = user.get('roles', [user.get('role', 'member')])
-    primary_role = user.get('role', user_roles[0] if user_roles else 'member')
-    
-    # Check stokvel_memberships for contextual roles (new system)
-    stokvel_memberships = user.get('stokvel_memberships', [])
-    has_treasurer_in_memberships = any(m.get('role') in ['treasurer', 'admin'] for m in stokvel_memberships)
-    has_member_in_memberships = any(m.get('role') == 'member' for m in stokvel_memberships)
-    
-    # Also check legacy group memberships from members collection
-    memberships = await db.members.find({"user_id": user['id'], "status": "active"}).to_list(100)
-    has_admin_membership = any(m.get('role_in_group') in ['admin', 'treasurer'] for m in memberships)
-    has_member_membership = len(memberships) > 0 or has_member_in_memberships  # Any membership counts
-    
-    # Also check if user is admin of any groups
-    admin_groups = await db.groups.find({
-        "$or": [
-            {"treasurer_user_id": user['id']},
-            {"admin_user_ids": user['id']}
-        ],
-        "status": "active"
-    }).to_list(100)
-    
-    if admin_groups or has_treasurer_in_memberships:
-        has_admin_membership = True
-        has_member_membership = True  # Admins can also act as members
-    
-    # Update roles based on actual memberships (including stokvel_memberships)
-    actual_roles = []
-    if has_member_membership or 'member' in user_roles:
-        actual_roles.append('member')
-    if has_admin_membership or 'treasurer' in user_roles or primary_role == 'treasurer':
-        actual_roles.append('treasurer')
-    
-    if not actual_roles:
-        actual_roles = [primary_role]
-    
-    # Create access token
+    # The session identifies a person only. Authorization loads the selected
+    # group's active membership instead of embedding global roles in the token.
     access_token = create_access_token(
-        data={"user_id": user['id'], "role": primary_role, "roles": actual_roles, "phone": user['phone_number']}
+        data={"user_id": user['id'], "phone": user['phone_number']}
     )
     
     return {
@@ -688,9 +703,6 @@ async def login(request: Request, login_data: UserLogin):
             "id": user['id'],
             "full_name": user['full_name'],
             "phone_number": user['phone_number'],
-            "role": primary_role,
-            "roles": actual_roles,
-            "has_multiple_roles": len(actual_roles) > 1,
             "profile_photo": user.get('profile_photo')
         }
     }
@@ -775,100 +787,42 @@ async def reset_password(data: ResetPasswordRequest):
 
 @api_router.get("/user/stats/{user_id}")
 async def get_user_stats(user_id: str):
-    """Get user statistics for profile display"""
+    """Get truthful profile statistics from authoritative records."""
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # Get all memberships
-    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(100)
-    clubs_count = len(memberships)
-    
-    # Calculate total saved
+    contexts = await get_active_membership_contexts(user_id)
     total_saved = 0.0
     total_contributions = 0
     on_time_contributions = 0
-    
-    for membership in memberships:
-        contributions = await db.contributions.find({
-            "member_id": membership['id'],
-            "contribution_status": "confirmed"
-        }).to_list(1000)
-        
-        for c in contributions:
-            total_saved += c.get('amount_paid', 0)
+    for membership, _group in contexts:
+        contributions = await db.contributions.find({"member_id": membership["id"], "contribution_status": "confirmed"}).to_list(1000)
+        for contribution in contributions:
+            total_saved += contribution.get("amount_paid", 0)
             total_contributions += 1
-            # Check if paid on time (within 2 days of due date)
-            if c.get('payment_date') and c.get('confirmation_date'):
+            if contribution.get("payment_date") and contribution.get("confirmation_date"):
                 on_time_contributions += 1
-    
-    on_time_percentage = int((on_time_contributions / total_contributions * 100) if total_contributions > 0 else 0)
-    
-    # Get trust score
-    trust_score_record = await db.trust_scores.find_one({"user_id": user_id})
-    trust_score = trust_score_record.get('overall_score', 50) if trust_score_record else 50
-    
-    return {
-        "clubs_count": clubs_count,
-        "total_saved": total_saved,
-        "on_time_percentage": on_time_percentage,
-        "trust_score": trust_score
-    }
+    on_time_percentage = int(on_time_contributions / total_contributions * 100) if total_contributions else 0
+    return {"clubs_count": len(contexts), "total_saved": total_saved, "on_time_percentage": on_time_percentage, "trust_score": None, "date_joined": user.get("date_joined")}
 
 @api_router.get("/member/clubs/{user_id}")
 async def get_member_clubs(user_id: str):
-    """Get all clubs a member belongs to"""
-    user = await db.users.find_one({"id": user_id})
-    if not user:
+    if not await db.users.find_one({"id": user_id}):
         raise HTTPException(status_code=404, detail="User not found")
-    
-    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(100)
-    
-    clubs = []
-    for membership in memberships:
-        group = await db.groups.find_one({"id": membership['group_id']})
-        if group:
-            clubs.append({
-                "id": group['id'],
-                "name": group['group_name'],
-                "monthly_contribution": group['monthly_contribution']
-            })
-    
+    clubs = [{"id": group["id"], "name": group["group_name"], "monthly_contribution": group["monthly_contribution"]} for _membership, group in await get_active_membership_contexts(user_id)]
     return {"clubs": clubs}
 
 @api_router.get("/member/payout-schedule/{user_id}")
 async def get_member_payout_schedule(user_id: str):
-    """Get payout schedule for a member"""
-    user = await db.users.find_one({"id": user_id})
-    if not user:
+    """Return only stored payout/claim records; never manufacture dates or amounts."""
+    if not await db.users.find_one({"id": user_id}):
         raise HTTPException(status_code=404, detail="User not found")
-    
-    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(100)
-    
     schedules = []
-    for membership in memberships:
-        group = await db.groups.find_one({"id": membership['group_id']})
-        if group:
-            # Calculate payout based on position
-            member_count = await db.members.count_documents({"group_id": membership['group_id'], "status": "active"})
-            payout_position = membership.get('payout_position', 1)
-            monthly_contribution = group['monthly_contribution']
-            estimated_payout = monthly_contribution * member_count
-            
-            # Calculate payout date based on position
-            start_date = group.get('start_date', datetime.utcnow())
-            if isinstance(start_date, str):
-                start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-            
-            payout_month = start_date + timedelta(days=30 * payout_position)
-            
-            schedules.append({
-                "club_name": group['group_name'],
-                "payout_date": payout_month.strftime("%B %Y"),
-                "amount": estimated_payout,
-                "position": payout_position
-            })
-    
+    for membership, group in await get_active_membership_contexts(user_id):
+        claims = await db.claims.find({"member_id": membership["id"], "group_id": group["id"]}).sort("scheduled_claim_date", 1).to_list(100)
+        for claim in claims:
+            scheduled = claim.get("scheduled_claim_date")
+            schedules.append({"club_name": group["group_name"], "payout_date": scheduled.strftime("%B %Y") if scheduled else None, "amount": claim.get("claim_amount"), "position": membership.get("payout_position")})
     return {"schedules": schedules}
 
 
@@ -882,13 +836,7 @@ async def get_admin_stats(user_id: str):
         raise HTTPException(status_code=404, detail="User not found")
     
     # Get all groups managed by this admin
-    groups = await db.groups.find({
-        "$or": [
-            {"treasurer_user_id": user_id},
-            {"admin_user_ids": user_id}
-        ],
-        "status": "active"
-    }).to_list(100)
+    groups = await verify_treasurer_owns_groups(user_id)
     
     clubs_managed = len(groups)
     total_members = 0
@@ -921,13 +869,7 @@ async def get_admin_clubs(user_id: str):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    groups = await db.groups.find({
-        "$or": [
-            {"treasurer_user_id": user_id},
-            {"admin_user_ids": user_id}
-        ],
-        "status": "active"
-    }).to_list(100)
+    groups = await verify_treasurer_owns_groups(user_id)
     
     clubs = []
     for group in groups:
@@ -948,13 +890,7 @@ async def get_admin_payout_schedules(user_id: str):
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    groups = await db.groups.find({
-        "$or": [
-            {"treasurer_user_id": user_id},
-            {"admin_user_ids": user_id}
-        ],
-        "status": "active"
-    }).to_list(100)
+    groups = await verify_treasurer_owns_groups(user_id)
     
     schedules = []
     for group in groups:
@@ -987,13 +923,7 @@ async def get_admin_dashboard(user_id: str):
         raise HTTPException(status_code=404, detail="User not found")
     
     # Get all groups managed by this admin
-    groups = await db.groups.find({
-        "$or": [
-            {"treasurer_user_id": user_id},
-            {"admin_user_ids": user_id}
-        ],
-        "status": "active"
-    }).to_list(100)
+    groups = await verify_treasurer_owns_groups(user_id)
     
     total_clubs = len(groups)
     total_members = 0
@@ -1137,15 +1067,14 @@ async def create_group(data: CreateGroupRequest):
     await db.users.update_one(
         {"id": data.admin_user_id},
         {
-            "$push": {
+            "$addToSet": {
                 "stokvel_memberships": {
                     "stokvel_id": group_id,
-                    "role": "treasurer",  # Creator becomes treasurer/admin
+                    "role": "admin",
                     "joined_at": datetime.utcnow(),
                     "status": "active"
                 }
-            },
-            "$addToSet": {"roles": "treasurer"}  # Also update legacy roles field
+            }
         }
     )
     
@@ -1179,14 +1108,7 @@ async def update_group(data: UpdateGroupRequest):
     if not group:
         raise HTTPException(status_code=404, detail="Club not found")
     
-    # Verify user is admin of this group
-    is_admin = (
-        group.get('treasurer_user_id') == data.admin_user_id or 
-        data.admin_user_id in group.get('admin_user_ids', [])
-    )
-    
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only admins can update club details")
+    await verify_user_is_group_treasurer(data.admin_user_id, data.group_id)
     
     # Build update dict with only provided fields
     update_fields = {}
@@ -1239,15 +1161,7 @@ async def delete_club(data: DeleteClubRequest):
     if not group:
         raise HTTPException(status_code=404, detail="Club not found")
     
-    # Verify user is admin of this group
-    admin_user_ids = group.get('admin_user_ids', [])
-    is_admin = (
-        group.get('treasurer_user_id') == data.admin_user_id or 
-        data.admin_user_id in admin_user_ids
-    )
-    
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only admins can delete the club")
+    await verify_user_is_group_treasurer(data.admin_user_id, data.group_id)
     
     if data.confirmation != "DELETE":
         raise HTTPException(status_code=400, detail="Confirmation required")
@@ -1281,15 +1195,8 @@ async def delete_member(data: DeleteMemberRequest):
     if not group:
         raise HTTPException(status_code=404, detail="Club not found")
     
-    # Verify requester is admin
+    await verify_user_is_group_treasurer(data.admin_user_id, data.group_id)
     admin_user_ids = group.get('admin_user_ids', [])
-    is_admin = (
-        group.get('treasurer_user_id') == data.admin_user_id or 
-        data.admin_user_id in admin_user_ids
-    )
-    
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only admins can remove members")
     
     # Can't delete self if you're the only admin
     if data.member_user_id == data.admin_user_id:
@@ -1346,15 +1253,8 @@ async def invite_admin(data: InviteAdminRequest):
     if not group:
         raise HTTPException(status_code=404, detail="Club not found")
     
-    # Verify requester is admin
+    await verify_user_is_group_treasurer(data.admin_user_id, data.group_id)
     admin_user_ids = group.get('admin_user_ids', [])
-    is_admin = (
-        group.get('treasurer_user_id') == data.admin_user_id or 
-        data.admin_user_id in admin_user_ids
-    )
-    
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only admins can invite new admins")
     
     # Check max admins limit (5)
     max_admins = group.get('max_admins', 5)
@@ -1395,7 +1295,7 @@ async def invite_admin(data: InviteAdminRequest):
         # Update existing member to admin role
         await db.members.update_one(
             {"group_id": data.group_id, "user_id": new_admin_id},
-            {"$set": {"role_in_group": "admin"}}
+            {"$set": {"role_in_group": "admin", "status": "active"}}
         )
     
     # Add to admin list
@@ -1416,8 +1316,7 @@ async def invite_admin(data: InviteAdminRequest):
                     "joined_at": datetime.utcnow(),
                     "status": "active"
                 }
-            },
-            "$addToSet": {"roles": "treasurer"}  # Also update legacy roles field
+            }
         }
     )
     
@@ -1436,11 +1335,8 @@ async def get_group_details(group_id: str, user_id: str):
     if not group:
         raise HTTPException(status_code=404, detail="Club not found")
     
-    # Decrypt sensitive fields for authorized users
-    is_admin = (
-        group.get('treasurer_user_id') == user_id or 
-        user_id in group.get('admin_user_ids', [])
-    )
+    membership = await verify_user_is_group_member(user_id, group_id)
+    is_admin = membership.get('role_in_group') in ['admin', 'treasurer']
     
     # Get member count
     member_count = await db.members.count_documents({"group_id": group_id, "status": "active"})
@@ -1677,20 +1573,17 @@ async def get_member_dashboard(user_id: str):
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # Get all groups this user is a member of
-    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(100)
+
+    contexts = await get_active_membership_contexts(user_id)
+    memberships = [membership for membership, _group in contexts]
     
     total_saved = 0.0
     clubs = []
     overdue_count = 0
+    upcoming_payments = 0
     days_until_next_claim = None
     
-    for membership in memberships:
-        # Get group details
-        group = await db.groups.find_one({"id": membership['group_id']})
-        if not group:
-            continue
+    for membership, group in contexts:
         
         # Get current month contribution
         now = datetime.utcnow()
@@ -1713,10 +1606,12 @@ async def get_member_dashboard(user_id: str):
                     {"$set": {"contribution_status": status}}
                 )
         else:
-            status = "pending"
+            status = None
         
         if status == "late":
             overdue_count += 1
+        elif status in ("pending", "due", "proof_uploaded"):
+            upcoming_payments += 1
         
         # Get all confirmed contributions for this member
         confirmed_contributions = await db.contributions.find({
@@ -1735,14 +1630,15 @@ async def get_member_dashboard(user_id: str):
             "name": group['group_name'],
             "member_count": member_count,
             "monthly_contribution": group['monthly_contribution'],
+            "role": membership.get('role_in_group', 'member'),
             "status": status,
             "status_label": {
                 "confirmed": "Paid",
-                "pending": "Upcoming",
+                "pending": "Pending",
                 "due": "Due Today",
                 "late": "Late",
                 "proof_uploaded": "Pending Confirmation"
-            }.get(status, "Pending")
+            }.get(status, "No contribution recorded")
         })
     
     # Get next claim
@@ -1753,6 +1649,10 @@ async def get_member_dashboard(user_id: str):
     
     if next_claim:
         days_until_next_claim = (next_claim['scheduled_claim_date'] - datetime.utcnow()).days
+
+    claims_count = await db.claims.count_documents({
+        "member_id": {"$in": [m['id'] for m in memberships]}
+    })
     
     return {
         "user": {
@@ -1764,6 +1664,8 @@ async def get_member_dashboard(user_id: str):
         "summary": {
             "total_saved": total_saved,
             "active_clubs": len(clubs),
+            "upcoming_payments": upcoming_payments,
+            "claims_count": claims_count,
             "days_until_next_claim": days_until_next_claim,
             "overdue_contributions": overdue_count
         },
@@ -1912,17 +1814,15 @@ async def get_contribution_proof(contribution_id: str, user_id: str):
     if not member:
         raise HTTPException(status_code=404, detail="Member record not found")
     
-    # Get the group to check if user is admin/treasurer
-    group = await db.groups.find_one({"id": contribution['group_id']})
-    
     # AUTHORIZATION CHECK: User must be either:
     # 1. The member who made this contribution
     # 2. An admin/treasurer of this group
     is_owner = member['user_id'] == user_id
-    is_admin = group and (
-        group.get('treasurer_user_id') == user_id or 
-        user_id in group.get('admin_user_ids', [])
-    )
+    admin_membership = await db.members.find_one({
+        "user_id": user_id, "group_id": contribution['group_id'], "status": "active",
+        "role_in_group": {"$in": ["admin", "treasurer"]}
+    })
+    is_admin = bool(admin_membership)
     
     if not is_owner and not is_admin:
         raise HTTPException(
@@ -1955,17 +1855,7 @@ async def admin_upload_proof_of_payment(proof_data: ProofUpload):
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     
-    # AUTHORIZATION CHECK: User must be admin/treasurer of this group
-    is_admin = (
-        group.get('treasurer_user_id') == proof_data.user_id or 
-        proof_data.user_id in group.get('admin_user_ids', [])
-    )
-    
-    if not is_admin:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access denied: Only admins can upload proof on behalf of members"
-        )
+    await verify_user_is_group_treasurer(proof_data.user_id, contribution['group_id'])
     
     # Update contribution with proof
     await db.contributions.update_one(
@@ -1991,7 +1881,7 @@ async def admin_upload_proof_of_payment(proof_data: ProofUpload):
 @api_router.get("/treasurer/dashboard/{user_id}")
 async def get_treasurer_dashboard(user_id: str):
     # Get all groups where user is treasurer
-    groups = await db.groups.find({"treasurer_user_id": user_id, "status": "active"}).to_list(100)
+    groups = await verify_treasurer_owns_groups(user_id)
     
     total_members = 0
     total_collected_this_month = 0.0
@@ -2058,8 +1948,9 @@ async def get_treasurer_dashboard(user_id: str):
         })
     
     # Get next upcoming claim
+    managed_group_ids = [group['id'] for group in groups]
     next_claim = await db.claims.find_one(
-        {"claim_status": "upcoming"},
+        {"group_id": {"$in": managed_group_ids}, "claim_status": "upcoming"},
         sort=[("scheduled_claim_date", 1)]
     )
     
@@ -2095,12 +1986,7 @@ async def get_group_contributions(group_id: str, month: int, year: int, treasure
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     
-    # AUTHORIZATION CHECK: Only the treasurer of this group can view all contributions
-    if group.get('treasurer_user_id') != treasurer_id:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access denied: You are not the treasurer of this group"
-        )
+    await verify_user_is_group_treasurer(treasurer_id, group_id)
     
     # Get all members
     members = await db.members.find({"group_id": group_id, "status": "active"}).to_list(1000)
@@ -2186,15 +2072,14 @@ async def get_club_detail(group_id: str, treasurer_id: str):
     if not group:
         raise HTTPException(status_code=404, detail="Club not found")
     
-    # AUTHORIZATION CHECK: Only the treasurer of this group can view club details
-    if group.get('treasurer_user_id') != treasurer_id:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access denied: You are not the treasurer of this group"
-        )
+    await verify_user_is_group_treasurer(treasurer_id, group_id)
     
-    # Get all members of this club
-    members = await db.members.find({"group_id": group_id}).to_list(100)
+    # A group's member count and roster include active memberships only. Pending
+    # invitations do not have member records and therefore never appear here.
+    members = await db.members.find({
+        "group_id": group_id,
+        "status": "active"
+    }).to_list(100)
     
     now = datetime.now()
     month = now.month
@@ -2230,6 +2115,11 @@ async def get_club_detail(group_id: str, treasurer_id: str):
             "id": member['id'],
             "name": user['full_name'],
             "phone": user['phone_number'],
+            "reference": member['unique_reference_code'],
+            "membership_status": member['status'],
+            "role_in_group": member.get('role_in_group', 'member'),
+            # Payment status is intentionally separate from membership status.
+            # A new active admin may not have a contribution yet.
             "status": status,
             "amount_paid": amount_paid,
             "amount_due": group['monthly_contribution'],
@@ -2262,12 +2152,7 @@ async def confirm_payment(confirm_data: ConfirmPayment):
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     
-    # AUTHORIZATION CHECK: Only the treasurer of this group can confirm payments
-    if group.get('treasurer_user_id') != confirm_data.treasurer_id:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access denied: You are not the treasurer of this group"
-        )
+    await verify_user_is_group_treasurer(confirm_data.treasurer_id, contribution['group_id'])
     
     # Update contribution
     await db.contributions.update_one(
@@ -2343,15 +2228,12 @@ async def invite_member(request: InviteMemberRequest):
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     
-    # AUTHORIZATION CHECK: Only the treasurer of this group can invite members
-    if group.get('treasurer_user_id') != request.invited_by:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access denied: You are not the treasurer of this group"
-        )
+    await verify_user_is_group_treasurer(request.invited_by, request.group_id)
     
-    # Check if user already exists
-    existing_user = await db.users.find_one({"phone_number": request.phone_number})
+    invited_phone = format_phone_number(request.phone_number)
+
+    # Check if user already exists, including accounts stored in legacy local format.
+    existing_user = await db.users.find_one({"phone_number": {"$in": phone_variants(request.phone_number)}})
     if existing_user:
         # Check if already a member of this group
         existing_member = await db.members.find_one({
@@ -2360,11 +2242,20 @@ async def invite_member(request: InviteMemberRequest):
         })
         if existing_member:
             raise HTTPException(status_code=400, detail="This person is already a member of this club")
+
+    existing_invitation = await db.invitations.find_one({
+        "phone_number": {"$in": phone_variants(request.phone_number)},
+        "group_id": request.group_id,
+        "status": "pending",
+        "expires_at": {"$gt": datetime.utcnow()}
+    })
+    if existing_invitation:
+        raise HTTPException(status_code=400, detail="This person already has a pending invitation")
     
     # Store the invitation
     invitation = {
-        "id": f"inv_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{request.phone_number[-4:]}",
-        "phone_number": request.phone_number,
+        "id": f"inv_{uuid.uuid4().hex}",
+        "phone_number": invited_phone,
         "name": request.name,
         "group_id": request.group_id,
         "group_name": request.group_name,
@@ -2376,27 +2267,139 @@ async def invite_member(request: InviteMemberRequest):
     }
     
     await db.invitations.insert_one(invitation)
-    
+
     # Send SMS invitation
-    invite_message = f"Hi{' ' + request.name if request.name else ''}! You've been invited by {request.treasurer_name} to join {request.group_name} on Clubvel - the smart stokvel app. Download Clubvel and register with this number ({request.phone_number}) to join automatically. https://clubvel.co.za/download"
+    invite_message = f"Hi{' ' + request.name if request.name else ''}! You've been invited by {request.treasurer_name} to join {request.group_name} on Clubvel. Sign in or register with this number ({request.phone_number}), then accept the invitation in My Clubvel. https://clubvel.co.za/download"
     
     # Use the notification service to send SMS
     try:
         from services.notification_service import send_sms_otp
-        sms_result = await send_sms_otp(request.phone_number, "0000")  # We're just using the SMS functionality
-        print(f"[INVITE SMS] To: {request.phone_number}")
+        sms_result = await send_sms_otp(invited_phone, "0000")  # We're just using the SMS functionality
+        print(f"[INVITE SMS] To: {invited_phone}")
         print(f"[INVITE SMS] Message: {invite_message}")
     except Exception as e:
-        print(f"[INVITE SMS MOCK] To: {request.phone_number}")
+        print(f"[INVITE SMS MOCK] To: {invited_phone}")
         print(f"[INVITE SMS MOCK] Message: {invite_message}")
     
     return {
         "message": "Invitation sent successfully",
         "invitation_id": invitation['id'],
-        "phone_number": request.phone_number,
+        "phone_number": invited_phone,
         "group_name": request.group_name,
         "expires_at": invitation['expires_at'].isoformat()
     }
+
+
+class AcceptInvitationRequest(BaseModel):
+    invitation_id: str
+    user_id: str
+
+
+@api_router.get("/invitations/pending/{user_id}")
+async def get_pending_invitations(user_id: str, authorization: Optional[str] = Header(None)):
+    """Return active invitations addressed to this person's account phone."""
+    if authenticated_user_id(authorization) != user_id:
+        raise HTTPException(status_code=403, detail="You can only view your own invitations")
+    user = await verify_user_exists(user_id)
+    invitations = await db.invitations.find({
+        "phone_number": {"$in": phone_variants(user['phone_number'])},
+        "status": "pending",
+        "expires_at": {"$gt": datetime.utcnow()}
+    }).to_list(100)
+    return {"invitations": [{
+        "id": invitation['id'],
+        "group_id": invitation['group_id'],
+        "group_name": invitation['group_name'],
+        "invited_by_name": invitation.get('treasurer_name'),
+        "expires_at": invitation['expires_at'].isoformat()
+    } for invitation in invitations]}
+
+
+@api_router.post("/invitations/accept")
+async def accept_invitation(request: AcceptInvitationRequest, authorization: Optional[str] = Header(None)):
+    """Create contextual membership only after the addressed person accepts."""
+    if authenticated_user_id(authorization) != request.user_id:
+        raise HTTPException(status_code=403, detail="You can only accept your own invitations")
+    user = await verify_user_exists(request.user_id)
+    invitation = await db.invitations.find_one({
+        "id": request.invitation_id,
+        "phone_number": {"$in": phone_variants(user['phone_number'])},
+        "status": "pending",
+        "expires_at": {"$gt": datetime.utcnow()}
+    })
+    if not invitation:
+        raise HTTPException(status_code=404, detail="Pending invitation not found or expired")
+
+    existing_member = await db.members.find_one({
+        "user_id": request.user_id,
+        "group_id": invitation['group_id']
+    })
+    if existing_member:
+        raise HTTPException(status_code=400, detail="You already belong to this group")
+
+    group = await db.groups.find_one({"id": invitation['group_id'], "status": "active"})
+    if not group:
+        raise HTTPException(status_code=404, detail="Group not found")
+
+    # Claim the invitation before creating membership so repeated taps cannot
+    # create duplicate contextual memberships.
+    claimed = await db.invitations.update_one(
+        {"id": invitation['id'], "status": "pending"},
+        {"$set": {"status": "accepting", "accepting_by": request.user_id}}
+    )
+    if claimed.modified_count != 1:
+        raise HTTPException(status_code=409, detail="Invitation is already being accepted")
+
+    member_count = await db.members.count_documents({"group_id": invitation['group_id']})
+    member = Member(
+        user_id=request.user_id,
+        group_id=invitation['group_id'],
+        unique_reference_code=generate_reference_code(
+            group.get('payment_reference_prefix', 'CLB'), member_count + 1
+        ),
+        status="active",
+        role_in_group="member",
+        payout_position=member_count + 1
+    )
+    try:
+        member_document = member.dict()
+        # A deterministic Mongo key closes the race between two invitations for
+        # the same person and group, while the lookup above handles legacy rows.
+        member_document["_id"] = f"membership:{request.user_id}:{invitation['group_id']}"
+        await db.members.insert_one(member_document)
+        await db.users.update_one(
+            {"id": request.user_id},
+            {"$addToSet": {"stokvel_memberships": {
+                "stokvel_id": invitation['group_id'],
+                "role": "member",
+                "status": "active"
+            }}}
+        )
+        await db.invitations.update_one(
+            {"id": invitation['id'], "status": "accepting",
+             "accepting_by": request.user_id},
+            {"$set": {"status": "accepted", "accepted_at": datetime.utcnow(),
+                      "accepted_by": request.user_id},
+             "$unset": {"accepting_by": ""}}
+        )
+    except Exception as error:
+        await db.invitations.update_one(
+            {"id": invitation['id'], "status": "accepting",
+             "accepting_by": request.user_id},
+            {"$set": {"status": "pending"}, "$unset": {"accepting_by": ""}}
+        )
+        if isinstance(error, DuplicateKeyError):
+            raise HTTPException(status_code=400, detail="You already belong to this group")
+        await db.members.delete_one({"id": member.id})
+        await db.users.update_one(
+            {"id": request.user_id},
+            {"$pull": {"stokvel_memberships": {
+                "stokvel_id": invitation['group_id'],
+                "role": "member"
+            }}}
+        )
+        raise
+    return {"message": "Invitation accepted", "group_id": invitation['group_id']}
 
 
 class SendReminderRequest(BaseModel):
@@ -2413,12 +2416,7 @@ async def send_payment_reminder_endpoint(request: SendReminderRequest):
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     
-    # AUTHORIZATION CHECK: Only the treasurer of this group can send reminders
-    if group.get('treasurer_user_id') != request.treasurer_id:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access denied: You are not the treasurer of this group"
-        )
+    await verify_user_is_group_treasurer(request.treasurer_id, request.group_id)
     
     # Get member and user info
     member = await db.members.find_one({"id": request.member_id})
@@ -2628,7 +2626,6 @@ async def seed_demo_data():
         full_name="Thabo Mokoena",
         phone_number="0821234567",
         password_hash=hash_password("Pass&Word76"),
-        role="member",
         otp_verified=True
     )
     
@@ -2637,7 +2634,6 @@ async def seed_demo_data():
         full_name="Lerato Nkosi",
         phone_number="0827654321",
         password_hash=hash_password("Pass&Word76"),
-        role="member",
         otp_verified=True
     )
     
@@ -2646,11 +2642,12 @@ async def seed_demo_data():
         full_name="Sipho Dlamini",
         phone_number="0829876543",
         password_hash=hash_password("Pass&Word76"),
-        role="treasurer",
         otp_verified=True
     )
     
-    await db.users.insert_many([member1.dict(), member2.dict(), treasurer1.dict()])
+    await db.users.insert_many([
+        person_document(member1), person_document(member2), person_document(treasurer1)
+    ])
     
     # Create trust scores
     trust1 = TrustScore(user_id="member1", overall_score=87)
@@ -2714,8 +2711,29 @@ async def seed_demo_data():
         unique_reference_code="SSH002",
         payout_position=2
     )
+
+    admin_membership1 = Member(
+        id="admin-membership1",
+        user_id="treasurer1",
+        group_id="group1",
+        unique_reference_code="SSH003",
+        role_in_group="admin",
+        payout_position=3
+    )
+
+    admin_membership2 = Member(
+        id="admin-membership2",
+        user_id="treasurer1",
+        group_id="group2",
+        unique_reference_code="MBS002",
+        role_in_group="admin",
+        payout_position=2
+    )
     
-    await db.members.insert_many([membership1.dict(), membership2.dict(), membership3.dict()])
+    await db.members.insert_many([
+        membership1.dict(), membership2.dict(), membership3.dict(),
+        admin_membership1.dict(), admin_membership2.dict()
+    ])
     
     # Create some contributions
     now = datetime.utcnow()
@@ -2783,9 +2801,9 @@ async def seed_demo_data():
     return {
         "message": "Demo data seeded successfully",
         "demo_accounts": [
-            {"phone": "0821234567", "password": "Pass&Word76", "role": "member", "name": "Thabo Mokoena"},
-            {"phone": "0827654321", "password": "Pass&Word76", "role": "member", "name": "Lerato Nkosi"},
-            {"phone": "0829876543", "password": "Pass&Word76", "role": "treasurer", "name": "Sipho Dlamini"}
+            {"phone": "0821234567", "password": "Pass&Word76", "name": "Thabo Mokoena"},
+            {"phone": "0827654321", "password": "Pass&Word76", "name": "Lerato Nkosi"},
+            {"phone": "0829876543", "password": "Pass&Word76", "name": "Sipho Dlamini"}
         ]
     }
 
@@ -3430,1035 +3448,10 @@ async def get_app_page():
 
 @app.get("/", response_class=HTMLResponse)
 async def clubvel_website():
-    """Main Clubvel website landing page"""
-    html_content = """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Clubvel - Stokvel Management Made Simple</title>
-        <meta name="description" content="Manage your stokvel with ease. Track contributions, upload proof of payment, and build your financial reputation with Clubvel.">
-        <meta name="keywords" content="stokvel, savings club, South Africa, money management, contributions, financial app">
-        <meta property="og:title" content="Clubvel - Stokvel Management Made Simple">
-        <meta property="og:description" content="Your club. Your money. Your rules. Download Clubvel today.">
-        <meta property="og:type" content="website">
-        <link rel="preconnect" href="https://fonts.googleapis.com">
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-        <style>
-            :root {
-                --dark-green: #0E2318;
-                --medium-green: #16603A;
-                --gold: #C8880A;
-                --light-gold: #D4A528;
-                --white: #FFFFFF;
-                --light-bg: #F3F7F4;
-                --text-primary: #1F2937;
-                --text-secondary: #6B7280;
-            }
-            
-            * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-            }
-            
-            html {
-                scroll-behavior: smooth;
-            }
-            
-            body {
-                font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-                color: var(--text-primary);
-                line-height: 1.6;
-            }
-            
-            /* Navigation */
-            .navbar {
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                background: var(--dark-green);
-                padding: 16px 24px;
-                z-index: 1000;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-            }
-            
-            .nav-logo {
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                text-decoration: none;
-            }
-            
-            .nav-logo-icon {
-                width: 40px;
-                height: 40px;
-                background: var(--gold);
-                border-radius: 10px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            
-            .nav-logo-icon span {
-                font-size: 18px;
-                font-weight: 700;
-                color: var(--white);
-            }
-            
-            .nav-logo-text {
-                font-size: 22px;
-                font-weight: 700;
-                color: var(--white);
-            }
-            
-            .nav-links {
-                display: flex;
-                gap: 32px;
-                align-items: center;
-            }
-            
-            .nav-links a {
-                color: rgba(255, 255, 255, 0.8);
-                text-decoration: none;
-                font-weight: 500;
-                transition: color 0.3s;
-            }
-            
-            .nav-links a:hover {
-                color: var(--gold);
-            }
-            
-            .nav-cta {
-                background: var(--gold) !important;
-                color: var(--dark-green) !important;
-                padding: 10px 20px;
-                border-radius: 8px;
-                font-weight: 600;
-            }
-            
-            .mobile-menu-btn {
-                display: none;
-                background: none;
-                border: none;
-                color: var(--white);
-                font-size: 24px;
-                cursor: pointer;
-            }
-            
-            /* Hero Section */
-            .hero {
-                background: var(--dark-green);
-                min-height: 100vh;
-                display: flex;
-                align-items: center;
-                padding: 120px 24px 80px;
-                position: relative;
-                overflow: hidden;
-            }
-            
-            .hero::before {
-                content: '';
-                position: absolute;
-                top: -50%;
-                right: -20%;
-                width: 80%;
-                height: 150%;
-                background: radial-gradient(ellipse, rgba(200, 136, 10, 0.1) 0%, transparent 70%);
-                pointer-events: none;
-            }
-            
-            .hero-container {
-                max-width: 1200px;
-                margin: 0 auto;
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 60px;
-                align-items: center;
-            }
-            
-            .hero-content {
-                z-index: 1;
-            }
-            
-            .hero-badge {
-                display: inline-flex;
-                align-items: center;
-                gap: 8px;
-                background: rgba(200, 136, 10, 0.15);
-                padding: 8px 16px;
-                border-radius: 50px;
-                margin-bottom: 24px;
-            }
-            
-            .hero-badge span {
-                color: var(--gold);
-                font-size: 14px;
-                font-weight: 500;
-            }
-            
-            .hero h1 {
-                font-size: 56px;
-                font-weight: 800;
-                color: var(--white);
-                line-height: 1.1;
-                margin-bottom: 24px;
-            }
-            
-            .hero h1 .highlight {
-                color: var(--gold);
-            }
-            
-            .hero-subtitle {
-                font-size: 20px;
-                color: rgba(255, 255, 255, 0.7);
-                margin-bottom: 40px;
-                max-width: 500px;
-            }
-            
-            .hero-buttons {
-                display: flex;
-                gap: 16px;
-                flex-wrap: wrap;
-            }
-            
-            .btn {
-                display: inline-flex;
-                align-items: center;
-                gap: 10px;
-                padding: 16px 32px;
-                border-radius: 12px;
-                font-size: 16px;
-                font-weight: 600;
-                text-decoration: none;
-                transition: all 0.3s ease;
-                cursor: pointer;
-                border: none;
-            }
-            
-            .btn-primary {
-                background: var(--gold);
-                color: var(--dark-green);
-            }
-            
-            .btn-primary:hover {
-                background: #daa520;
-                transform: translateY(-2px);
-                box-shadow: 0 8px 24px rgba(200, 136, 10, 0.4);
-            }
-            
-            .btn-secondary {
-                background: transparent;
-                color: var(--white);
-                border: 2px solid rgba(255, 255, 255, 0.3);
-            }
-            
-            .btn-secondary:hover {
-                border-color: var(--white);
-                background: rgba(255, 255, 255, 0.1);
-            }
-            
-            .hero-visual {
-                position: relative;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-            }
-            
-            .phone-mockup {
-                width: 280px;
-                height: 570px;
-                background: #1a1a1a;
-                border-radius: 40px;
-                padding: 12px;
-                box-shadow: 0 50px 100px rgba(0, 0, 0, 0.5);
-                position: relative;
-            }
-            
-            .phone-screen {
-                width: 100%;
-                height: 100%;
-                background: var(--dark-green);
-                border-radius: 32px;
-                overflow: hidden;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                padding: 40px 20px;
-            }
-            
-            .phone-logo {
-                width: 80px;
-                height: 80px;
-                background: var(--gold);
-                border-radius: 20px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                margin-bottom: 20px;
-            }
-            
-            .phone-logo span {
-                font-size: 36px;
-                font-weight: 700;
-                color: var(--white);
-            }
-            
-            .phone-title {
-                font-size: 28px;
-                font-weight: 700;
-                color: var(--white);
-                margin-bottom: 8px;
-            }
-            
-            .phone-tagline {
-                font-size: 12px;
-                color: rgba(255, 255, 255, 0.7);
-                text-align: center;
-            }
-            
-            /* Features Section */
-            .features {
-                padding: 100px 24px;
-                background: var(--light-bg);
-            }
-            
-            .container {
-                max-width: 1200px;
-                margin: 0 auto;
-            }
-            
-            .section-header {
-                text-align: center;
-                margin-bottom: 60px;
-            }
-            
-            .section-label {
-                display: inline-block;
-                color: var(--gold);
-                font-size: 14px;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 2px;
-                margin-bottom: 16px;
-            }
-            
-            .section-title {
-                font-size: 42px;
-                font-weight: 700;
-                color: var(--dark-green);
-                margin-bottom: 16px;
-            }
-            
-            .section-subtitle {
-                font-size: 18px;
-                color: var(--text-secondary);
-                max-width: 600px;
-                margin: 0 auto;
-            }
-            
-            .features-grid {
-                display: grid;
-                grid-template-columns: repeat(3, 1fr);
-                gap: 32px;
-            }
-            
-            .feature-card {
-                background: var(--white);
-                padding: 32px;
-                border-radius: 20px;
-                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-                transition: all 0.3s ease;
-            }
-            
-            .feature-card:hover {
-                transform: translateY(-8px);
-                box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
-            }
-            
-            .feature-icon {
-                width: 64px;
-                height: 64px;
-                background: linear-gradient(135deg, rgba(200, 136, 10, 0.15) 0%, rgba(200, 136, 10, 0.05) 100%);
-                border-radius: 16px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 28px;
-                margin-bottom: 20px;
-            }
-            
-            .feature-card h3 {
-                font-size: 20px;
-                font-weight: 600;
-                color: var(--dark-green);
-                margin-bottom: 12px;
-            }
-            
-            .feature-card p {
-                font-size: 15px;
-                color: var(--text-secondary);
-                line-height: 1.7;
-            }
-            
-            /* How It Works */
-            .how-it-works {
-                padding: 100px 24px;
-                background: var(--white);
-            }
-            
-            .steps-container {
-                display: grid;
-                grid-template-columns: repeat(4, 1fr);
-                gap: 40px;
-                margin-top: 60px;
-            }
-            
-            .step {
-                text-align: center;
-                position: relative;
-            }
-            
-            .step:not(:last-child)::after {
-                content: '';
-                position: absolute;
-                top: 40px;
-                right: -20px;
-                width: 40px;
-                height: 2px;
-                background: linear-gradient(90deg, var(--gold), transparent);
-            }
-            
-            .step-number {
-                width: 80px;
-                height: 80px;
-                background: var(--dark-green);
-                border-radius: 50%;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                margin: 0 auto 20px;
-                font-size: 32px;
-                font-weight: 700;
-                color: var(--gold);
-            }
-            
-            .step h3 {
-                font-size: 18px;
-                font-weight: 600;
-                color: var(--dark-green);
-                margin-bottom: 8px;
-            }
-            
-            .step p {
-                font-size: 14px;
-                color: var(--text-secondary);
-            }
-            
-            /* Download Section */
-            .download {
-                padding: 100px 24px;
-                background: var(--dark-green);
-                position: relative;
-                overflow: hidden;
-            }
-            
-            .download::before {
-                content: '';
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: radial-gradient(ellipse at center, rgba(200, 136, 10, 0.1) 0%, transparent 60%);
-                pointer-events: none;
-            }
-            
-            .download-container {
-                max-width: 800px;
-                margin: 0 auto;
-                text-align: center;
-                position: relative;
-                z-index: 1;
-            }
-            
-            .download .section-label {
-                color: var(--gold);
-            }
-            
-            .download .section-title {
-                color: var(--white);
-            }
-            
-            .download .section-subtitle {
-                color: rgba(255, 255, 255, 0.7);
-            }
-            
-            .download-cards {
-                display: grid;
-                grid-template-columns: repeat(2, 1fr);
-                gap: 24px;
-                margin-top: 48px;
-            }
-            
-            .download-card {
-                background: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 20px;
-                padding: 40px 32px;
-                text-align: center;
-                transition: all 0.3s ease;
-            }
-            
-            .download-card:hover {
-                background: rgba(255, 255, 255, 0.08);
-                border-color: rgba(255, 255, 255, 0.2);
-            }
-            
-            .download-card-icon {
-                font-size: 48px;
-                margin-bottom: 20px;
-            }
-            
-            .download-card h3 {
-                font-size: 22px;
-                font-weight: 600;
-                color: var(--white);
-                margin-bottom: 12px;
-            }
-            
-            .download-card p {
-                font-size: 14px;
-                color: rgba(255, 255, 255, 0.6);
-                margin-bottom: 24px;
-            }
-            
-            .download-card .btn {
-                width: 100%;
-                justify-content: center;
-            }
-            
-            .ios-instructions {
-                margin-top: 16px;
-                padding: 16px;
-                background: rgba(255, 255, 255, 0.05);
-                border-radius: 12px;
-                text-align: left;
-            }
-            
-            .ios-instructions p {
-                font-size: 13px;
-                color: rgba(255, 255, 255, 0.7);
-                margin-bottom: 0;
-                display: flex;
-                align-items: flex-start;
-                gap: 8px;
-            }
-            
-            .ios-instructions p span {
-                color: var(--gold);
-            }
-            
-            /* Trust Section */
-            .trust {
-                padding: 80px 24px;
-                background: var(--light-bg);
-            }
-            
-            .trust-container {
-                max-width: 1000px;
-                margin: 0 auto;
-                display: grid;
-                grid-template-columns: repeat(4, 1fr);
-                gap: 40px;
-                text-align: center;
-            }
-            
-            .trust-item {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-            }
-            
-            .trust-icon {
-                font-size: 32px;
-                margin-bottom: 12px;
-            }
-            
-            .trust-item h4 {
-                font-size: 14px;
-                font-weight: 600;
-                color: var(--dark-green);
-            }
-            
-            /* Footer */
-            .footer {
-                background: #0a1810;
-                padding: 60px 24px 30px;
-            }
-            
-            .footer-container {
-                max-width: 1200px;
-                margin: 0 auto;
-            }
-            
-            .footer-top {
-                display: flex;
-                justify-content: space-between;
-                align-items: flex-start;
-                margin-bottom: 40px;
-                padding-bottom: 40px;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            }
-            
-            .footer-brand {
-                max-width: 300px;
-            }
-            
-            .footer-logo {
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                margin-bottom: 16px;
-            }
-            
-            .footer-logo-icon {
-                width: 40px;
-                height: 40px;
-                background: var(--gold);
-                border-radius: 10px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            
-            .footer-logo-icon span {
-                font-size: 18px;
-                font-weight: 700;
-                color: var(--white);
-            }
-            
-            .footer-logo-text {
-                font-size: 22px;
-                font-weight: 700;
-                color: var(--white);
-            }
-            
-            .footer-brand p {
-                font-size: 14px;
-                color: rgba(255, 255, 255, 0.6);
-                line-height: 1.7;
-            }
-            
-            .footer-links {
-                display: flex;
-                gap: 60px;
-            }
-            
-            .footer-column h4 {
-                font-size: 14px;
-                font-weight: 600;
-                color: var(--white);
-                margin-bottom: 20px;
-                text-transform: uppercase;
-                letter-spacing: 1px;
-            }
-            
-            .footer-column a {
-                display: block;
-                color: rgba(255, 255, 255, 0.6);
-                text-decoration: none;
-                font-size: 14px;
-                margin-bottom: 12px;
-                transition: color 0.3s;
-            }
-            
-            .footer-column a:hover {
-                color: var(--gold);
-            }
-            
-            .footer-bottom {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-            }
-            
-            .footer-bottom p {
-                font-size: 13px;
-                color: rgba(255, 255, 255, 0.5);
-            }
-            
-            /* Responsive */
-            @media (max-width: 1024px) {
-                .hero-container {
-                    grid-template-columns: 1fr;
-                    text-align: center;
-                }
-                
-                .hero h1 {
-                    font-size: 42px;
-                }
-                
-                .hero-subtitle {
-                    margin: 0 auto 40px;
-                }
-                
-                .hero-buttons {
-                    justify-content: center;
-                }
-                
-                .hero-visual {
-                    display: none;
-                }
-                
-                .features-grid {
-                    grid-template-columns: repeat(2, 1fr);
-                }
-                
-                .steps-container {
-                    grid-template-columns: repeat(2, 1fr);
-                }
-                
-                .step:not(:last-child)::after {
-                    display: none;
-                }
-            }
-            
-            @media (max-width: 768px) {
-                .nav-links {
-                    display: none;
-                }
-                
-                .mobile-menu-btn {
-                    display: block;
-                }
-                
-                .hero {
-                    padding: 100px 20px 60px;
-                }
-                
-                .hero h1 {
-                    font-size: 32px;
-                }
-                
-                .hero-subtitle {
-                    font-size: 16px;
-                }
-                
-                .section-title {
-                    font-size: 32px;
-                }
-                
-                .features-grid {
-                    grid-template-columns: 1fr;
-                }
-                
-                .steps-container {
-                    grid-template-columns: 1fr;
-                    gap: 32px;
-                }
-                
-                .download-cards {
-                    grid-template-columns: 1fr;
-                }
-                
-                .trust-container {
-                    grid-template-columns: repeat(2, 1fr);
-                }
-                
-                .footer-top {
-                    flex-direction: column;
-                    gap: 40px;
-                }
-                
-                .footer-links {
-                    flex-wrap: wrap;
-                    gap: 40px;
-                }
-                
-                .footer-bottom {
-                    flex-direction: column;
-                    gap: 16px;
-                    text-align: center;
-                }
-            }
-            
-            /* Mobile Menu */
-            .mobile-nav {
-                display: none;
-                position: fixed;
-                top: 72px;
-                left: 0;
-                right: 0;
-                background: var(--dark-green);
-                padding: 20px;
-                border-top: 1px solid rgba(255, 255, 255, 0.1);
-                z-index: 999;
-            }
-            
-            .mobile-nav.active {
-                display: block;
-            }
-            
-            .mobile-nav a {
-                display: block;
-                color: var(--white);
-                text-decoration: none;
-                padding: 12px 0;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            }
-        </style>
-    </head>
-    <body>
-        <!-- Navigation -->
-        <nav class="navbar">
-            <a href="#" class="nav-logo">
-                <div class="nav-logo-icon"><span>CV</span></div>
-                <span class="nav-logo-text">Clubvel</span>
-            </a>
-            <div class="nav-links">
-                <a href="#features">Features</a>
-                <a href="#how-it-works">How It Works</a>
-                <a href="#download">Download</a>
-                <a href="#download" class="nav-cta">Get the App</a>
-            </div>
-            <button class="mobile-menu-btn" onclick="toggleMobileMenu()">☰</button>
-        </nav>
-        
-        <div class="mobile-nav" id="mobileNav">
-            <a href="#features" onclick="toggleMobileMenu()">Features</a>
-            <a href="#how-it-works" onclick="toggleMobileMenu()">How It Works</a>
-            <a href="#download" onclick="toggleMobileMenu()">Download</a>
-        </div>
-
-        <!-- Hero Section -->
-        <section class="hero">
-            <div class="hero-container">
-                <div class="hero-content">
-                    <div class="hero-badge">
-                        <span>🇿🇦 Made for South African Stokvels</span>
-                    </div>
-                    <h1>Your Club.<br><span class="highlight">Your Money.</span><br>Your Rules.</h1>
-                    <p class="hero-subtitle">Manage your stokvel with ease. Track contributions, upload proof of payment, and build your financial reputation — all in one app.</p>
-                    <div class="hero-buttons">
-                        <a href="#download" class="btn btn-primary">
-                            <span>📱</span> Download Now
-                        </a>
-                        <a href="#features" class="btn btn-secondary">
-                            <span>✨</span> See Features
-                        </a>
-                    </div>
-                </div>
-                <div class="hero-visual">
-                    <div class="phone-mockup">
-                        <div class="phone-screen">
-                            <div class="phone-logo"><span>CV</span></div>
-                            <div class="phone-title">Clubvel</div>
-                            <div class="phone-tagline">Your club. Your money. Your rules.</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Features Section -->
-        <section class="features" id="features">
-            <div class="container">
-                <div class="section-header">
-                    <span class="section-label">Features</span>
-                    <h2 class="section-title">Everything You Need</h2>
-                    <p class="section-subtitle">Powerful tools designed specifically for stokvel management</p>
-                </div>
-                <div class="features-grid">
-                    <div class="feature-card">
-                        <div class="feature-icon">💰</div>
-                        <h3>Track Contributions</h3>
-                        <p>See who's paid and who hasn't. Real-time updates keep everyone accountable.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">📸</div>
-                        <h3>Upload Proof of Payment</h3>
-                        <p>Snap a photo of your receipt or bank confirmation. No more WhatsApp confusion.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">🔔</div>
-                        <h3>Smart Reminders</h3>
-                        <p>Get notified before due dates. Never be the one who forgot to pay.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">📊</div>
-                        <h3>Treasurer Reports</h3>
-                        <p>Generate reports instantly. Track group finances with professional summaries.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">🏆</div>
-                        <h3>Trust Score</h3>
-                        <p>Build your financial reputation with every on-time payment you make.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">🔒</div>
-                        <h3>POPIA Compliant</h3>
-                        <p>Your data is encrypted and protected. We take privacy seriously.</p>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- How It Works -->
-        <section class="how-it-works" id="how-it-works">
-            <div class="container">
-                <div class="section-header">
-                    <span class="section-label">How It Works</span>
-                    <h2 class="section-title">Get Started in Minutes</h2>
-                    <p class="section-subtitle">Simple steps to transform how your stokvel operates</p>
-                </div>
-                <div class="steps-container">
-                    <div class="step">
-                        <div class="step-number">1</div>
-                        <h3>Download the App</h3>
-                        <p>Get Clubvel on your Android phone or add to home screen on iPhone</p>
-                    </div>
-                    <div class="step">
-                        <div class="step-number">2</div>
-                        <h3>Create Your Club</h3>
-                        <p>Set up your stokvel with contribution amounts and payout dates</p>
-                    </div>
-                    <div class="step">
-                        <div class="step-number">3</div>
-                        <h3>Invite Members</h3>
-                        <p>Share your club link with members via WhatsApp or SMS</p>
-                    </div>
-                    <div class="step">
-                        <div class="step-number">4</div>
-                        <h3>Start Saving</h3>
-                        <p>Track payments, upload proofs, and watch your savings grow</p>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Download Section -->
-        <section class="download" id="download">
-            <div class="download-container">
-                <span class="section-label">Get the App</span>
-                <h2 class="section-title">Download Clubvel Today</h2>
-                <p class="section-subtitle">Available for Android devices. iPhone users can use the web app.</p>
-                
-                <div class="download-cards">
-                    <!-- Android Card -->
-                    <div class="download-card">
-                        <h3>Android</h3>
-                        <p>Download the APK directly to your Android phone</p>
-                        <a href="https://expo.dev/accounts/modjadji/projects/clubvel/builds/2a2f4803-0de5-4f8e-be8e-1b1161a42011" 
-                           class="btn btn-primary" 
-                           target="_blank">
-                            <span>⬇️</span> Download for Android
-                        </a>
-                    </div>
-                    
-                    <!-- iPhone Card -->
-                    <div class="download-card">
-                        <h3>iPhone</h3>
-                        <p>Use Clubvel as a web app on your iPhone</p>
-                        <a href="/get-app" class="btn btn-secondary">
-                            <span>📱</span> Open Web App
-                        </a>
-                        <div class="ios-instructions">
-                            <p><span>💡</span> For the best experience: Tap the Share icon in Safari, then select "Add to Home Screen" to use Clubvel like a native app.</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Trust Section -->
-        <section class="trust">
-            <div class="trust-container">
-                <div class="trust-item">
-                    <div class="trust-icon">🔐</div>
-                    <h4>Bank-Level Security</h4>
-                </div>
-                <div class="trust-item">
-                    <div class="trust-icon">🇿🇦</div>
-                    <h4>Made in South Africa</h4>
-                </div>
-                <div class="trust-item">
-                    <div class="trust-icon">✅</div>
-                    <h4>POPIA Compliant</h4>
-                </div>
-                <div class="trust-item">
-                    <div class="trust-icon">💚</div>
-                    <h4>Free to Use</h4>
-                </div>
-            </div>
-        </section>
-
-        <!-- Footer -->
-        <footer class="footer">
-            <div class="footer-container">
-                <div class="footer-top">
-                    <div class="footer-brand">
-                        <div class="footer-logo">
-                            <div class="footer-logo-icon"><span>CV</span></div>
-                            <span class="footer-logo-text">Clubvel</span>
-                        </div>
-                        <p>Empowering South African stokvels with modern technology. Manage your club, track contributions, and build financial trust.</p>
-                    </div>
-                    <div class="footer-links">
-                        <div class="footer-column">
-                            <h4>Product</h4>
-                            <a href="#features">Features</a>
-                            <a href="#how-it-works">How It Works</a>
-                            <a href="#download">Download</a>
-                        </div>
-                        <div class="footer-column">
-                            <h4>Legal</h4>
-                            <a href="/privacy-policy">Privacy Policy</a>
-                            <a href="/delete-account">Delete Account</a>
-                        </div>
-                        <div class="footer-column">
-                            <h4>Support</h4>
-                            <a href="mailto:support@clubvel.co.za">Contact Us</a>
-                        </div>
-                    </div>
-                </div>
-                <div class="footer-bottom">
-                    <p>&copy; 2025 Clubvel. All rights reserved.</p>
-                    <p>Made with 💚 in South Africa</p>
-                </div>
-            </div>
-        </footer>
-
-        <script>
-            function toggleMobileMenu() {
-                const nav = document.getElementById('mobileNav');
-                nav.classList.toggle('active');
-            }
-            
-            // Smooth scroll for anchor links
-            document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-                anchor.addEventListener('click', function (e) {
-                    e.preventDefault();
-                    const target = document.querySelector(this.getAttribute('href'));
-                    if (target) {
-                        target.scrollIntoView({
-                            behavior: 'smooth',
-                            block: 'start'
-                        });
-                    }
-                });
-            });
-        </script>
-    </body>
-    </html>
-    """
-    return HTMLResponse(content=html_content)
+    """Serve the current Clubvel landing page from the canonical website file."""
+    # Railway deploys this service from the backend directory, so keep the
+    # public landing page self-contained in the running backend.
+    return HTMLResponse(content="<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>clubvel — stokvels, organised</title>\n<meta name=\"description\" content=\"Clubvel helps South African stokvels organise groups, contributions, payment proofs, claims and member records in one place.\">\n<style>\n:root{--charcoal:#3F4145;--ink:#242629;--orange:#F97316;--white:#fff;--soft:#F7F7F6;--muted:#6B6E73}\n*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:Inter,Arial,sans-serif;color:var(--ink);background:var(--white)}a{text-decoration:none;color:inherit}\nnav{height:76px;padding:0 6vw;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #ececea;background:#fff;position:sticky;top:0;z-index:10}\n.brand{display:flex;align-items:center;gap:12px;font-size:25px;font-weight:800;color:var(--charcoal)}.leafmark{width:42px;height:42px;position:relative}.leaf{position:absolute;width:23px;height:31px;border-radius:100% 0 100% 0;transform:rotate(-28deg);top:5px}.leaf.a{left:3px;background:var(--charcoal)}.leaf.b{right:3px;background:var(--orange);transform:scaleX(-1) rotate(-28deg)}\n.links{display:flex;gap:28px;align-items:center;font-weight:600}.cta{background:var(--orange);color:#fff;padding:12px 20px;border-radius:10px}\n.hero{min-height:640px;padding:90px 7vw;display:grid;grid-template-columns:1.1fr .9fr;gap:70px;align-items:center;background:linear-gradient(135deg,#fff 0%,#fff 62%,#fff5ed 100%)}.eyebrow{color:var(--orange);font-weight:800;margin-bottom:16px}.hero h1{font-size:clamp(48px,6vw,82px);line-height:.98;margin:0 0 24px;color:var(--charcoal);letter-spacing:-3px}.hero h1 span{color:var(--orange)}.hero p{font-size:20px;line-height:1.65;color:var(--muted);max-width:650px}.actions{display:flex;gap:14px;margin-top:34px;flex-wrap:wrap}.button{padding:15px 23px;border-radius:10px;font-weight:750;border:2px solid var(--charcoal)}.primary{background:var(--orange);border-color:var(--orange);color:#fff}\n.visual{background:var(--charcoal);border-radius:28px;padding:48px;color:#fff;min-height:390px;display:flex;flex-direction:column;justify-content:center}.visual .leafmark{transform:scale(1.8);margin:0 0 35px 15px}.visual h2{font-size:36px;margin:0 0 12px}.visual p{color:#ddd;font-size:17px}.orange-line{width:74px;height:5px;background:var(--orange);border-radius:4px;margin-top:24px}\nsection{padding:90px 7vw}.sectionhead{max-width:700px;margin-bottom:45px}.sectionhead h2{font-size:40px;margin:0 0 12px;color:var(--charcoal)}.sectionhead p{color:var(--muted);font-size:17px;line-height:1.6}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}.card{border:1px solid #e7e7e5;border-radius:16px;padding:28px;background:#fff;border-top:4px solid var(--orange)}.card h3{margin:0 0 10px;font-size:20px}.card p{margin:0;color:var(--muted);line-height:1.6}.how{background:var(--soft)}.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:28px}.num{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:var(--orange);color:#fff;font-weight:800;margin-bottom:18px}\n.notice{background:var(--charcoal);color:#fff;border-radius:20px;padding:40px;display:flex;justify-content:space-between;align-items:center;gap:25px}.notice h2{margin:0 0 8px;font-size:30px}.notice p{margin:0;color:#d7d7d7;max-width:700px}\nfooter{padding:40px 7vw;background:#292b2e;color:#d7d7d7;display:flex;justify-content:space-between;gap:30px;flex-wrap:wrap}.footbrand{color:#fff;font-weight:800}\n@media(max-width:800px){.links a:not(.cta){display:none}.hero{grid-template-columns:1fr;padding-top:60px}.visual{min-height:300px}.grid,.steps{grid-template-columns:1fr}.notice{align-items:flex-start;flex-direction:column}.hero h1{letter-spacing:-2px}}\n</style></head>\n<body>\n<nav><a class=\"brand\" href=\"#\"><span class=\"leafmark\"><i class=\"leaf a\"></i><i class=\"leaf b\"></i></span><span>clubvel</span></a><div class=\"links\"><a href=\"#features\">Features</a><a href=\"#how\">How it works</a><a class=\"cta\" href=\"#status\">Get Clubvel</a></div></nav>\n<main>\n<div class=\"hero\"><div><div class=\"eyebrow\">Built for South African stokvels</div><h1>Your group.<br>Your records.<br><span>Together.</span></h1><p>Clubvel gives stokvel members one place to organise groups, keep contribution records, upload payment proofs and see the information recorded for their group.</p><div class=\"actions\"><a class=\"button primary\" href=\"#features\">Explore Clubvel</a><a class=\"button\" href=\"#how\">How it works</a></div></div><div class=\"visual\"><span class=\"leafmark\"><i class=\"leaf a\"></i><i class=\"leaf b\"></i></span><h2>save, plan, grow together</h2><p>One person. One Clubvel account. Different roles in different groups.</p><div class=\"orange-line\"></div></div></div>\n<section id=\"features\"><div class=\"sectionhead\"><h2>What Clubvel helps you manage</h2><p>Clear group records without inventing financial scores, balances or payment states that are not supported by recorded activity.</p></div><div class=\"grid\">\n<div class=\"card\"><h3>Contributions</h3><p>See recorded contribution information for each group and period, including confirmed and outstanding states where the group has recorded them.</p></div>\n<div class=\"card\"><h3>Payment proofs</h3><p>Upload proof against the relevant group contribution so the record stays connected to the payment it belongs to.</p></div>\n<div class=\"card\"><h3>Groups & roles</h3><p>Create a group or accept an invitation. Your role belongs to that group, not to your whole Clubvel account.</p></div>\n<div class=\"card\"><h3>Claims & payouts</h3><p>See claim and payout information only when it has actually been recorded for you and your group.</p></div>\n<div class=\"card\"><h3>Invitations</h3><p>Invited members choose whether to accept. Membership is created only after acceptance.</p></div>\n<div class=\"card\"><h3>Your history</h3><p>Clubvel builds a record from verifiable activity in your groups rather than displaying a made-up Trust Score.</p></div>\n</div></section>\n<section class=\"how\" id=\"how\"><div class=\"sectionhead\"><h2>Simple by design</h2></div><div class=\"steps\"><div><div class=\"num\">1</div><h3>Create your account</h3><p>Register as a person. You do not choose an account-wide admin, treasurer or member role.</p></div><div><div class=\"num\">2</div><h3>Create or join a group</h3><p>Create your own group or accept an invitation to a group you know.</p></div><div><div class=\"num\">3</div><h3>Keep the group record current</h3><p>Record contributions, proofs and group activity so members can see what has actually happened.</p></div></div></section>\n<section id=\"status\"><div class=\"notice\"><div><h2>Clubvel is being prepared for release.</h2><p>We are validating the app before publishing public download links. We will not send you to an old APK or promise an app-store release that is not yet available.</p></div><a class=\"button primary\" href=\"mailto:support@clubvel.co.za\">Contact Clubvel</a></div></section>\n</main>\n<footer><div><span class=\"footbrand\">clubvel</span><br>South Africa</div><div>© 2026 Clubvel. Group records made clearer.</div></footer>\n</body></html>")
 
 # Catch-all route to prevent 404 errors - redirects to main website
 @app.get("/{path:path}", response_class=HTMLResponse)

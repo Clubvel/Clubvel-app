@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image, TextInput, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { StatusPill } from '../../components/StatusPill';
@@ -16,6 +16,7 @@ interface Club {
   monthly_contribution: number;
   status: string;
   status_label: string;
+  role: 'member' | 'admin' | 'treasurer';
 }
 
 interface DashboardData {
@@ -29,12 +30,22 @@ interface DashboardData {
     active_clubs: number;
     days_until_next_claim: number | null;
     overdue_contributions: number;
+    upcoming_payments: number;
+    claims_count: number;
   };
   clubs: Club[];
 }
 
+interface PendingInvitation {
+  id: string;
+  group_id: string;
+  group_name: string;
+  invited_by_name?: string;
+  expires_at: string;
+}
+
 export default function MemberHomeScreen() {
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
   const router = useRouter();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -42,11 +53,30 @@ export default function MemberHomeScreen() {
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+  const [creatingGroup, setCreatingGroup] = useState(false);
+  const [groupName, setGroupName] = useState('');
+  const [monthlyContribution, setMonthlyContribution] = useState('');
+  const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([]);
+  const [acceptingInvitation, setAcceptingInvitation] = useState<string | null>(null);
+  const [showInvitations, setShowInvitations] = useState(false);
+  const [invitationsLoading, setInvitationsLoading] = useState(false);
+  const [invitationsError, setInvitationsError] = useState<string | null>(null);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setShowProfileMenu(false);
+
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm('Are you sure you want to sign out?');
+      if (!confirmed) return;
+
+      await logout();
+      router.replace('/auth');
+      return;
+    }
+
     Alert.alert(
       'Sign Out',
       'Are you sure you want to sign out?',
@@ -57,7 +87,7 @@ export default function MemberHomeScreen() {
           style: 'destructive',
           onPress: async () => {
             await logout();
-            router.replace('/');
+            router.replace('/auth');
           },
         },
       ]
@@ -105,8 +135,16 @@ export default function MemberHomeScreen() {
 
   const fetchDashboard = async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/member/dashboard/${user?.id}`);
-      setDashboardData(response.data);
+      const [dashboardResponse, invitationsResponse] = await Promise.all([
+        axios.get(`${API_URL}/api/member/dashboard/${user?.id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        axios.get(`${API_URL}/api/invitations/pending/${user?.id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+      ]);
+      setDashboardData(dashboardResponse.data);
+      setPendingInvitations(invitationsResponse.data.invitations || []);
     } catch (error) {
       console.error('Error fetching dashboard:', error);
     } finally {
@@ -119,7 +157,7 @@ export default function MemberHomeScreen() {
     if (user) {
       fetchDashboard();
     }
-  }, [user]);
+  }, [user, token]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -144,6 +182,79 @@ export default function MemberHomeScreen() {
   const navigateToNotifications = () => {
     setShowProfileMenu(false);
     router.push('/(member)/notifications');
+  };
+
+  const openClub = (club: Club) => {
+    if (club.role === 'admin' || club.role === 'treasurer') {
+      router.push({ pathname: '/(treasurer)/club-detail', params: { id: club.id, name: club.name } });
+      return;
+    }
+    router.push(`/(member)/club/${club.id}`);
+  };
+
+  const createGroup = async () => {
+    const amount = Number(monthlyContribution);
+    if (!groupName.trim() || !Number.isFinite(amount) || amount < 0) {
+      Alert.alert('Check the details', 'Enter a group name and a valid contribution amount.');
+      return;
+    }
+    setCreatingGroup(true);
+    try {
+      const response = await axios.post(`${API_URL}/api/groups/create`, {
+        group_name: groupName.trim(),
+        group_type: 'savings',
+        monthly_contribution: amount,
+        payment_due_date: 25,
+        admin_user_id: user?.id,
+        payment_reference_prefix: groupName.trim().slice(0, 3).toUpperCase() || 'CLB',
+      });
+      setShowCreateGroup(false);
+      setGroupName('');
+      setMonthlyContribution('');
+      await fetchDashboard();
+      router.push({
+        pathname: '/(treasurer)/club-detail',
+        params: { id: response.data.group_id, name: response.data.group_name },
+      });
+    } catch (error: any) {
+      Alert.alert('Could not create group', error.response?.data?.detail || 'Please try again.');
+    } finally {
+      setCreatingGroup(false);
+    }
+  };
+
+  const openInvitations = async () => {
+    setShowInvitations(true);
+    setInvitationsLoading(true);
+    setInvitationsError(null);
+    try {
+      const response = await axios.get(`${API_URL}/api/invitations/pending/${user?.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setPendingInvitations(response.data.invitations || []);
+    } catch (error: any) {
+      setInvitationsError(error.response?.data?.detail || 'Could not load invitations. Please try again.');
+    } finally {
+      setInvitationsLoading(false);
+    }
+  };
+
+  const acceptInvitation = async (invitation: PendingInvitation) => {
+    setAcceptingInvitation(invitation.id);
+    try {
+      await axios.post(`${API_URL}/api/invitations/accept`, {
+        invitation_id: invitation.id,
+        user_id: user?.id,
+      }, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      await fetchDashboard();
+      Alert.alert('Group joined', `You are now a member of ${invitation.group_name}.`);
+    } catch (error: any) {
+      Alert.alert('Could not accept invitation', error.response?.data?.detail || 'Please try again.');
+    } finally {
+      setAcceptingInvitation(null);
+    }
   };
 
   if (loading) {
@@ -182,33 +293,27 @@ export default function MemberHomeScreen() {
         {/* Summary Cards */}
         <View style={styles.summaryContainer}>
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Total Saved</Text>
+          <Text style={styles.summaryLabel}>Contributions</Text>
           <Text style={styles.summaryValue}>
             R{dashboardData?.summary.total_saved.toFixed(2) || '0.00'}
           </Text>
         </View>
 
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Active Clubs</Text>
+          <Text style={styles.summaryLabel}>Groups &amp; Clubs</Text>
           <Text style={styles.summaryValue}>{dashboardData?.summary.active_clubs || 0}</Text>
         </View>
       </View>
 
       <View style={styles.summaryContainer}>
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Next Claim</Text>
-          <Text style={styles.summaryValue}>
-            {dashboardData?.summary.days_until_next_claim !== null
-              ? `${dashboardData?.summary.days_until_next_claim} days`
-              : 'None'}
-          </Text>
+          <Text style={styles.summaryLabel}>Upcoming Payments</Text>
+          <Text style={styles.summaryValue}>{dashboardData?.summary.upcoming_payments || 0}</Text>
         </View>
 
         <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Overdue</Text>
-          <Text style={[styles.summaryValue, dashboardData?.summary.overdue_contributions ? styles.overdueText : null]}>
-            {dashboardData?.summary.overdue_contributions || 0}
-          </Text>
+          <Text style={styles.summaryLabel}>Claims</Text>
+          <Text style={styles.summaryValue}>{dashboardData?.summary.claims_count || 0}</Text>
         </View>
       </View>
 
@@ -216,12 +321,39 @@ export default function MemberHomeScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>My Clubs</Text>
 
+        {pendingInvitations.length > 0 && (
+          <View style={styles.invitationsSection}>
+            <Text style={styles.invitationsTitle}>Pending Invitations</Text>
+            {pendingInvitations.map((invitation) => (
+              <View key={invitation.id} style={styles.invitationCard}>
+                <View style={styles.invitationInfo}>
+                  <Text style={styles.invitationGroup}>{invitation.group_name}</Text>
+                  <Text style={styles.invitationFrom}>
+                    {invitation.invited_by_name
+                      ? `Invited by ${invitation.invited_by_name}`
+                      : 'Group invitation'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.acceptButton}
+                  onPress={() => acceptInvitation(invitation)}
+                  disabled={acceptingInvitation === invitation.id}
+                >
+                  {acceptingInvitation === invitation.id
+                    ? <ActivityIndicator size="small" color={Colors.white} />
+                    : <Text style={styles.acceptButtonText}>Accept</Text>}
+                </TouchableOpacity>
+              </View>
+            ))}
+          </View>
+        )}
+
         {dashboardData?.clubs && dashboardData.clubs.length > 0 ? (
           dashboardData.clubs.map((club) => (
             <TouchableOpacity
               key={club.id}
               style={styles.clubCard}
-              onPress={() => router.push(`/(member)/club/${club.id}`)}
+              onPress={() => openClub(club)}
             >
               <View style={styles.clubCardHeader}>
                 <View style={styles.clubInfo}>
@@ -241,9 +373,19 @@ export default function MemberHomeScreen() {
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={48} color={Colors.textMuted} />
             <Text style={styles.emptyStateText}>No clubs yet</Text>
-            <Text style={styles.emptyStateSubtext}>Join a stokvel, social club, or society to get started</Text>
+            <Text style={styles.emptyStateSubtext}>Create a Stokvel, Social Club or Society Group, or join one through an invitation.</Text>
           </View>
         )}
+        <View style={styles.primaryActions}>
+          <TouchableOpacity style={styles.createButton} onPress={() => setShowCreateGroup(true)}>
+            <Ionicons name="add" size={20} color={Colors.white} />
+            <Text style={styles.createButtonText}>Create Stokvel / Social Club / Society Group</Text>
+          </TouchableOpacity>
+          <TouchableOpacity style={styles.inviteButton} onPress={openInvitations}>
+            <Ionicons name="mail-outline" size={20} color={Colors.accent} />
+            <Text style={styles.inviteButtonText}>Join Stokvel / Social Club / Society Group</Text>
+          </TouchableOpacity>
+        </View>
       </View>
 
       {/* Advertisement Banner */}
@@ -369,6 +511,95 @@ export default function MemberHomeScreen() {
         </View>
       </View>
     </Modal>
+
+    <Modal visible={showCreateGroup} transparent animationType="slide" onRequestClose={() => setShowCreateGroup(false)}>
+      <View style={styles.formOverlay}>
+        <View style={styles.formCard}>
+          <Text style={styles.formTitle}>Create a Group</Text>
+          <Text style={styles.formHelp}>You will be the admin of this group only.</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="Group name"
+            value={groupName}
+            onChangeText={setGroupName}
+          />
+          <TextInput
+            style={styles.input}
+            placeholder="Monthly contribution (R)"
+            keyboardType="decimal-pad"
+            value={monthlyContribution}
+            onChangeText={setMonthlyContribution}
+          />
+          <View style={styles.formActions}>
+            <TouchableOpacity style={styles.cancelButton} onPress={() => setShowCreateGroup(false)} disabled={creatingGroup}>
+              <Text style={styles.cancelButtonText}>Cancel</Text>
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.submitButton} onPress={createGroup} disabled={creatingGroup}>
+              {creatingGroup ? <ActivityIndicator color={Colors.white} /> : <Text style={styles.submitButtonText}>Create</Text>}
+            </TouchableOpacity>
+          </View>
+        </View>
+      </View>
+    </Modal>
+
+    <Modal visible={showInvitations} transparent animationType="slide" onRequestClose={() => setShowInvitations(false)}>
+      <View style={styles.formOverlay}>
+        <View style={styles.formCard}>
+          <View style={styles.invitationModalHeader}>
+            <View style={styles.invitationInfo}>
+              <Text style={styles.formTitle}>Join a Group</Text>
+              <Text style={styles.formHelp}>Accept an invitation sent to your Clubvel phone number.</Text>
+            </View>
+            <TouchableOpacity onPress={() => setShowInvitations(false)} accessibilityLabel="Close invitations">
+              <Ionicons name="close" size={26} color={Colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
+
+          {invitationsLoading ? (
+            <ActivityIndicator style={styles.invitationModalStatus} color={Colors.accent} />
+          ) : invitationsError ? (
+            <View style={styles.invitationEmptyState}>
+              <Text style={styles.invitationEmptyTitle}>Invitations unavailable</Text>
+              <Text style={styles.invitationEmptyText}>{invitationsError}</Text>
+              <TouchableOpacity style={styles.retryButton} onPress={openInvitations}>
+                <Text style={styles.retryButtonText}>Try Again</Text>
+              </TouchableOpacity>
+            </View>
+          ) : pendingInvitations.length === 0 ? (
+            <View style={styles.invitationEmptyState}>
+              <Ionicons name="mail-open-outline" size={44} color={Colors.textMuted} />
+              <Text style={styles.invitationEmptyTitle}>No pending invitations</Text>
+              <Text style={styles.invitationEmptyText}>
+                Ask a group admin to invite the phone number on your Clubvel account, then check again here.
+              </Text>
+              <TouchableOpacity style={styles.retryButton} onPress={openInvitations}>
+                <Text style={styles.retryButtonText}>Check Again</Text>
+              </TouchableOpacity>
+            </View>
+          ) : (
+            pendingInvitations.map((invitation) => (
+              <View key={invitation.id} style={styles.invitationCard}>
+                <View style={styles.invitationInfo}>
+                  <Text style={styles.invitationGroup}>{invitation.group_name}</Text>
+                  <Text style={styles.invitationFrom}>
+                    {invitation.invited_by_name ? `Invited by ${invitation.invited_by_name}` : 'Group invitation'}
+                  </Text>
+                </View>
+                <TouchableOpacity
+                  style={styles.acceptButton}
+                  onPress={() => acceptInvitation(invitation)}
+                  disabled={acceptingInvitation === invitation.id}
+                >
+                  {acceptingInvitation === invitation.id
+                    ? <ActivityIndicator size="small" color={Colors.white} />
+                    : <Text style={styles.acceptButtonText}>Accept</Text>}
+                </TouchableOpacity>
+              </View>
+            ))
+          )}
+        </View>
+      </View>
+    </Modal>
   </View>
   );
 }
@@ -405,14 +636,6 @@ const styles = StyleSheet.create({
   },
   logoutButton: {
     padding: 4,
-  },
-  avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
-    backgroundColor: Colors.gold,
-    justifyContent: 'center',
-    alignItems: 'center',
   },
   avatarText: {
     fontSize: 20,
@@ -711,4 +934,61 @@ const styles = StyleSheet.create({
   deleteModalBtnDisabled: {
     opacity: 0.6,
   },
+  invitationsSection: { gap: 10, marginBottom: 18 },
+  invitationsTitle: { color: Colors.textPrimary, fontSize: 16, fontWeight: '700' },
+  invitationCard: {
+    alignItems: 'center', backgroundColor: Colors.white, borderColor: Colors.cardBorder,
+    borderRadius: 12, borderWidth: 1, flexDirection: 'row', padding: 14,
+  },
+  invitationInfo: { flex: 1 },
+  invitationGroup: { color: Colors.textPrimary, fontSize: 16, fontWeight: '700' },
+  invitationFrom: { color: Colors.textSecondary, fontSize: 13, marginTop: 3 },
+  invitationModalHeader: { alignItems: 'flex-start', flexDirection: 'row', gap: 12 },
+  invitationModalStatus: { marginVertical: 32 },
+  invitationEmptyState: { alignItems: 'center', paddingHorizontal: 12, paddingVertical: 24 },
+  invitationEmptyTitle: { color: Colors.textPrimary, fontSize: 17, fontWeight: '700', marginTop: 10 },
+  invitationEmptyText: { color: Colors.textSecondary, fontSize: 14, lineHeight: 20, marginTop: 6, textAlign: 'center' },
+  retryButton: { borderColor: Colors.accent, borderRadius: 9, borderWidth: 1, marginTop: 18, paddingHorizontal: 18, paddingVertical: 10 },
+  retryButtonText: { color: Colors.accent, fontSize: 14, fontWeight: '700' },
+  acceptButton: {
+    alignItems: 'center', backgroundColor: Colors.accent, borderRadius: 9,
+    justifyContent: 'center', minHeight: 38, minWidth: 76, paddingHorizontal: 14,
+  },
+  acceptButtonText: { color: Colors.white, fontSize: 14, fontWeight: '700' },
+  primaryActions: { gap: 12, marginTop: 16 },
+  createButton: {
+    alignItems: 'center', backgroundColor: Colors.accent, borderRadius: 12,
+    flexDirection: 'row', gap: 8, justifyContent: 'center', paddingVertical: 14,
+  },
+  createButtonText: { color: Colors.white, fontSize: 16, fontWeight: '700' },
+  inviteButton: {
+    alignItems: 'center', backgroundColor: Colors.white, borderColor: Colors.accent,
+    borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8,
+    justifyContent: 'center', paddingVertical: 14,
+  },
+  inviteButtonText: { color: Colors.accent, fontSize: 16, fontWeight: '700' },
+  formOverlay: {
+    backgroundColor: 'rgba(0, 0, 0, 0.55)', flex: 1, justifyContent: 'flex-end',
+  },
+  formCard: {
+    backgroundColor: Colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24,
+    padding: 24, paddingBottom: 36,
+  },
+  formTitle: { color: Colors.textPrimary, fontSize: 22, fontWeight: '700' },
+  formHelp: { color: Colors.textSecondary, fontSize: 14, marginBottom: 20, marginTop: 6 },
+  input: {
+    borderColor: Colors.cardBorder, borderRadius: 10, borderWidth: 1, color: Colors.textPrimary,
+    fontSize: 16, marginBottom: 12, paddingHorizontal: 14, paddingVertical: 13,
+  },
+  formActions: { flexDirection: 'row', gap: 12, marginTop: 8 },
+  cancelButton: {
+    alignItems: 'center', borderColor: Colors.cardBorder, borderRadius: 10,
+    borderWidth: 1, flex: 1, paddingVertical: 14,
+  },
+  cancelButtonText: { color: Colors.textPrimary, fontSize: 16, fontWeight: '600' },
+  submitButton: {
+    alignItems: 'center', backgroundColor: Colors.accent, borderRadius: 10,
+    flex: 1, paddingVertical: 14,
+  },
+  submitButtonText: { color: Colors.white, fontSize: 16, fontWeight: '700' },
 });

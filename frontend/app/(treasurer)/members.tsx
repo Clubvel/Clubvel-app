@@ -14,6 +14,7 @@ interface Member {
   initials: string;
   reference: string;
   status: string;
+  paymentStatus: string;
   amount: number;
   phone: string;
 }
@@ -43,6 +44,38 @@ export default function MembersScreen() {
     fetchData();
   }, []);
 
+  useEffect(() => {
+    if (selectedClub) {
+      fetchMembers(selectedClub.id);
+    }
+  }, [selectedClub]);
+
+  const fetchMembers = async (groupId: string) => {
+    try {
+      const response = await axios.get(
+        `${API_URL}/api/treasurer/club/${groupId}?treasurer_id=${user?.id}`,
+      );
+      setMembers((response.data.members || []).map((member: any) => ({
+        id: member.id,
+        name: member.name,
+        initials: member.name
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((part: string) => part.charAt(0).toUpperCase())
+          .join(''),
+        reference: member.reference,
+        status: member.membership_status,
+        paymentStatus: member.status,
+        amount: member.amount_paid,
+        phone: member.phone,
+      })));
+    } catch (error) {
+      console.error('Error fetching members:', error);
+      setMembers([]);
+    }
+  };
+
   const fetchData = async () => {
     try {
       // Fetch treasurer's clubs
@@ -57,9 +90,6 @@ export default function MembersScreen() {
           setSelectedClub(clubList[0]);
         }
       }
-
-      // Empty members - real data will come from API when user creates a club
-      setMembers([]);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -67,9 +97,9 @@ export default function MembersScreen() {
     }
   };
 
-  const lateCount = members.filter(m => m.status === 'late').length;
-  const paidCount = members.filter(m => m.status === 'confirmed').length;
-  const dueCount = members.filter(m => m.status === 'due').length;
+  const lateCount = members.filter(m => m.paymentStatus === 'late').length;
+  const paidCount = members.filter(m => m.paymentStatus === 'confirmed').length;
+  const dueCount = members.filter(m => m.paymentStatus === 'due').length;
 
   const getAvatarColor = (status: string) => {
     switch (status) {
@@ -111,7 +141,7 @@ export default function MembersScreen() {
 
     setSending(true);
     try {
-      const response = await axios.post(`${API_URL}/api/treasurer/invite-member`, {
+      await axios.post(`${API_URL}/api/treasurer/invite-member`, {
         phone_number: formattedPhone,
         name: inviteName.trim() || undefined,
         group_id: selectedClub.id,
@@ -122,7 +152,7 @@ export default function MembersScreen() {
 
       Alert.alert(
         'Invitation Sent!',
-        `An SMS invitation has been sent to ${formattedPhone}. They will be automatically added to ${selectedClub.name} when they register.`,
+        `An SMS invitation has been sent to ${formattedPhone}. They must accept it in My Clubvel before joining ${selectedClub.name}.`,
         [{ text: 'OK', onPress: () => {
           setShowInviteModal(false);
           setInvitePhone('');
@@ -132,13 +162,8 @@ export default function MembersScreen() {
     } catch (error: any) {
       console.error('Error sending invite:', error);
       Alert.alert(
-        'Invitation Sent!',
-        `An SMS invitation has been sent to ${formattedPhone}. They will be automatically added to ${selectedClub.name} when they register.`,
-        [{ text: 'OK', onPress: () => {
-          setShowInviteModal(false);
-          setInvitePhone('');
-          setInviteName('');
-        }}]
+        'Could not send invitation',
+        error.response?.data?.detail || 'Please try again.',
       );
     } finally {
       setSending(false);

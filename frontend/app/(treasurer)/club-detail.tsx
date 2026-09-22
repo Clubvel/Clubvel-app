@@ -11,6 +11,8 @@ interface Member {
   id: string;
   name: string;
   phone: string;
+  membership_status: string;
+  role_in_group: 'member' | 'admin' | 'treasurer';
   status: string;
   amount_paid: number;
   amount_due: number;
@@ -287,7 +289,7 @@ export default function ClubDetailScreen() {
         </TouchableOpacity>
         <View style={styles.headerContent}>
           <Text style={styles.headerTitle}>{clubData.name}</Text>
-          <Text style={styles.headerSubtitle}>{clubData.member_count} members • Due: {clubData.due_date}th</Text>
+          <Text style={styles.headerSubtitle}>{clubData.member_count} {clubData.member_count === 1 ? 'member' : 'members'}</Text>
         </View>
         <View style={{ width: 40 }} />
       </View>
@@ -361,9 +363,9 @@ export default function ClubDetailScreen() {
                     <Text style={styles.memberPhone}>{member.phone}</Text>
                   </View>
                 </View>
-                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(member.status) + '20' }]}>
-                  <Text style={[styles.statusText, { color: getStatusColor(member.status) }]}>
-                    {getStatusLabel(member.status)}
+                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(member.membership_status) + '20' }]}>
+                  <Text style={[styles.statusText, { color: getStatusColor(member.membership_status) }]}>
+                    {getStatusLabel(member.membership_status)}
                   </Text>
                 </View>
               </View>
@@ -422,35 +424,11 @@ export default function ClubDetailScreen() {
 
         {activeTab === 'claims' && (
           <View style={styles.section}>
-            <View style={styles.claimCard}>
-              <View style={styles.claimHeader}>
-                <Ionicons name="trophy" size={32} color={Colors.gold} />
-                <View style={styles.claimInfo}>
-                  <Text style={styles.claimTitle}>Next Claim</Text>
-                  <Text style={styles.claimAmount}>R{clubData.expected.toFixed(2)}</Text>
-                </View>
-              </View>
-              <View style={styles.claimRecipient}>
-                <Text style={styles.claimLabel}>Recipient:</Text>
-                <Text style={styles.claimName}>{clubData.members[0]?.name || 'TBD'}</Text>
-              </View>
-              <Text style={styles.claimDate}>Payout Date: End of Month</Text>
+            <View style={styles.emptyState}>
+              <Ionicons name="trophy-outline" size={48} color={Colors.textMuted} />
+              <Text style={styles.emptyStateText}>No claims recorded</Text>
+              <Text style={styles.emptyStateSubtext}>Claims are only shown when this group creates an actual claim or payout arrangement.</Text>
             </View>
-
-            <Text style={styles.rotationTitle}>Rotation Order</Text>
-            {clubData.members.map((member, index) => (
-              <View key={member.id} style={styles.rotationItem}>
-                <View style={styles.rotationNumber}>
-                  <Text style={styles.rotationNumberText}>{index + 1}</Text>
-                </View>
-                <Text style={styles.rotationName}>{member.name}</Text>
-                {index === 0 && (
-                  <View style={styles.nextBadge}>
-                    <Text style={styles.nextBadgeText}>NEXT</Text>
-                  </View>
-                )}
-              </View>
-            ))}
           </View>
         )}
 
