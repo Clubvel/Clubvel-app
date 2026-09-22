@@ -142,7 +142,9 @@ export default function ProfileScreen() {
           </View>
         </TouchableOpacity>
         <Text style={styles.name}>{user?.full_name}</Text>
-        <Text style={styles.memberSince}>{stats.date_joined ? `Member since ${new Date(stats.date_joined).getFullYear()}` : 'Member since date unavailable'}</Text>
+        {stats.date_joined && (
+          <Text style={styles.memberSince}>Member since {new Date(stats.date_joined).getFullYear()}</Text>
+        )}
       </View>
 
       <ScrollView style={styles.content}>
@@ -164,10 +166,6 @@ export default function ProfileScreen() {
             <View style={styles.statCard}>
               <Text style={styles.statValue}>{stats.on_time_percentage}%</Text>
               <Text style={styles.statLabel}>On Time</Text>
-            </View>
-            <View style={styles.statCard}>
-              <Text style={[styles.statValue, styles.trustScoreValue]}>{stats.trust_score ?? '--'}</Text>
-              <Text style={styles.statLabel}>Trust Score</Text>
             </View>
           </View>
         )}
@@ -192,22 +190,6 @@ export default function ProfileScreen() {
             </View>
             <View style={styles.menuItemRight}>
               <Text style={styles.menuItemCount}>{payoutSchedules.length}</Text>
-              <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.menuItem}
-            onPress={() => router.push('/(member)/trust-score')}
-          >
-            <View style={styles.menuItemLeft}>
-              <Ionicons name="trophy" size={24} color={Colors.gold} />
-              <Text style={styles.menuItemText}>Trust Score</Text>
-            </View>
-            <View style={styles.menuItemRight}>
-              <View style={styles.trustScoreBadge}>
-                <Text style={styles.trustScoreBadgeText}>{stats.trust_score ?? 'Not scored'}</Text>
-              </View>
               <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
             </View>
           </TouchableOpacity>
