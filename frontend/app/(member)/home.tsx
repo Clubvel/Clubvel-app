@@ -126,7 +126,9 @@ export default function MemberHomeScreen() {
   const fetchDashboard = async () => {
     try {
       const [dashboardResponse, invitationsResponse] = await Promise.all([
-        axios.get(`${API_URL}/api/member/dashboard/${user?.id}`),
+        axios.get(`${API_URL}/api/member/dashboard/${user?.id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
         axios.get(`${API_URL}/api/invitations/pending/${user?.id}`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
