@@ -373,17 +373,17 @@ export default function MemberHomeScreen() {
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={48} color={Colors.textMuted} />
             <Text style={styles.emptyStateText}>No clubs yet</Text>
-            <Text style={styles.emptyStateSubtext}>Create your first group or join one through an invitation.</Text>
+            <Text style={styles.emptyStateSubtext}>Create a Stokvel, Social Club or Society Group, or join one through an invitation.</Text>
           </View>
         )}
         <View style={styles.primaryActions}>
           <TouchableOpacity style={styles.createButton} onPress={() => setShowCreateGroup(true)}>
             <Ionicons name="add" size={20} color={Colors.white} />
-            <Text style={styles.createButtonText}>Create a Group</Text>
+            <Text style={styles.createButtonText}>Create Stokvel / Social Club / Society Group</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.inviteButton} onPress={openInvitations}>
             <Ionicons name="mail-outline" size={20} color={Colors.accent} />
-            <Text style={styles.inviteButtonText}>Join a Group</Text>
+            <Text style={styles.inviteButtonText}>Join Stokvel / Social Club / Society Group</Text>
           </TouchableOpacity>
         </View>
       </View>
