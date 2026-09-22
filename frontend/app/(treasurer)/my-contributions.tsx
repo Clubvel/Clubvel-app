@@ -102,7 +102,6 @@ export default function MyContributionsScreen() {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.headerTitle}>My Contributions</Text>
-          <Text style={styles.headerSubtitle}>Your personal payments as a member</Text>
         </View>
         <TouchableOpacity onPress={() => router.push('/(treasurer)/profile')} style={styles.profileButton}>
           {user?.profile_photo ? (
