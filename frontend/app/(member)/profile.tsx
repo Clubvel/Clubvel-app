@@ -152,7 +152,7 @@ export default function ProfileScreen() {
         </TouchableOpacity>
         <Text style={styles.name}>{user?.full_name}</Text>
         {stats.date_joined && (
-          <Text style={styles.memberSince}>Member since {new Date(stats.date_joined).getFullYear()}</Text>
+          <Text style={styles.memberSince}>Joined {new Date(stats.date_joined).toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' })}</Text>
         )}
       </View>
 
