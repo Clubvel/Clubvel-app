@@ -130,17 +130,6 @@ Device: ${Platform.OS} ${Platform.Version}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Contact Us</Text>
           
-          <TouchableOpacity style={styles.contactCard} onPress={handleWhatsAppSupport}>
-            <View style={[styles.contactIcon, { backgroundColor: '#25D366' }]}>
-              <Ionicons name="logo-whatsapp" size={28} color={Colors.white} />
-            </View>
-            <View style={styles.contactInfo}>
-              <Text style={styles.contactTitle}>WhatsApp Support</Text>
-              <Text style={styles.contactSubtitle}>Chat with us instantly</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
-          </TouchableOpacity>
-
           <TouchableOpacity style={styles.contactCard} onPress={handleEmailSupport}>
             <View style={[styles.contactIcon, { backgroundColor: Colors.gold }]}>
               <Ionicons name="mail" size={28} color={Colors.white} />
@@ -152,16 +141,6 @@ Device: ${Platform.OS} ${Platform.Version}
             <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.contactCard} onPress={handlePhoneSupport}>
-            <View style={[styles.contactIcon, { backgroundColor: Colors.mediumGreen }]}>
-              <Ionicons name="call" size={28} color={Colors.white} />
-            </View>
-            <View style={styles.contactInfo}>
-              <Text style={styles.contactTitle}>Phone Support</Text>
-              <Text style={styles.contactSubtitle}>Call us directly</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
-          </TouchableOpacity>
         </View>
 
         {/* Feedback Form */}
