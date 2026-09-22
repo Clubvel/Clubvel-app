@@ -144,8 +144,17 @@ export default function AdminDashboardScreen() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setShowProfileMenu(false);
+
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm('Are you sure you want to sign out?');
+      if (!confirmed) return;
+      await logout();
+      router.replace('/auth');
+      return;
+    }
+
     Alert.alert(
       'Sign Out',
       'Are you sure you want to sign out?',
@@ -343,23 +352,18 @@ export default function AdminDashboardScreen() {
             >
               <View style={styles.clubCardHeader}>
                 <Text style={styles.clubName}>{club.name}</Text>
-                {club.late_count > 0 ? (
-                  <View style={styles.lateBadge}>
-                    <Text style={styles.lateBadgeText}>{club.late_count} late</Text>
-                  </View>
-                ) : (
+                {club.expected > 0 && club.collected >= club.expected ? (
                   <View style={styles.paidBadge}>
                     <Ionicons name="checkmark-circle" size={16} color={Colors.statusPaid} />
-                    <Text style={styles.paidBadgeText}>All paid</Text>
+                    <Text style={styles.paidBadgeText}>Contributions confirmed</Text>
                   </View>
-                )}
+                ) : null}
               </View>
 
               <View style={styles.clubMeta}>
                 <Ionicons name="people" size={14} color={Colors.textSecondary} />
                 <Text style={styles.clubMetaText}>{club.member_count} members</Text>
-                <Text style={styles.clubMetaText}> • </Text>
-                <Text style={styles.clubMetaText}>Due: {club.due_date} of month</Text>
+
               </View>
 
               <View style={styles.clubProgress}>
