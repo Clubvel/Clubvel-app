@@ -23,9 +23,9 @@ interface Club {
 
 interface PayoutSchedule {
   club_name: string;
-  payout_date: string;
-  amount: number;
-  position: number;
+  payout_date: string | null;
+  amount: number | null;
+  position: number | null;
 }
 
 export default function ProfileScreen() {
@@ -325,11 +325,11 @@ export default function ProfileScreen() {
                     </View>
                     <View style={styles.scheduleInfo}>
                       <Text style={styles.scheduleName}>{schedule.club_name}</Text>
-                      <Text style={styles.scheduleDate}>{schedule.payout_date}</Text>
-                      <Text style={styles.scheduleAmount}>R{schedule.amount.toLocaleString()}</Text>
+                      <Text style={styles.scheduleDate}>{schedule.payout_date || 'Date unavailable'}</Text>
+                      <Text style={styles.scheduleAmount}>{schedule.amount == null ? 'Amount unavailable' : `R${schedule.amount.toLocaleString()}`}</Text>
                     </View>
                     <View style={styles.schedulePosition}>
-                      <Text style={styles.positionText}>#{schedule.position}</Text>
+                      <Text style={styles.positionText}>{schedule.position == null ? '--' : `#${schedule.position}`}</Text>
                     </View>
                   </View>
                 ))
