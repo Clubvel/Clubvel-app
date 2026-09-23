@@ -302,6 +302,8 @@ async def verify_member_owns_data(user_id: str, target_user_id: str) -> bool:
 
 def get_legacy_group_admin_role(user_id: str, group: dict) -> Optional[str]:
     """Return a contextual role only when legacy group metadata proves admin access."""
+    if "admin_user_ids" in group:
+        return "admin" if user_id in (group.get("admin_user_ids") or []) else None
     if group.get("treasurer_user_id") == user_id:
         return "treasurer"
     if user_id in (group.get("admin_user_ids") or []):
@@ -322,21 +324,22 @@ async def reconcile_legacy_group_admin_membership(user_id: str, group: dict) -> 
 
     group_id = group["id"]
     existing_membership = await db.members.find_one({
-        "user_id": user_id,
-        "group_id": group_id,
-        "status": "active",
-        "role_in_group": {"$in": ["admin", "treasurer"]}
+        "user_id": user_id, "group_id": group_id
     })
     if existing_membership:
-        return existing_membership
+        # Explicit membership decisions outrank historical owner metadata.
+        # Never reactivate a removed member or undo a contextual demotion.
+        if existing_membership.get("status") == "active" and existing_membership.get("role_in_group") in ("admin", "treasurer"):
+            return existing_membership
+        return None
 
     member_count = await db.members.count_documents({"group_id": group_id})
     reference_prefix = group.get("payment_reference_prefix", "CLB")
     await db.members.update_one(
         {"user_id": user_id, "group_id": group_id},
         {
-            "$set": {"status": "active", "role_in_group": role_in_group},
             "$setOnInsert": {
+                "status": "active", "role_in_group": role_in_group,
                 "id": str(uuid.uuid4()),
                 "unique_reference_code": generate_reference_code(
                     reference_prefix, member_count + 1
@@ -368,10 +371,15 @@ async def reconcile_legacy_admin_memberships(user_id: str) -> None:
 async def get_active_membership_contexts(user_id: str) -> list[tuple[dict, dict]]:
     """Return authoritative active membership/group pairs for a person."""
     await reconcile_legacy_admin_memberships(user_id)
-    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(100)
+    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(None)
+    groups = await db.groups.find({
+        "id": {"$in": [membership["group_id"] for membership in memberships]},
+        "status": "active"
+    }).to_list(None)
+    groups_by_id = {group["id"]: group for group in groups}
     contexts = []
     for membership in memberships:
-        group = await db.groups.find_one({"id": membership["group_id"], "status": "active"})
+        group = groups_by_id.get(membership["group_id"])
         if group:
             contexts.append((membership, group))
     return contexts
@@ -813,7 +821,19 @@ async def get_user_stats(user_id: str):
 async def get_member_clubs(user_id: str):
     if not await db.users.find_one({"id": user_id}):
         raise HTTPException(status_code=404, detail="User not found")
-    clubs = [{"id": group["id"], "name": group["group_name"], "monthly_contribution": group["monthly_contribution"]} for _membership, group in await get_active_membership_contexts(user_id)]
+    clubs = [{
+        "id": group["id"],
+        "membership_id": membership["id"],
+        "membership_status": membership["status"],
+        "role": membership.get("role_in_group", "member"),
+        "name": group["group_name"],
+        "monthly_contribution": group["monthly_contribution"],
+        "group_type": group.get("group_type", "savings"),
+        "contribution_mode": group.get("contribution_mode", "fixed_monthly"),
+        "destination": group.get("destination"),
+        "target_amount_per_member": group.get("target_amount_per_member"),
+        "target_date": group.get("target_date"),
+    } for membership, group in await get_active_membership_contexts(user_id)]
     return {"clubs": clubs}
 
 @api_router.get("/member/payout-schedule/{user_id}")
@@ -1694,12 +1714,12 @@ async def get_member_dashboard(user_id: str):
 @api_router.get("/member/club/{group_id}/user/{user_id}")
 async def get_member_club_details(group_id: str, user_id: str):
     # Get group
-    group = await db.groups.find_one({"id": group_id})
+    group = await db.groups.find_one({"id": group_id, "status": "active"})
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     
     # Get membership
-    membership = await db.members.find_one({"user_id": user_id, "group_id": group_id})
+    membership = await db.members.find_one({"user_id": user_id, "group_id": group_id, "status": "active"})
     if not membership:
         raise HTTPException(status_code=404, detail="Not a member of this group")
     

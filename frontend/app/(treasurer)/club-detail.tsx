@@ -6,6 +6,8 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import axios from 'axios';
+import { useWorkspace } from '../../contexts/WorkspaceContext';
+import { workspaceRoute } from '../../services/workspace';
 
 interface Member {
   id: string;
@@ -59,6 +61,7 @@ interface ReminderContribution {
 export default function ClubDetailScreen() {
   const { id, name } = useLocalSearchParams<{ id: string; name: string }>();
   const { user } = useAuth();
+  const { personalHome, selectedClub } = useWorkspace();
   const router = useRouter();
   const insets = useSafeAreaInsets();
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
@@ -106,9 +109,10 @@ export default function ClubDetailScreen() {
 
   useEffect(() => {
     if (id) {
-      fetchClubData();
+      if (selectedClub?.id !== id) router.replace(workspaceRoute(selectedClub));
+      else fetchClubData();
     }
-  }, [id]);
+  }, [id, selectedClub?.id]);
 
   const onRefresh = () => {
     setRefreshing(true);
@@ -380,7 +384,7 @@ export default function ClubDetailScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerBackButton}>
+        <TouchableOpacity accessibilityLabel="Personal Home" onPress={() => void personalHome()} style={styles.headerBackButton}>
           <Ionicons name="arrow-back" size={24} color={Colors.white} />
         </TouchableOpacity>
         <View style={styles.headerContent}>

@@ -148,7 +148,7 @@ export default function AuthScreen() {
     try {
       // Send only phone_number and password - no role
       await login(phoneNumber, password);
-      router.replace('/(member)/home');
+      router.replace('/');
       
     } catch (error: any) {
       if (error.message.includes('Invalid phone number or password')) {

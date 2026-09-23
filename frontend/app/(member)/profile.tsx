@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, ActivityIndicator, Modal, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
+import { useWorkspace } from '../../contexts/WorkspaceContext';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
@@ -37,8 +38,9 @@ export default function ProfileScreen() {
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<UserStats>({ clubs_count: 0, total_saved: 0, on_time_percentage: 0, trust_score: null, date_joined: null });
-  const [clubs, setClubs] = useState<Club[]>([]);
-  const [clubsError, setClubsError] = useState(false);
+  const { clubs: membershipClubs, membershipError, refreshMemberships, selectGroup } = useWorkspace();
+  const clubs = membershipClubs || [];
+  const clubsError = !!membershipError || membershipClubs === null;
   const [payoutSchedules, setPayoutSchedules] = useState<PayoutSchedule[]>([]);
   const [showClubsModal, setShowClubsModal] = useState(false);
   const [showPayoutModal, setShowPayoutModal] = useState(false);
@@ -61,21 +63,17 @@ export default function ProfileScreen() {
     if (!user?.id) return;
     setLoading(true);
     try {
-      const [statsResponse, clubsResponse, payoutResponse] = await Promise.allSettled([
+      const [statsResponse, , payoutResponse] = await Promise.allSettled([
         axios.get(`${API_URL}/api/user/stats/${user.id}`),
-        axios.get(`${API_URL}/api/member/clubs/${user.id}`),
+        refreshMemberships(),
         axios.get(`${API_URL}/api/member/payout-schedule/${user.id}`),
       ]);
       if (statsResponse.status === 'fulfilled') setStats(statsResponse.value.data);
-      setClubsError(clubsResponse.status === 'rejected');
-      setClubs(clubsResponse.status === 'fulfilled' ? clubsResponse.value.data.clubs : []);
       setPayoutSchedules(payoutResponse.status === 'fulfilled' ? payoutResponse.value.data.schedules || [] : []);
     } catch (error) {
       console.error('Error fetching profile data:', error);
       // Set defaults if API fails
       setStats({ clubs_count: 0, total_saved: 0, on_time_percentage: 0, trust_score: null, date_joined: null });
-      setClubs([]);
-      setClubsError(true);
       setPayoutSchedules([]);
     } finally {
       setLoading(false);
@@ -287,15 +285,16 @@ export default function ProfileScreen() {
                 </TouchableOpacity>
               ) : clubs.length > 0 ? (
                 clubs.map((club, index) => (
-                  <View key={index} style={styles.clubItem}>
+                  <TouchableOpacity key={club.id} style={styles.clubItem} accessibilityRole="button" onPress={() => { setShowClubsModal(false); void selectGroup(club.id); }}>
                     <View style={styles.clubIcon}>
                       <Ionicons name="people" size={24} color={Colors.mediumGreen} />
                     </View>
                     <View style={styles.clubInfo}>
                       <Text style={styles.clubName}>{club.name}</Text>
+                      <Text style={styles.clubContribution}>{club.role}</Text>
                       <Text style={styles.clubContribution}>{club.contribution_mode === 'flexible_goal' ? (club.target_amount_per_member == null ? 'Goal amount unavailable' : `Goal R${club.target_amount_per_member.toLocaleString()}`) : `R${club.monthly_contribution}/month`}</Text>
                     </View>
-                  </View>
+                  </TouchableOpacity>
                 ))
               ) : (
                 <View style={styles.emptyState}>

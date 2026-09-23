@@ -2,6 +2,7 @@ import React, { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image, TextInput, Platform } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
+import { useWorkspace } from '../../contexts/WorkspaceContext';
 import { StatusPill } from '../../components/StatusPill';
 import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
@@ -53,8 +54,7 @@ export default function MemberHomeScreen() {
   const { user, token, logout } = useAuth();
   const router = useRouter();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
-  const [clubs, setClubs] = useState<Club[] | null>(null);
-  const [clubsError, setClubsError] = useState(false);
+  const { clubs, membershipError: clubsError, refreshMemberships, selectGroup } = useWorkspace();
   const [dashboardError, setDashboardError] = useState(false);
   const [claimsCount, setClaimsCount] = useState<number | null>(null);
   const [paymentView, setPaymentView] = useState<'contributions' | 'upcoming' | null>(null);
@@ -149,13 +149,11 @@ export default function MemberHomeScreen() {
 
   const fetchDashboard = async () => {
     try {
-      const [dashboardResponse, clubsResponse, invitationsResponse, claimsResponse] = await Promise.allSettled([
+      const [dashboardResponse, , invitationsResponse, claimsResponse] = await Promise.allSettled([
         axios.get(`${API_URL}/api/member/dashboard/${user?.id}`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
-        axios.get(`${API_URL}/api/member/clubs/${user?.id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+        refreshMemberships(),
         axios.get(`${API_URL}/api/invitations/pending/${user?.id}`, {
           headers: { Authorization: `Bearer ${token}` },
         }),
@@ -165,9 +163,6 @@ export default function MemberHomeScreen() {
       ]);
       setDashboardError(dashboardResponse.status === 'rejected');
       setDashboardData(dashboardResponse.status === 'fulfilled' ? dashboardResponse.value.data : null);
-      setClubsError(clubsResponse.status === 'rejected');
-      // Profile/My Clubs is authoritative; dashboard clubs only add payment status.
-      setClubs(clubsResponse.status === 'fulfilled' ? clubsResponse.value.data.clubs : null);
       setClaimsCount(claimsResponse.status === 'fulfilled' ? claimsResponse.value.data.schedules.length : null);
       if (invitationsResponse.status === 'fulfilled') {
         setPendingInvitations(invitationsResponse.value.data.invitations || []);
@@ -187,7 +182,6 @@ export default function MemberHomeScreen() {
   useFocusEffect(useCallback(() => {
     if (user?.id) {
       setLoading(true);
-      setClubs(null);
       setDashboardData(null);
       setClaimsCount(null);
       fetchDashboard();
@@ -229,11 +223,7 @@ export default function MemberHomeScreen() {
   };
 
   const openClub = (club: Club) => {
-    if (club.role === 'admin' || club.role === 'treasurer') {
-      router.push({ pathname: '/(treasurer)/club-detail', params: { id: club.id, name: club.name } });
-      return;
-    }
-    router.push(`/(member)/club/${club.id}`);
+    void selectGroup(club.id);
   };
 
   const createGroup = async () => {
@@ -270,10 +260,7 @@ export default function MemberHomeScreen() {
       setTravelTargetAmount('');
       setTravelTargetDate('');
       await fetchDashboard();
-      router.push({
-        pathname: '/(treasurer)/club-detail',
-        params: { id: response.data.group_id, name: response.data.group_name },
-      });
+      await selectGroup(response.data.group_id);
     } catch (error: any) {
       Alert.alert('Could not create group', error.response?.data?.detail || 'Please try again.');
     } finally {

@@ -7,6 +7,8 @@ import { Colors } from '../../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
+import { WorkspaceControls } from '../../../components/WorkspaceControls';
+import { useWorkspace } from '../../../contexts/WorkspaceContext';
 
 interface ClubDetails {
   group: {
@@ -46,6 +48,7 @@ export default function ClubDetailScreen() {
   const { id } = useLocalSearchParams();
   const { user } = useAuth();
   const router = useRouter();
+  const { ready, checking, workspaceError, restoreWorkspace } = useWorkspace();
   const [clubData, setClubData] = useState<ClubDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
@@ -64,10 +67,11 @@ export default function ClubDetailScreen() {
   };
 
   useEffect(() => {
-    if (user && id) {
+    if (user && !ready && !checking && !workspaceError) void restoreWorkspace();
+    if (user && id && ready && !checking && !workspaceError) {
       fetchClubDetails();
     }
-  }, [user, id]);
+  }, [user, id, ready, checking, workspaceError, restoreWorkspace]);
 
   const handleUploadProof = async () => {
     // Request permissions
@@ -113,6 +117,7 @@ export default function ClubDetailScreen() {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.mediumGreen} />
+        <WorkspaceControls />
       </View>
     );
   }
@@ -121,6 +126,7 @@ export default function ClubDetailScreen() {
     return (
       <View style={styles.errorContainer}>
         <Text style={styles.errorText}>Failed to load club details</Text>
+        <WorkspaceControls />
       </View>
     );
   }
@@ -142,6 +148,7 @@ export default function ClubDetailScreen() {
       </View>
 
       <ScrollView>
+        <WorkspaceControls />
         {/* Current Contribution Status */}
         <View style={styles.section}>
           <View style={styles.card}>

@@ -5,6 +5,7 @@ import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
+import { useWorkspace } from '../../contexts/WorkspaceContext';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
@@ -63,6 +64,7 @@ export default function AdminDashboardScreen() {
   const [paymentDueDate, setPaymentDueDate] = useState('25');
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+  const { selectGroup } = useWorkspace();
 
   const fetchDashboard = async () => {
     try {
@@ -344,10 +346,7 @@ export default function AdminDashboardScreen() {
             <TouchableOpacity 
               key={club.id} 
               style={styles.clubCard}
-              onPress={() => router.push({
-                pathname: '/(treasurer)/club-detail',
-                params: { id: club.id, name: club.name }
-              })}
+              onPress={() => void selectGroup(club.id)}
               activeOpacity={0.7}
             >
               <View style={styles.clubCardHeader}>
