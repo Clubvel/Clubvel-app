@@ -1,5 +1,5 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useEffect, useRef, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, TextInput, KeyboardAvoidingView, Platform, Linking } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,6 +11,8 @@ interface Member {
   id: string;
   name: string;
   phone: string;
+  membership_status: string;
+  role_in_group: 'member' | 'admin' | 'treasurer';
   status: string;
   amount_paid: number;
   amount_due: number;
@@ -29,6 +31,29 @@ interface ClubData {
   collected: number;
   expected: number;
   members: Member[];
+}
+
+// Accept formatting punctuation, but never silently discard letters or extensions.
+function normalizeReminderPhone(value: unknown): string | null {
+  if (typeof value !== 'string' || !/^[+\d\s().-]+$/.test(value.trim())) return null;
+  let phone = value.trim().replace(/[\s().-]/g, '');
+  if (/^0[1-9]\d{8}$/.test(phone)) return `27${phone.slice(1)}`;
+  if (phone.startsWith('00')) phone = `+${phone.slice(2)}`;
+  if (/^27[1-9]\d{8}$/.test(phone)) return phone;
+  if (!/^\+[1-9]\d{7,14}$/.test(phone)) return null;
+  if (phone.startsWith('+27') && !/^\+27[1-9]\d{8}$/.test(phone)) return null;
+  return phone.slice(1);
+}
+
+interface ReminderContribution {
+  id: string | null;
+  member_id: string;
+  amount_due: number;
+  amount_paid: number;
+  status: string;
+  contribution_status?: string;
+  proof_uploaded: boolean;
+  proof_of_payment?: string | null;
 }
 
 export default function ClubDetailScreen() {
@@ -52,6 +77,13 @@ export default function ClubDetailScreen() {
   const [inviteAdminPhone, setInviteAdminPhone] = useState('');
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
+  const [reminderMember, setReminderMember] = useState<Member | null>(null);
+  const [reminderLoading, setReminderLoading] = useState(false);
+  const [reminderError, setReminderError] = useState<string | null>(null);
+  const reminderRequest = useRef(0);
+  const reminderBusy = useRef(false);
+
+  useEffect(() => () => { reminderRequest.current += 1; }, [id, user?.id]);
 
   const fetchClubData = async () => {
     setError(null);
@@ -114,20 +146,86 @@ export default function ClubDetailScreen() {
     );
   };
 
-  const handleRemindMember = (memberName: string, phone: string) => {
-    Alert.alert(
-      'Send Reminder',
-      `Send payment reminder to ${memberName}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Send',
-          onPress: () => {
-            Alert.alert('Reminder Sent', `Payment reminder sent to ${memberName}`);
-          }
-        }
-      ]
-    );
+  const closeReminder = () => {
+    reminderRequest.current += 1;
+    reminderBusy.current = false;
+    setReminderLoading(false);
+    setReminderMember(null);
+    setReminderError(null);
+  };
+
+  const handleRemindMember = (member: Member) => {
+    setReminderError(null);
+    setReminderMember(member);
+  };
+
+  const openWhatsAppReminder = async () => {
+    if (reminderBusy.current || !reminderMember) return;
+    reminderBusy.current = true;
+    const request = ++reminderRequest.current;
+    setReminderLoading(true);
+    setReminderError(null);
+    let openingWhatsApp = false;
+    try {
+      if (!user?.id || !clubData?.id) throw new Error('Your group session is unavailable. Close this dialog and reload the group.');
+      const now = new Date();
+      const month = now.getUTCMonth() + 1;
+      const year = now.getUTCFullYear();
+      const response = await axios.get(`${API_URL}/api/treasurer/contributions/${encodeURIComponent(clubData.id)}/month/${month}/year/${year}`, {
+        params: { treasurer_id: user.id },
+        timeout: 15000,
+      });
+      if (request !== reminderRequest.current) return;
+      const data = response.data;
+      if (data?.group?.id !== clubData.id || data?.month !== month || data?.year !== year || !Array.isArray(data?.contributions)) {
+        throw new Error('Could not verify this group’s current-month contributions. Please try again.');
+      }
+      const matches: ReminderContribution[] = data.contributions.filter((item: ReminderContribution) => item?.member_id === reminderMember.id);
+      if (matches.length !== 1 || typeof matches[0].id !== 'string' || !matches[0].id.trim()) {
+        throw new Error('No reliable current-month contribution record exists for this member. A reminder cannot be prepared.');
+      }
+      const contribution = matches[0];
+      if (contribution.proof_uploaded || contribution.proof_of_payment || contribution.status === 'proof_uploaded' || contribution.contribution_status === 'proof_uploaded') {
+        throw new Error('Proof of payment is awaiting confirmation. Review the payment instead of sending a reminder.');
+      }
+      if (['confirmed', 'excused'].includes(contribution.status) || ['confirmed', 'excused'].includes(contribution.contribution_status || '')) {
+        throw new Error('This contribution is confirmed or excused. No payment reminder is needed.');
+      }
+      const { amount_due, amount_paid } = contribution;
+      if (typeof amount_due !== 'number' || typeof amount_paid !== 'number' || !Number.isFinite(amount_due) || !Number.isFinite(amount_paid) || amount_due < 0 || amount_paid < 0) {
+        throw new Error('The outstanding amount cannot be established from this contribution. Please review its payment details.');
+      }
+      const outstandingCents = Math.round(amount_due * 100) - Math.round(amount_paid * 100);
+      if (!Number.isSafeInteger(outstandingCents)) throw new Error('The contribution amount could not be verified.');
+      if (outstandingCents <= 0) throw new Error('This contribution has no outstanding balance. No payment reminder is needed.');
+      // The existing API's calculated status can hide an excused record. Never
+      // treat that calculated status alone as evidence that money is owed.
+      if (!['pending', 'due', 'late'].includes(contribution.contribution_status || '') || !['pending', 'due', 'late'].includes(contribution.status) || contribution.proof_uploaded !== false) {
+        throw new Error('Unable to verify whether this contribution is excused. The current service does not provide a reliable original payment status, so WhatsApp has not been opened.');
+      }
+      const phone = normalizeReminderPhone(reminderMember.phone);
+      if (!phone) throw new Error('This member’s phone number is missing or invalid. A complete South African or international number is needed to open their WhatsApp chat.');
+      const memberName = reminderMember.name?.trim();
+      const groupName = typeof data.group.name === 'string' ? data.group.name.trim() : '';
+      if (!memberName || !groupName) throw new Error('The member or group name is missing. Please reload the group before trying again.');
+      const amount = (outstandingCents / 100).toFixed(2);
+      const message = `Hi ${memberName}, this is a friendly reminder that your R${amount} contribution for ${groupName} is still outstanding. Please make your payment when convenient. Thank you.`;
+      openingWhatsApp = true;
+      await Linking.openURL(`whatsapp://send?phone=${phone}&text=${encodeURIComponent(message)}`);
+      if (request === reminderRequest.current) closeReminder();
+    } catch (error) {
+      if (request !== reminderRequest.current) return;
+      setReminderError(openingWhatsApp
+        ? 'Could not open WhatsApp. Make sure it is installed and available on this device, then try again. No message has been sent by Clubvel.'
+        : axios.isAxiosError(error)
+          ? 'Could not verify the current contribution. Check your connection and group access, then try again.'
+          : error instanceof Error ? error.message : 'Could not prepare the reminder. Please try again.');
+    } finally {
+      if (request === reminderRequest.current) {
+        reminderBusy.current = false;
+        setReminderLoading(false);
+      }
+    }
   };
 
   // Admin Actions
@@ -287,7 +385,7 @@ export default function ClubDetailScreen() {
         </TouchableOpacity>
         <View style={styles.headerContent}>
           <Text style={styles.headerTitle}>{clubData.name}</Text>
-          <Text style={styles.headerSubtitle}>{clubData.member_count} members • Due: {clubData.due_date}th</Text>
+          <Text style={styles.headerSubtitle}>{clubData.member_count} {clubData.member_count === 1 ? 'member' : 'members'}</Text>
         </View>
         <View style={{ width: 40 }} />
       </View>
@@ -361,9 +459,9 @@ export default function ClubDetailScreen() {
                     <Text style={styles.memberPhone}>{member.phone}</Text>
                   </View>
                 </View>
-                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(member.status) + '20' }]}>
-                  <Text style={[styles.statusText, { color: getStatusColor(member.status) }]}>
-                    {getStatusLabel(member.status)}
+                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(member.membership_status) + '20' }]}>
+                  <Text style={[styles.statusText, { color: getStatusColor(member.membership_status) }]}>
+                    {getStatusLabel(member.membership_status)}
                   </Text>
                 </View>
               </View>
@@ -407,7 +505,7 @@ export default function ClubDetailScreen() {
                     ) : (
                       <TouchableOpacity 
                         style={styles.remindButton}
-                        onPress={() => handleRemindMember(member.name, member.phone)}
+                        onPress={() => handleRemindMember(member)}
                       >
                         <Ionicons name="notifications" size={18} color={Colors.gold} />
                         <Text style={styles.remindButtonText}>Send Reminder</Text>
@@ -422,35 +520,11 @@ export default function ClubDetailScreen() {
 
         {activeTab === 'claims' && (
           <View style={styles.section}>
-            <View style={styles.claimCard}>
-              <View style={styles.claimHeader}>
-                <Ionicons name="trophy" size={32} color={Colors.gold} />
-                <View style={styles.claimInfo}>
-                  <Text style={styles.claimTitle}>Next Claim</Text>
-                  <Text style={styles.claimAmount}>R{clubData.expected.toFixed(2)}</Text>
-                </View>
-              </View>
-              <View style={styles.claimRecipient}>
-                <Text style={styles.claimLabel}>Recipient:</Text>
-                <Text style={styles.claimName}>{clubData.members[0]?.name || 'TBD'}</Text>
-              </View>
-              <Text style={styles.claimDate}>Payout Date: End of Month</Text>
+            <View style={styles.emptyState}>
+              <Ionicons name="trophy-outline" size={48} color={Colors.textMuted} />
+              <Text style={styles.emptyStateText}>No claims recorded</Text>
+              <Text style={styles.emptyStateSubtext}>Claims are only shown when this group creates an actual claim or payout arrangement.</Text>
             </View>
-
-            <Text style={styles.rotationTitle}>Rotation Order</Text>
-            {clubData.members.map((member, index) => (
-              <View key={member.id} style={styles.rotationItem}>
-                <View style={styles.rotationNumber}>
-                  <Text style={styles.rotationNumberText}>{index + 1}</Text>
-                </View>
-                <Text style={styles.rotationName}>{member.name}</Text>
-                {index === 0 && (
-                  <View style={styles.nextBadge}>
-                    <Text style={styles.nextBadgeText}>NEXT</Text>
-                  </View>
-                )}
-              </View>
-            ))}
           </View>
         )}
 
@@ -526,6 +600,25 @@ export default function ClubDetailScreen() {
 
         <View style={{ height: 32 }} />
       </ScrollView>
+
+      <Modal visible={reminderMember !== null} transparent animationType="fade" onRequestClose={closeReminder}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Send reminder via</Text>
+            <Text style={styles.modalSubtitle}>Review the message and press Send inside WhatsApp.</Text>
+            {reminderError && <Text accessibilityRole="alert" style={styles.modalSubtitle}>{reminderError}</Text>}
+            <View style={styles.modalButtons}>
+              <TouchableOpacity accessibilityRole="button" style={styles.modalCancelBtn} onPress={closeReminder}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="WhatsApp" disabled={reminderLoading} style={[styles.modalConfirmBtn, reminderLoading && { opacity: 0.6 }]} onPress={openWhatsAppReminder}>
+                {reminderLoading ? <ActivityIndicator color={Colors.white} /> : <Ionicons name="logo-whatsapp" size={22} color={Colors.white} />}
+                <Text style={styles.modalConfirmText}>WhatsApp</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
 
       {/* Edit Club Name Modal */}
       <Modal visible={showEditNameModal} transparent animationType="fade">
@@ -776,6 +869,26 @@ const styles = StyleSheet.create({
   },
   section: {
     padding: 16,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 24,
+  },
+  emptyStateText: {
+    fontSize: 18,
+    fontWeight: '600',
+    color: Colors.textPrimary,
+    textAlign: 'center',
+    marginTop: 16,
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    lineHeight: 22,
+    color: Colors.textSecondary,
+    textAlign: 'center',
+    marginTop: 8,
   },
   memberCard: {
     flexDirection: 'row',

@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, ActivityIndicator, Modal } from 'react-native';
-import { useRouter } from 'expo-router';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, ActivityIndicator, Modal, Platform } from 'react-native';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
@@ -11,29 +11,34 @@ interface UserStats {
   clubs_count: number;
   total_saved: number;
   on_time_percentage: number;
-  trust_score: number;
+  trust_score: number | null;
+  date_joined?: string | null;
 }
 
 interface Club {
   id: string;
   name: string;
   monthly_contribution: number;
+  contribution_mode?: 'fixed_monthly' | 'flexible_goal';
+  target_amount_per_member?: number | null;
 }
 
 interface PayoutSchedule {
   club_name: string;
-  payout_date: string;
-  amount: number;
-  position: number;
+  payout_date: string | null;
+  amount: number | null;
+  position: number | null;
 }
 
 export default function ProfileScreen() {
   const { user, logout, updateProfilePhoto } = useAuth();
   const router = useRouter();
+  const { showClubs } = useLocalSearchParams<{ showClubs?: string }>();
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<UserStats>({ clubs_count: 0, total_saved: 0, on_time_percentage: 0, trust_score: 0 });
+  const [stats, setStats] = useState<UserStats>({ clubs_count: 0, total_saved: 0, on_time_percentage: 0, trust_score: null, date_joined: null });
   const [clubs, setClubs] = useState<Club[]>([]);
+  const [clubsError, setClubsError] = useState(false);
   const [payoutSchedules, setPayoutSchedules] = useState<PayoutSchedule[]>([]);
   const [showClubsModal, setShowClubsModal] = useState(false);
   const [showPayoutModal, setShowPayoutModal] = useState(false);
@@ -41,34 +46,52 @@ export default function ProfileScreen() {
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
   useEffect(() => {
+    if (showClubs === 'true') {
+      setShowClubsModal(true);
+      fetchProfileData();
+      router.setParams({ showClubs: undefined });
+    }
+  }, [showClubs, user?.id]);
+
+  useEffect(() => {
     fetchProfileData();
-  }, []);
+  }, [user?.id]);
 
   const fetchProfileData = async () => {
+    if (!user?.id) return;
+    setLoading(true);
     try {
-      // Fetch user stats
-      const statsResponse = await axios.get(`${API_URL}/api/user/stats/${user?.id}`);
-      setStats(statsResponse.data);
-
-      // Fetch user clubs
-      const clubsResponse = await axios.get(`${API_URL}/api/member/clubs/${user?.id}`);
-      setClubs(clubsResponse.data.clubs || []);
-
-      // Fetch payout schedules
-      const payoutResponse = await axios.get(`${API_URL}/api/member/payout-schedule/${user?.id}`);
-      setPayoutSchedules(payoutResponse.data.schedules || []);
+      const [statsResponse, clubsResponse, payoutResponse] = await Promise.allSettled([
+        axios.get(`${API_URL}/api/user/stats/${user.id}`),
+        axios.get(`${API_URL}/api/member/clubs/${user.id}`),
+        axios.get(`${API_URL}/api/member/payout-schedule/${user.id}`),
+      ]);
+      if (statsResponse.status === 'fulfilled') setStats(statsResponse.value.data);
+      setClubsError(clubsResponse.status === 'rejected');
+      setClubs(clubsResponse.status === 'fulfilled' ? clubsResponse.value.data.clubs : []);
+      setPayoutSchedules(payoutResponse.status === 'fulfilled' ? payoutResponse.value.data.schedules || [] : []);
     } catch (error) {
       console.error('Error fetching profile data:', error);
       // Set defaults if API fails
-      setStats({ clubs_count: 0, total_saved: 0, on_time_percentage: 0, trust_score: 0 });
+      setStats({ clubs_count: 0, total_saved: 0, on_time_percentage: 0, trust_score: null, date_joined: null });
       setClubs([]);
+      setClubsError(true);
       setPayoutSchedules([]);
     } finally {
       setLoading(false);
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm('Are you sure you want to sign out?');
+      if (!confirmed) return;
+
+      await logout();
+      router.replace('/auth');
+      return;
+    }
+
     Alert.alert(
       'Sign Out',
       'Are you sure you want to sign out?',
@@ -141,7 +164,9 @@ export default function ProfileScreen() {
           </View>
         </TouchableOpacity>
         <Text style={styles.name}>{user?.full_name}</Text>
-        <Text style={styles.memberSince}>Member since 2024</Text>
+        {stats.date_joined && (
+          <Text style={styles.memberSince}>Joined {new Date(stats.date_joined).toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' })}</Text>
+        )}
       </View>
 
       <ScrollView style={styles.content}>
@@ -153,7 +178,7 @@ export default function ProfileScreen() {
         ) : (
           <View style={styles.statsContainer}>
             <View style={styles.statCard}>
-              <Text style={styles.statValue}>{stats.clubs_count}</Text>
+              <Text style={styles.statValue}>{clubsError ? 'Unavailable' : clubs.length}</Text>
               <Text style={styles.statLabel}>Clubs</Text>
             </View>
             <View style={styles.statCard}>
@@ -163,10 +188,6 @@ export default function ProfileScreen() {
             <View style={styles.statCard}>
               <Text style={styles.statValue}>{stats.on_time_percentage}%</Text>
               <Text style={styles.statLabel}>On Time</Text>
-            </View>
-            <View style={styles.statCard}>
-              <Text style={[styles.statValue, styles.trustScoreValue]}>{stats.trust_score}</Text>
-              <Text style={styles.statLabel}>Trust Score</Text>
             </View>
           </View>
         )}
@@ -179,7 +200,7 @@ export default function ProfileScreen() {
               <Text style={styles.menuItemText}>My Clubs</Text>
             </View>
             <View style={styles.menuItemRight}>
-              <Text style={styles.menuItemCount}>{clubs.length}</Text>
+              <Text style={styles.menuItemCount}>{clubsError ? 'Unavailable' : clubs.length}</Text>
               <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
             </View>
           </TouchableOpacity>
@@ -191,22 +212,6 @@ export default function ProfileScreen() {
             </View>
             <View style={styles.menuItemRight}>
               <Text style={styles.menuItemCount}>{payoutSchedules.length}</Text>
-              <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
-            </View>
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.menuItem}
-            onPress={() => router.push('/(member)/trust-score')}
-          >
-            <View style={styles.menuItemLeft}>
-              <Ionicons name="trophy" size={24} color={Colors.gold} />
-              <Text style={styles.menuItemText}>Trust Score</Text>
-            </View>
-            <View style={styles.menuItemRight}>
-              <View style={styles.trustScoreBadge}>
-                <Text style={styles.trustScoreBadgeText}>{stats.trust_score || '--'}</Text>
-              </View>
               <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
             </View>
           </TouchableOpacity>
@@ -258,14 +263,6 @@ export default function ProfileScreen() {
           </TouchableOpacity>
         </View>
 
-        {/* Ad at bottom */}
-        <View style={styles.adContainer}>
-          <Text style={styles.adLabel}>Sponsored</Text>
-          <View style={styles.adCard}>
-            <Text style={styles.adTitle}>Your trust score opens doors</Text>
-            <Text style={styles.adBody}>Pre-approved for a R50,000 personal loan at 15% interest. Apply now with no paperwork.</Text>
-          </View>
-        </View>
       </ScrollView>
 
       {/* My Clubs Modal */}
@@ -284,7 +281,11 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalBody}>
-              {clubs.length > 0 ? (
+              {loading ? <ActivityIndicator color={Colors.mediumGreen} /> : clubsError ? (
+                <TouchableOpacity accessibilityRole="button" onPress={fetchProfileData}>
+                  <Text style={styles.emptyStateText}>Could not load your clubs. Tap to retry.</Text>
+                </TouchableOpacity>
+              ) : clubs.length > 0 ? (
                 clubs.map((club, index) => (
                   <View key={index} style={styles.clubItem}>
                     <View style={styles.clubIcon}>
@@ -292,7 +293,7 @@ export default function ProfileScreen() {
                     </View>
                     <View style={styles.clubInfo}>
                       <Text style={styles.clubName}>{club.name}</Text>
-                      <Text style={styles.clubContribution}>R{club.monthly_contribution}/month</Text>
+                      <Text style={styles.clubContribution}>{club.contribution_mode === 'flexible_goal' ? (club.target_amount_per_member == null ? 'Goal amount unavailable' : `Goal R${club.target_amount_per_member.toLocaleString()}`) : `R${club.monthly_contribution}/month`}</Text>
                     </View>
                   </View>
                 ))
@@ -332,11 +333,11 @@ export default function ProfileScreen() {
                     </View>
                     <View style={styles.scheduleInfo}>
                       <Text style={styles.scheduleName}>{schedule.club_name}</Text>
-                      <Text style={styles.scheduleDate}>{schedule.payout_date}</Text>
-                      <Text style={styles.scheduleAmount}>R{schedule.amount.toLocaleString()}</Text>
+                      <Text style={styles.scheduleDate}>{schedule.payout_date || 'Date unavailable'}</Text>
+                      <Text style={styles.scheduleAmount}>{schedule.amount == null ? 'Amount unavailable' : `R${schedule.amount.toLocaleString()}`}</Text>
                     </View>
                     <View style={styles.schedulePosition}>
-                      <Text style={styles.positionText}>#{schedule.position}</Text>
+                      <Text style={styles.positionText}>{schedule.position == null ? '--' : `#${schedule.position}`}</Text>
                     </View>
                   </View>
                 ))
@@ -344,7 +345,7 @@ export default function ProfileScreen() {
                 <View style={styles.emptyState}>
                   <Ionicons name="calendar-outline" size={48} color={Colors.textMuted} />
                   <Text style={styles.emptyStateText}>No Payout Schedule</Text>
-                  <Text style={styles.emptyStateSubtext}>Join a club to see your payout schedule</Text>
+                  <Text style={styles.emptyStateSubtext}>No recorded payout schedule is available yet</Text>
                 </View>
               )}
             </ScrollView>

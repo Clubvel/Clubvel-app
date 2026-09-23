@@ -16,7 +16,6 @@ export default function TreasurerClaimsScreen() {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.headerTitle}>Claims Management</Text>
-          <Text style={styles.headerSubtitle}>Manage your club claims</Text>
         </View>
         <TouchableOpacity onPress={() => router.push('/(treasurer)/profile')} style={styles.profileButton}>
           {user?.profile_photo ? (

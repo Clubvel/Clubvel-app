@@ -67,6 +67,10 @@ export default function MemberLayout() {
       />
       {/* Hidden screens - not in tab bar */}
       <Tabs.Screen
+        name="explore-investments"
+        options={{ href: null }}
+      />
+      <Tabs.Screen
         name="profile"
         options={{
           href: null,

@@ -26,19 +26,6 @@ export default function SupportScreen() {
 
   // Support contact details - phone numbers to be updated
   const SUPPORT_EMAIL = 'support@clubvel.co.za';
-  const SUPPORT_WHATSAPP = ''; // To be updated
-  const SUPPORT_PHONE = ''; // To be updated
-
-  const handleWhatsAppSupport = () => {
-    if (!SUPPORT_WHATSAPP) {
-      Alert.alert('Coming Soon', 'WhatsApp support number will be added soon.');
-      return;
-    }
-    const whatsappUrl = `whatsapp://send?phone=${SUPPORT_WHATSAPP}&text=Hi, I need help with Clubvel app. My phone: ${user?.phone_number || 'N/A'}`;
-    Linking.openURL(whatsappUrl).catch(() => {
-      Alert.alert('Error', 'WhatsApp is not installed on this device');
-    });
-  };
 
   const handleEmailSupport = () => {
     const subject = encodeURIComponent('Clubvel App Support Request');
@@ -56,14 +43,6 @@ Name: ${user?.full_name || 'N/A'}
 App Version: 1.0.0
     `);
     Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`);
-  };
-
-  const handlePhoneSupport = () => {
-    if (!SUPPORT_PHONE) {
-      Alert.alert('Coming Soon', 'Phone support number will be added soon.');
-      return;
-    }
-    Linking.openURL(`tel:${SUPPORT_PHONE}`);
   };
 
   const handleSubmitFeedback = async () => {
@@ -130,17 +109,6 @@ Device: ${Platform.OS} ${Platform.Version}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Contact Us</Text>
           
-          <TouchableOpacity style={styles.contactCard} onPress={handleWhatsAppSupport}>
-            <View style={[styles.contactIcon, { backgroundColor: '#25D366' }]}>
-              <Ionicons name="logo-whatsapp" size={28} color={Colors.white} />
-            </View>
-            <View style={styles.contactInfo}>
-              <Text style={styles.contactTitle}>WhatsApp Support</Text>
-              <Text style={styles.contactSubtitle}>Chat with us instantly</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
-          </TouchableOpacity>
-
           <TouchableOpacity style={styles.contactCard} onPress={handleEmailSupport}>
             <View style={[styles.contactIcon, { backgroundColor: Colors.gold }]}>
               <Ionicons name="mail" size={28} color={Colors.white} />
@@ -152,16 +120,6 @@ Device: ${Platform.OS} ${Platform.Version}
             <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
           </TouchableOpacity>
 
-          <TouchableOpacity style={styles.contactCard} onPress={handlePhoneSupport}>
-            <View style={[styles.contactIcon, { backgroundColor: Colors.mediumGreen }]}>
-              <Ionicons name="call" size={28} color={Colors.white} />
-            </View>
-            <View style={styles.contactInfo}>
-              <Text style={styles.contactTitle}>Phone Support</Text>
-              <Text style={styles.contactSubtitle}>Call us directly</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
-          </TouchableOpacity>
         </View>
 
         {/* Feedback Form */}

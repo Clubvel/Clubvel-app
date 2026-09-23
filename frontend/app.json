@@ -1,15 +1,11 @@
 {
   "expo": {
     "name": "Clubvel",
-        "web": {
-      "meta": [
-        {
-          "name": "google-site-verification",
-          "content": "r-xt51IGc-WCi5UHh1icvg_2gLkdE8Vf7N5rBhVtWGc"
-        }
-      ]
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
     },
-
     "slug": "clubvel",
     "version": "1.0.0",
     "runtimeVersion": {
@@ -39,7 +35,7 @@
     "android": {
       "package": "com.clubvel.clubvel",
       "googleServicesFile": "./google-services.json",
-      "versionCode": 13,
+      "versionCode": 14,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/clubvel-android-icon-final.png",
         "backgroundColor": "#FFFFFF"
@@ -55,17 +51,12 @@
         "android.permission.RECEIVE_SMS"
       ]
     },
-    "web": {
-      "bundler": "metro",
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
-    },
     "plugins": [
       "expo-router",
       [
         "expo-splash-screen",
         {
-          "image":  "./assets/images/clubvel-final-splash.png",
+          "image": "./assets/images/clubvel-final-splash.png",
           "imageWidth": 300,
           "resizeMode": "contain",
           "backgroundColor": "#FFFFFF"
@@ -105,4 +96,3 @@
     }
   }
 }
-

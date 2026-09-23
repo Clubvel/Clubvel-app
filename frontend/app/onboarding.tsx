@@ -23,7 +23,7 @@ const slides = [
   {
     icon: 'trophy-outline' as const,
     title: 'Build your financial reputation.',
-    body: 'Every contribution builds your Clubvel Trust Score — proof of your financial discipline that banks and insurers recognise.',
+    body: 'Build a verified Clubvel contribution history from the activity recorded in your groups.',
   },
 ];
 

@@ -25,7 +25,7 @@
         "buildType": "apk"
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://clubvel-production.up.railway.app"
+        "EXPO_PUBLIC_BACKEND_URL": "https://clubvel-staging.up.railway.app"
       }
     },
     "production": {

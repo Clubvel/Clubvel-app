@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, ActivityIndicator, Modal } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
@@ -7,7 +7,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useRouter } from 'expo-router';
 import { AdBanner } from '../../components/AdBanner';
 import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import axios from 'axios';
 
@@ -39,7 +39,7 @@ export default function ProofOfPaymentsScreen() {
   const [clubs, setClubs] = useState<Club[]>([]);
   const [uploading, setUploading] = useState(false);
   const [loadingClubs, setLoadingClubs] = useState(false);
-  const [proofs, setProofs] = useState<Proof[]>([]);
+  const [proofs, setProofs] = useState<Proof[]>([]); // uploads made in this session; never presented as complete history
   const [viewingProof, setViewingProof] = useState<string | null>(null);
   const [proofImage, setProofImage] = useState<string | null>(null);
   const [loadingProof, setLoadingProof] = useState(false);
@@ -171,6 +171,10 @@ export default function ProofOfPaymentsScreen() {
       }
 
       // Save to file system and share
+      if (!FileSystem.documentDirectory) {
+        Alert.alert('Storage unavailable', 'Unable to save the proof image because document storage is unavailable on this device.');
+        return;
+      }
       const filename = `proof_${Date.now()}.jpg`;
       const fileUri = FileSystem.documentDirectory + filename;
       
@@ -197,7 +201,6 @@ export default function ProofOfPaymentsScreen() {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.headerTitle}>Proof of Payments</Text>
-          <Text style={styles.headerSubtitle}>Upload and view your payment proofs</Text>
         </View>
         <TouchableOpacity onPress={() => router.push('/(member)/profile')} style={styles.profileButton}>
           {user?.profile_photo ? (
@@ -231,7 +234,7 @@ export default function ProofOfPaymentsScreen() {
         <View style={styles.summaryCard}>
           <View style={styles.summaryRow}>
             <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Total Uploaded</Text>
+              <Text style={styles.summaryLabel}>This Session</Text>
               <Text style={styles.summaryValue}>{proofs.length}</Text>
             </View>
             <View style={styles.summaryDivider} />
@@ -253,7 +256,7 @@ export default function ProofOfPaymentsScreen() {
 
         {/* Proofs List */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Recent Uploads</Text>
+          <Text style={styles.sectionTitle}>Uploads This Session</Text>
 
           {proofs.length === 0 ? (
             <View style={styles.emptyState}>
@@ -300,14 +303,17 @@ export default function ProofOfPaymentsScreen() {
           )}
         </View>
 
-        {/* Info Box */}
+        {/* Clubvel product discovery */}
         <View style={styles.infoBox}>
-          <Ionicons name="information-circle" size={24} color={Colors.mediumGreen} />
+          <Ionicons name="trending-up-outline" size={24} color={Colors.accent} />
           <View style={styles.infoText}>
-            <Text style={styles.infoTitle}>About Proof of Payments</Text>
+            <Text style={styles.infoTitle}>Explore Investments</Text>
             <Text style={styles.infoBody}>
-              Upload proof after making each payment. Your club admin will review and confirm. You can download any uploaded proof for your records.
+              Discover savings and investment options for your group.
             </Text>
+            <TouchableOpacity accessibilityRole="button" style={styles.exploreAction} onPress={() => router.push('/(member)/explore-investments')}>
+              <Text style={styles.exploreActionText}>Explore Options →</Text>
+            </TouchableOpacity>
           </View>
         </View>
         
@@ -337,8 +343,8 @@ export default function ProofOfPaymentsScreen() {
             ) : clubs.length === 0 ? (
               <View style={styles.noClubsContainer}>
                 <Ionicons name="checkmark-circle" size={48} color={Colors.mediumGreen} />
-                <Text style={styles.noClubsText}>All payments are up to date!</Text>
-                <Text style={styles.noClubsSubtext}>No pending payments to upload proof for.</Text>
+                <Text style={styles.noClubsText}>No payment needs a new proof</Text>
+                <Text style={styles.noClubsSubtext}>There are no current pending or due contributions available for proof upload.</Text>
               </View>
             ) : (
               <ScrollView style={styles.clubList}>
@@ -626,13 +632,24 @@ const styles = StyleSheet.create({
   infoTitle: {
     fontSize: 14,
     fontWeight: 'bold',
-    color: Colors.mediumGreen,
+    color: Colors.textPrimary,
     marginBottom: 6,
   },
   infoBody: {
     fontSize: 13,
     color: Colors.textSecondary,
     lineHeight: 18,
+  },
+  exploreAction: {
+    alignSelf: 'flex-start',
+    minHeight: 44,
+    justifyContent: 'center',
+    marginTop: 4,
+  },
+  exploreActionText: {
+    fontSize: 13,
+    fontWeight: '600',
+    color: Colors.textPrimary,
   },
   uploadButton: {
     backgroundColor: Colors.gold,
