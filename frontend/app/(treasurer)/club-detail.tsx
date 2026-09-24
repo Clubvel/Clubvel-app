@@ -9,6 +9,7 @@ import axios from 'axios';
 import { useWorkspace } from '../../contexts/WorkspaceContext';
 import { workspaceRoute } from '../../services/workspace';
 import { confirmationPayload } from '../../services/contributions';
+import { reminderLink } from '../../services/reminders';
 
 interface Member {
   id: string;
@@ -36,29 +37,6 @@ interface ClubData {
   collected: number;
   expected: number;
   members: Member[];
-}
-
-// Accept formatting punctuation, but never silently discard letters or extensions.
-function normalizeReminderPhone(value: unknown): string | null {
-  if (typeof value !== 'string' || !/^[+\d\s().-]+$/.test(value.trim())) return null;
-  let phone = value.trim().replace(/[\s().-]/g, '');
-  if (/^0[1-9]\d{8}$/.test(phone)) return `27${phone.slice(1)}`;
-  if (phone.startsWith('00')) phone = `+${phone.slice(2)}`;
-  if (/^27[1-9]\d{8}$/.test(phone)) return phone;
-  if (!/^\+[1-9]\d{7,14}$/.test(phone)) return null;
-  if (phone.startsWith('+27') && !/^\+27[1-9]\d{8}$/.test(phone)) return null;
-  return phone.slice(1);
-}
-
-interface ReminderContribution {
-  id: string | null;
-  member_id: string;
-  amount_due: number;
-  amount_paid: number;
-  status: string;
-  contribution_status?: string;
-  proof_uploaded: boolean;
-  proof_of_payment?: string | null;
 }
 
 export default function ClubDetailScreen() {
@@ -90,7 +68,7 @@ export default function ClubDetailScreen() {
   const reminderRequest = useRef(0);
   const reminderBusy = useRef(false);
 
-  useEffect(() => () => { reminderRequest.current += 1; }, [id, user?.id]);
+  useEffect(() => () => { reminderRequest.current += 1; }, [id, user?.id, selectedClub?.id, selectedClub?.role]);
 
   const fetchClubData = async () => {
     setError(null);
@@ -195,51 +173,18 @@ export default function ClubDetailScreen() {
     setReminderError(null);
     let openingWhatsApp = false;
     try {
-      if (!user?.id || !clubData?.id) throw new Error('Your group session is unavailable. Close this dialog and reload the group.');
-      const now = new Date();
-      const month = now.getUTCMonth() + 1;
-      const year = now.getUTCFullYear();
-      const response = await axios.get(`${API_URL}/api/treasurer/contributions/${encodeURIComponent(clubData.id)}/month/${month}/year/${year}`, {
-        params: { treasurer_id: user.id },
-        timeout: 15000,
+      if (!user?.id || !token || !clubData?.id || selectedClub?.id !== id || clubData.id !== id ||
+          !['admin', 'treasurer'].includes(selectedClub.role) || !reminderMember.contribution_id) {
+        throw new Error('Your selected administrative group or contribution is unavailable. Reload the group.');
+      }
+      const contributionId = reminderMember.contribution_id;
+      const response = await axios.get(`${API_URL}/api/treasurer/contributions/${encodeURIComponent(contributionId)}/reminder`, {
+        params: { group_id: id }, headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
       });
       if (request !== reminderRequest.current) return;
-      const data = response.data;
-      if (data?.group?.id !== clubData.id || data?.month !== month || data?.year !== year || !Array.isArray(data?.contributions)) {
-        throw new Error('Could not verify this group’s current-month contributions. Please try again.');
-      }
-      const matches: ReminderContribution[] = data.contributions.filter((item: ReminderContribution) => item?.member_id === reminderMember.id);
-      if (matches.length !== 1 || typeof matches[0].id !== 'string' || !matches[0].id.trim()) {
-        throw new Error('No reliable current-month contribution record exists for this member. A reminder cannot be prepared.');
-      }
-      const contribution = matches[0];
-      if (contribution.proof_uploaded || contribution.proof_of_payment || contribution.status === 'proof_uploaded' || contribution.contribution_status === 'proof_uploaded') {
-        throw new Error('Proof of payment is awaiting confirmation. Review the payment instead of sending a reminder.');
-      }
-      if (['confirmed', 'excused'].includes(contribution.status) || ['confirmed', 'excused'].includes(contribution.contribution_status || '')) {
-        throw new Error('This contribution is confirmed or excused. No payment reminder is needed.');
-      }
-      const { amount_due, amount_paid } = contribution;
-      if (typeof amount_due !== 'number' || typeof amount_paid !== 'number' || !Number.isFinite(amount_due) || !Number.isFinite(amount_paid) || amount_due < 0 || amount_paid < 0) {
-        throw new Error('The outstanding amount cannot be established from this contribution. Please review its payment details.');
-      }
-      const outstandingCents = Math.round(amount_due * 100) - Math.round(amount_paid * 100);
-      if (!Number.isSafeInteger(outstandingCents)) throw new Error('The contribution amount could not be verified.');
-      if (outstandingCents <= 0) throw new Error('This contribution has no outstanding balance. No payment reminder is needed.');
-      // The existing API's calculated status can hide an excused record. Never
-      // treat that calculated status alone as evidence that money is owed.
-      if (!['pending', 'due', 'late'].includes(contribution.contribution_status || '') || !['pending', 'due', 'late'].includes(contribution.status) || contribution.proof_uploaded !== false) {
-        throw new Error('Unable to verify whether this contribution is excused. The current service does not provide a reliable original payment status, so WhatsApp has not been opened.');
-      }
-      const phone = normalizeReminderPhone(reminderMember.phone);
-      if (!phone) throw new Error('This member’s phone number is missing or invalid. A complete South African or international number is needed to open their WhatsApp chat.');
-      const memberName = reminderMember.name?.trim();
-      const groupName = typeof data.group.name === 'string' ? data.group.name.trim() : '';
-      if (!memberName || !groupName) throw new Error('The member or group name is missing. Please reload the group before trying again.');
-      const amount = (outstandingCents / 100).toFixed(2);
-      const message = `Hi ${memberName}, this is a friendly reminder that your R${amount} contribution for ${groupName} is still outstanding. Please make your payment when convenient. Thank you.`;
+      const url = reminderLink(response.data, id, reminderMember.id, contributionId);
       openingWhatsApp = true;
-      await Linking.openURL(`whatsapp://send?phone=${phone}&text=${encodeURIComponent(message)}`);
+      await Linking.openURL(url);
       if (request === reminderRequest.current) closeReminder();
     } catch (error) {
       if (request !== reminderRequest.current) return;

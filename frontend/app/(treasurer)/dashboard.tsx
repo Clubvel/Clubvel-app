@@ -96,22 +96,6 @@ export default function AdminDashboardScreen() {
     fetchDashboard();
   };
 
-  const handleRemindMember = (phone: string, name: string) => {
-    Alert.alert(
-      'Send Reminder',
-      `Send WhatsApp reminder to ${name} at ${phone}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Send',
-          onPress: () => {
-            Alert.alert('Reminder Sent', `WhatsApp reminder sent to ${name}`);
-          },
-        },
-      ]
-    );
-  };
-
   const handleCreateClub = async () => {
     if (!clubName || !monthlyContribution) {
       Alert.alert('Missing Information', 'Please fill in club name and monthly contribution');
@@ -325,13 +309,7 @@ export default function AdminDashboardScreen() {
                   {alert.group_name} • {alert.days_late} days late • R{alert.amount}
                 </Text>
               </View>
-              <TouchableOpacity
-                style={styles.remindButton}
-                onPress={() => handleRemindMember(alert.phone, alert.member_name)}
-              >
-                <Ionicons name="logo-whatsapp" size={20} color={Colors.white} />
-                <Text style={styles.remindButtonText}>Remind</Text>
-              </TouchableOpacity>
+
             </View>
           ))}
         </View>

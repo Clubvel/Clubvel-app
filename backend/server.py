@@ -2112,6 +2112,38 @@ async def get_group_report(group_id: str, year: int, month: Optional[int] = None
     return contribution_report(group, records, members, users, year, month)
 
 
+@api_router.get('/treasurer/contributions/{contribution_id}/reminder')
+async def get_contribution_reminder(contribution_id: str, group_id: str,
+                                   authorization: Optional[str] = Header(None)):
+    """Read-only reminder preparation; never send, record a send, or create an obligation."""
+    person = authenticated_user_id(authorization)
+    admin = await db.members.find_one({'user_id': person, 'group_id': group_id, 'status': 'active',
+                                       'role_in_group': {'$in': ['admin', 'treasurer']}})
+    if not admin:
+        raise HTTPException(status_code=403, detail='Active group administration membership required')
+    group = await db.groups.find_one({'id': group_id, 'status': 'active'})
+    record = await db.contributions.find_one({'id': contribution_id, 'group_id': group_id})
+    if not group or not record:
+        raise HTTPException(status_code=404, detail='Recorded contribution unavailable')
+    if not proof_is_eligible(record):
+        raise HTTPException(status_code=409, detail='This contribution does not require a payment reminder. Refresh its payment details.')
+    member = await db.members.find_one({'id': record['member_id'], 'group_id': group_id, 'status': 'active'})
+    if not member:
+        raise HTTPException(status_code=409, detail='Active recipient membership unavailable')
+    recipient = await db.users.find_one({'id': member['user_id']})
+    if not recipient:
+        raise HTTPException(status_code=409, detail='Recipient details unavailable')
+    return {
+        'contribution_id': record['id'], 'member_id': member['id'],
+        'group_id': group_id, 'group_name': group['group_name'],
+        'member_name': recipient.get('full_name'), 'phone': recipient.get('phone_number'),
+        'amount_due': record['amount_due'], 'amount_paid': record['amount_paid'],
+        'contribution_status': record['contribution_status'],
+        'status': personal_contribution_status(record, group), 'proof_uploaded': False,
+        'month': record['month'], 'year': record['year'],
+    }
+
+
 # ==================== TREASURER ROUTES ====================
 
 @api_router.get("/treasurer/dashboard/{user_id}")
