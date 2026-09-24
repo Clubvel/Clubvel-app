@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, ActivityIndicator, Modal } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
@@ -10,14 +10,8 @@ import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import axios from 'axios';
-
-interface Club {
-  id: string;
-  name: string;
-  contribution_id?: string;
-  amount_due: number;
-  status: string;
-}
+import { eligibleProofContributions, ProofContribution, proofOutstanding } from '../../services/contributions';
+import { useProofSelector } from '../../hooks/useProofSelector';
 
 interface Proof {
   id: string;
@@ -31,48 +25,27 @@ interface Proof {
 }
 
 export default function ProofOfPaymentsScreen() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const router = useRouter();
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
   
-  const [showClubModal, setShowClubModal] = useState(false);
-  const [clubs, setClubs] = useState<Club[]>([]);
   const [uploading, setUploading] = useState(false);
-  const [loadingClubs, setLoadingClubs] = useState(false);
   const [proofs, setProofs] = useState<Proof[]>([]); // uploads made in this session; never presented as complete history
   const [viewingProof, setViewingProof] = useState<string | null>(null);
   const [proofImage, setProofImage] = useState<string | null>(null);
   const [loadingProof, setLoadingProof] = useState(false);
 
-  const fetchClubs = async () => {
-    setLoadingClubs(true);
-    try {
-      const response = await axios.get(`${API_URL}/api/member/dashboard/${user?.id}`);
-      // Filter clubs that need payment (pending status)
-      const pendingClubs = response.data.clubs
-        .filter((club: any) => club.status === 'pending' || club.status === 'due')
-        .map((club: any) => ({
-          id: club.id,
-          name: club.name,
-          amount_due: club.monthly_contribution,
-          status: club.status,
-        }));
-      setClubs(pendingClubs);
-    } catch (error) {
-      console.error('Error fetching clubs:', error);
-      setClubs([]);
-    } finally {
-      setLoadingClubs(false);
-    }
-  };
+  const loadContributions = useCallback(async () => {
+    if (!user?.id || !token) throw new Error('Please sign in again.');
+    const response = await axios.get(`${API_URL}/api/member/proof-eligible/${user.id}`, {
+      headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+    });
+    return eligibleProofContributions(response.data);
+  }, [API_URL, user?.id, token]);
+  const selector = useProofSelector(loadContributions);
 
-  const handleUploadPress = async () => {
-    await fetchClubs();
-    setShowClubModal(true);
-  };
-
-  const handleSelectClub = async (club: Club) => {
-    setShowClubModal(false);
+  const handleSelectClub = async (club: ProofContribution) => {
+    selector.close();
     
     // Request permission and pick image
     const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -92,14 +65,7 @@ export default function ProofOfPaymentsScreen() {
     if (!result.canceled && result.assets[0].base64) {
       setUploading(true);
       try {
-        // Get contribution ID for this club
-        const clubResponse = await axios.get(`${API_URL}/api/member/club/${club.id}/user/${user?.id}`);
-        const contributionId = clubResponse.data.current_contribution?.id;
-
-        if (!contributionId) {
-          Alert.alert('Error', 'No pending contribution found for this club.');
-          return;
-        }
+        const contributionId = club.contribution_id;
 
         // Upload proof
         await axios.post(`${API_URL}/api/contributions/upload-proof`, {
@@ -107,11 +73,11 @@ export default function ProofOfPaymentsScreen() {
           proof_image: `data:image/jpeg;base64,${result.assets[0].base64}`,
           reference_number: '',
           user_id: user?.id,
-        });
+        }, { headers: { Authorization: `Bearer ${token}` } });
 
         Alert.alert(
           'Success!',
-          `Proof of payment for ${club.name} has been uploaded. Awaiting admin confirmation.`,
+          `Proof of payment for ${club.group_name} has been uploaded. Awaiting admin confirmation.`,
           [{ text: 'OK' }]
         );
 
@@ -119,18 +85,18 @@ export default function ProofOfPaymentsScreen() {
         const newProof: Proof = {
           id: Date.now().toString(),
           contribution_id: contributionId,
-          groupName: club.name,
-          month: new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
-          amount: club.amount_due,
+          groupName: club.group_name,
+          month: new Date(club.year, club.month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+          amount: proofOutstanding(club),
           status: 'proof_uploaded',
           uploadDate: new Date().toISOString().split('T')[0],
           hasImage: true,
         };
         setProofs([newProof, ...proofs]);
 
-      } catch (error) {
+      } catch (error: any) {
         console.error('Upload error:', error);
-        Alert.alert('Upload Failed', 'Failed to upload proof of payment. Please try again.');
+        Alert.alert('Upload Failed', error.response?.data?.detail || 'Failed to upload proof of payment. Please try again.');
       } finally {
         setUploading(false);
       }
@@ -217,7 +183,7 @@ export default function ProofOfPaymentsScreen() {
         {/* Upload Button */}
         <TouchableOpacity 
           style={styles.uploadButton}
-          onPress={handleUploadPress}
+          onPress={() => void selector.open()}
           disabled={uploading}
         >
           {uploading ? (
@@ -323,34 +289,40 @@ export default function ProofOfPaymentsScreen() {
 
       {/* Club Selection Modal */}
       <Modal
-        visible={showClubModal}
+        visible={selector.visible}
         transparent={true}
         animationType="slide"
-        onRequestClose={() => setShowClubModal(false)}
+        onRequestClose={selector.close}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Select Club</Text>
-              <TouchableOpacity onPress={() => setShowClubModal(false)}>
+              <TouchableOpacity onPress={selector.close}>
                 <Ionicons name="close" size={24} color={Colors.textPrimary} />
               </TouchableOpacity>
             </View>
             <Text style={styles.modalSubtitle}>Choose which club to upload proof for</Text>
 
-            {loadingClubs ? (
-              <ActivityIndicator size="large" color={Colors.mediumGreen} style={{ marginVertical: 20 }} />
-            ) : clubs.length === 0 ? (
+            {selector.phase === 'loading' ? (
+              <View style={styles.noClubsContainer}><ActivityIndicator size="large" color={Colors.mediumGreen} /><Text style={styles.noClubsSubtext}>Loading eligible contributions…</Text></View>
+            ) : selector.phase === 'error' ? (
+              <View style={styles.noClubsContainer}>
+                <Text style={styles.noClubsText}>Unable to load contributions</Text>
+                <Text style={styles.noClubsSubtext}>{selector.error}</Text>
+                <TouchableOpacity style={styles.clubItem} accessibilityRole="button" onPress={() => void selector.open()}><Text style={styles.clubName}>Retry</Text></TouchableOpacity>
+              </View>
+            ) : selector.phase === 'empty' ? (
               <View style={styles.noClubsContainer}>
                 <Ionicons name="checkmark-circle" size={48} color={Colors.mediumGreen} />
                 <Text style={styles.noClubsText}>No payment needs a new proof</Text>
-                <Text style={styles.noClubsSubtext}>There are no current pending or due contributions available for proof upload.</Text>
+                <Text style={styles.noClubsSubtext}>There are no recorded outstanding contributions eligible for a new proof.</Text>
               </View>
             ) : (
               <ScrollView style={styles.clubList}>
-                {clubs.map((club) => (
+                {selector.contributions.map((club) => (
                   <TouchableOpacity
-                    key={club.id}
+                    key={club.contribution_id}
                     style={styles.clubItem}
                     onPress={() => handleSelectClub(club)}
                   >
@@ -358,8 +330,8 @@ export default function ProofOfPaymentsScreen() {
                       <Ionicons name="people" size={24} color={Colors.mediumGreen} />
                     </View>
                     <View style={styles.clubInfo}>
-                      <Text style={styles.clubName}>{club.name}</Text>
-                      <Text style={styles.clubAmount}>Amount Due: R{club.amount_due.toFixed(2)}</Text>
+                      <Text style={styles.clubName}>{club.group_name}</Text>
+                      <Text style={styles.clubAmount}>{club.month}/{club.year} · Outstanding: R{proofOutstanding(club).toFixed(2)}</Text>
                     </View>
                     <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
                   </TouchableOpacity>

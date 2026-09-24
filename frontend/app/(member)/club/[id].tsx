@@ -15,6 +15,7 @@ interface ClubDetails {
     id: string;
     name: string;
     type: string;
+    contribution_mode: string;
     monthly_contribution: number;
     payment_due_date: number;
     bank_name: string;
@@ -24,16 +25,18 @@ interface ClubDetails {
   current_contribution: {
     id: string;
     amount_due: number;
+    outstanding_amount: number | null;
+    proof_eligible: boolean;
     status: string;
-    due_date: string;
+    due_date: string | null;
     proof_uploaded: boolean;
     payment_date: string | null;
-  };
+  } | null;
   payment_reference: {
     reference_code: string;
     bank_name: string;
     account_number: string;
-    amount: number;
+    amount: number | null;
   };
   payment_history: Array<{
     month: number;
@@ -74,6 +77,10 @@ export default function ClubDetailScreen() {
   }, [user, id, ready, checking, workspaceError, restoreWorkspace]);
 
   const handleUploadProof = async () => {
+    if (!clubData?.current_contribution?.proof_eligible) {
+      Alert.alert('No eligible contribution', 'Refresh this group to check its recorded outstanding contribution.');
+      return;
+    }
     // Request permissions
     if (Platform.OS !== 'web') {
       const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -97,7 +104,7 @@ export default function ClubDetailScreen() {
         const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
         
         await axios.post(`${API_URL}/api/contributions/upload-proof`, {
-          contribution_id: clubData?.current_contribution.id,
+          contribution_id: clubData.current_contribution.id,
           proof_image: base64Image,
           reference_number: clubData?.payment_reference.reference_code,
           user_id: user?.id,  // Authorization: Pass user ID for access control
@@ -152,22 +159,23 @@ export default function ClubDetailScreen() {
         {/* Current Contribution Status */}
         <View style={styles.section}>
           <View style={styles.card}>
+            {clubData.current_contribution ? <>
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>Current Month</Text>
-              <StatusPill status={clubData.current_contribution.status} />
+              <StatusPill status={clubData.current_contribution.status} label={clubData.current_contribution.status === 'excused' ? 'Excused' : clubData.current_contribution.status === 'paid' ? 'Paid' : undefined} />
             </View>
 
             <View style={styles.amountRow}>
-              <Text style={styles.amountLabel}>Amount Due</Text>
-              <Text style={styles.amountValue}>R{clubData.current_contribution.amount_due.toFixed(2)}</Text>
+              <Text style={styles.amountLabel}>Outstanding</Text>
+              <Text style={styles.amountValue}>{clubData.current_contribution.outstanding_amount == null ? 'Unavailable' : `R${clubData.current_contribution.outstanding_amount.toFixed(2)}`}</Text>
             </View>
 
             <View style={styles.divider} />
 
-            <View style={styles.infoRow}>
+            {clubData.current_contribution.due_date && <View style={styles.infoRow}>
               <Ionicons name="calendar" size={16} color={Colors.textSecondary} />
               <Text style={styles.infoText}>Due date: {clubData.current_contribution.due_date}</Text>
-            </View>
+            </View>}
 
             {clubData.current_contribution.status === 'confirmed' ? (
               <TouchableOpacity style={styles.buttonSecondary}>
@@ -180,18 +188,9 @@ export default function ClubDetailScreen() {
                   <Ionicons name="time" size={20} color={Colors.gold} />
                   <Text style={styles.waitingText}>Awaiting treasurer confirmation</Text>
                 </View>
-                <TouchableOpacity
-                  style={[styles.buttonOutline, uploading && styles.buttonDisabled]}
-                  onPress={handleUploadProof}
-                  disabled={uploading}
-                >
-                  <Ionicons name="refresh" size={18} color={Colors.mediumGreen} />
-                  <Text style={styles.buttonOutlineText}>
-                    {uploading ? 'Uploading...' : 'Re-upload Proof'}
-                  </Text>
-                </TouchableOpacity>
+
               </View>
-            ) : (
+            ) : clubData.current_contribution.proof_eligible ? (
               <TouchableOpacity
                 style={[styles.button, uploading && styles.buttonDisabled]}
                 onPress={handleUploadProof}
@@ -202,7 +201,13 @@ export default function ClubDetailScreen() {
                   {uploading ? 'Uploading...' : 'Upload Proof of Payment'}
                 </Text>
               </TouchableOpacity>
-            )}
+            ) : <Text style={styles.emptyHistoryText}>This contribution does not need a new proof.</Text>}
+            </> : <>
+              <Text style={styles.cardTitle}>No contribution recorded this month</Text>
+              <Text style={styles.emptyHistoryText}>{clubData.group.contribution_mode === 'flexible_goal' || clubData.group.type === 'travel'
+                ? 'This group uses a flexible goal. No monthly payment is assumed.'
+                : 'Your administrator can record an agreed monthly contribution. Opening this screen does not create an amount owing.'}</Text>
+            </>}
           </View>
         </View>
 
@@ -228,7 +233,7 @@ export default function ClubDetailScreen() {
               </View>
               <View style={styles.bankDetailRow}>
                 <Text style={styles.bankDetailLabel}>Amount</Text>
-                <Text style={styles.bankDetailValue}>R{clubData.payment_reference.amount.toFixed(2)}</Text>
+                <Text style={styles.bankDetailValue}>{clubData.payment_reference.amount == null ? 'No verified amount owing' : `R${clubData.payment_reference.amount.toFixed(2)}`}</Text>
               </View>
             </View>
           </View>

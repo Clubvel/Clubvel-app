@@ -8,16 +8,18 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import axios from 'axios';
 import { useWorkspace } from '../../contexts/WorkspaceContext';
 import { workspaceRoute } from '../../services/workspace';
+import { confirmationPayload } from '../../services/contributions';
 
 interface Member {
   id: string;
+  contribution_id: string | null;
   name: string;
   phone: string;
   membership_status: string;
   role_in_group: 'member' | 'admin' | 'treasurer';
   status: string;
   amount_paid: number;
-  amount_due: number;
+  amount_due: number | null;
   has_proof: boolean;
 }
 
@@ -25,6 +27,7 @@ interface ClubData {
   id: string;
   name: string;
   type: string;
+  contribution_mode: string;
   monthly_contribution: number;
   due_date: number;
   bank_name: string;
@@ -60,7 +63,7 @@ interface ReminderContribution {
 
 export default function ClubDetailScreen() {
   const { id, name } = useLocalSearchParams<{ id: string; name: string }>();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const { personalHome, selectedClub } = useWorkspace();
   const router = useRouter();
   const insets = useSafeAreaInsets();
@@ -83,6 +86,7 @@ export default function ClubDetailScreen() {
   const [reminderMember, setReminderMember] = useState<Member | null>(null);
   const [reminderLoading, setReminderLoading] = useState(false);
   const [reminderError, setReminderError] = useState<string | null>(null);
+  const [recordingMember, setRecordingMember] = useState<string | null>(null);
   const reminderRequest = useRef(0);
   const reminderBusy = useRef(false);
 
@@ -119,7 +123,11 @@ export default function ClubDetailScreen() {
     fetchClubData();
   };
 
-  const handleConfirmPayment = (memberId: string, memberName: string) => {
+  const handleConfirmPayment = (contributionId: string | null, memberName: string) => {
+    if (!contributionId) {
+      Alert.alert('Contribution unavailable', 'Refresh this group to load the recorded contribution before confirming payment.');
+      return;
+    }
     Alert.alert(
       'Confirm Payment',
       `Confirm payment from ${memberName}?`,
@@ -129,12 +137,9 @@ export default function ClubDetailScreen() {
           text: 'Confirm',
           onPress: async () => {
             try {
-              await axios.post(`${API_URL}/api/treasurer/confirm-payment`, {
-                member_id: memberId,
-                group_id: id,
-                confirmed_by: user?.id,
-                treasurer_id: user?.id  // Authorization: Pass treasurer ID for access control
-              });
+              await axios.post(`${API_URL}/api/treasurer/confirm-payment`,
+                confirmationPayload(contributionId, user?.id),
+                { headers: { Authorization: `Bearer ${token}` } });
               Alert.alert('Success', 'Payment confirmed!');
               fetchClubData();
             } catch (err: any) {
@@ -148,6 +153,25 @@ export default function ClubDetailScreen() {
         }
       ]
     );
+  };
+
+  const handleRecordContribution = (member: Member) => {
+    if (!clubData || recordingMember) return;
+    Alert.alert('Record monthly contribution',
+      `Record the configured R${clubData.monthly_contribution.toFixed(2)} contribution for ${member.name} for this month?`, [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Record', onPress: async () => {
+          setRecordingMember(member.id);
+          try {
+            await axios.post(`${API_URL}/api/treasurer/contributions/${id}/current`,
+              { member_id: member.id, treasurer_id: user?.id },
+              { headers: { Authorization: `Bearer ${token}` } });
+            await fetchClubData();
+          } catch (err: any) {
+            Alert.alert('Could not record contribution', err.response?.data?.detail || 'Please retry.');
+          } finally { setRecordingMember(null); }
+        } },
+      ]);
   };
 
   const closeReminder = () => {
@@ -349,6 +373,10 @@ export default function ClubDetailScreen() {
   const getStatusLabel = (status: string) => {
     switch (status) {
       case 'confirmed': return 'Paid';
+      case 'paid': return 'Paid';
+      case 'excused': return 'Excused';
+      case 'unrecorded': return 'Not recorded';
+      case 'due': return 'Due';
       case 'proof_uploaded': return 'Pending Review';
       case 'late': return 'Late';
       case 'active': return 'Active';
@@ -485,7 +513,7 @@ export default function ClubDetailScreen() {
                     <View style={styles.memberDetails}>
                       <Text style={styles.memberName}>{member.name}</Text>
                       <Text style={styles.paymentAmount}>
-                        R{member.amount_paid.toFixed(2)} / R{member.amount_due.toFixed(2)}
+                        {member.amount_due == null ? 'No contribution recorded' : `R${member.amount_paid.toFixed(2)} / R${member.amount_due.toFixed(2)}`}
                       </Text>
                     </View>
                   </View>
@@ -496,12 +524,17 @@ export default function ClubDetailScreen() {
                   </View>
                 </View>
                 
-                {member.status !== 'confirmed' && (
+                {member.contribution_id === null && clubData.contribution_mode === 'fixed_monthly' && clubData.type !== 'travel' && Number.isFinite(clubData.monthly_contribution) && clubData.monthly_contribution > 0 && (
+                  <TouchableOpacity style={styles.confirmButton} disabled={recordingMember !== null} onPress={() => handleRecordContribution(member)}>
+                    <Text style={styles.confirmButtonText}>{recordingMember === member.id ? 'Recording…' : 'Record monthly contribution'}</Text>
+                  </TouchableOpacity>
+                )}
+                {member.contribution_id && !['confirmed', 'paid', 'excused'].includes(member.status) && member.amount_due != null && member.amount_paid < member.amount_due && (
                   <View style={styles.paymentActions}>
                     {member.has_proof || member.status === 'proof_uploaded' ? (
                       <TouchableOpacity 
                         style={styles.confirmButton}
-                        onPress={() => handleConfirmPayment(member.id, member.name)}
+                        onPress={() => handleConfirmPayment(member.contribution_id, member.name)}
                       >
                         <Ionicons name="checkmark-circle" size={18} color={Colors.white} />
                         <Text style={styles.confirmButtonText}>Confirm Payment</Text>

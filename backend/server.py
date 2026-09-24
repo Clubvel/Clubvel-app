@@ -9,6 +9,7 @@ from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import os
 import logging
+import math
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import List, Optional
@@ -270,6 +271,10 @@ class ConfirmPayment(BaseModel):
     contribution_id: str
     notes: Optional[str] = None
     treasurer_id: str  # Requesting treasurer - for authorization
+
+class RecordMonthlyContribution(BaseModel):
+    member_id: str
+    treasurer_id: str
 
 # ==================== HELPER FUNCTIONS ====================
 
@@ -560,8 +565,8 @@ def generate_reference_code(prefix: str, member_position: int) -> str:
 
 def calculate_contribution_status(contribution: dict, due_day: int) -> str:
     """Calculate if contribution is late, due, or pending"""
-    if contribution['contribution_status'] == 'confirmed':
-        return 'confirmed'
+    if contribution['contribution_status'] in ('confirmed', 'paid', 'excused'):
+        return contribution['contribution_status']
     
     now = datetime.utcnow()
     current_due_date = datetime(contribution['year'], contribution['month'], min(due_day, 28))
@@ -575,6 +580,84 @@ def calculate_contribution_status(contribution: dict, due_day: int) -> str:
         return 'due'
     else:
         return 'pending'
+
+
+def contribution_outstanding(contribution: dict) -> Optional[float]:
+    """Unknown/malformed amounts must never become an invented payment obligation."""
+    due, paid = contribution.get('amount_due'), contribution.get('amount_paid')
+    if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
+           for v in (due, paid)) or due < 0 or paid < 0:
+        return None
+    if contribution.get('contribution_status') in ('confirmed', 'paid', 'excused'):
+        return 0
+    return round(max(0, due - paid), 2)
+
+
+def proof_is_eligible(contribution: dict) -> bool:
+    outstanding = contribution_outstanding(contribution)
+    return bool(contribution.get('id') and
+                contribution.get('contribution_status') in ('pending', 'due', 'late') and
+                not contribution.get('proof_of_payment') and
+                outstanding is not None and outstanding > 0)
+
+
+@api_router.get('/member/proof-eligible/{user_id}')
+async def get_proof_eligible_contributions(user_id: str, authorization: Optional[str] = Header(None)):
+    if authenticated_user_id(authorization) != user_id:
+        raise HTTPException(status_code=403, detail='You can only view your own contributions')
+    # Read active records directly: do not reconcile/create memberships or contributions here.
+    memberships = await db.members.find({'user_id': user_id, 'status': 'active'}).to_list(None)
+    groups = await db.groups.find({'id': {'$in': [m['group_id'] for m in memberships]}, 'status': 'active'}).to_list(None)
+    groups_by_id = {g['id']: g for g in groups}
+    members_by_id = {m['id']: m for m in memberships if m['group_id'] in groups_by_id}
+    records = await db.contributions.find({'member_id': {'$in': list(members_by_id)}}).to_list(None)
+    eligible = []
+    for record in records:
+        membership = members_by_id.get(record['member_id'])
+        if not membership or record.get('group_id') != membership['group_id'] or not proof_is_eligible(record):
+            continue
+        group = groups_by_id[record['group_id']]
+        eligible.append({
+            'contribution_id': record['id'], 'group_id': group['id'], 'group_name': group['group_name'],
+            'amount_due': record['amount_due'], 'amount_paid': record['amount_paid'],
+            'contribution_status': record['contribution_status'], 'proof_uploaded': False,
+            'month': record['month'], 'year': record['year'],
+        })
+    return {'contributions': eligible}
+
+
+@api_router.post('/treasurer/contributions/{group_id}/current')
+async def record_monthly_contribution(group_id: str, data: RecordMonthlyContribution,
+                                      authorization: Optional[str] = Header(None)):
+    """Explicit admin action; ordinary reads never establish financial obligations."""
+    if authenticated_user_id(authorization) != data.treasurer_id:
+        raise HTTPException(status_code=403, detail='You can only act as yourself')
+    await verify_user_is_group_treasurer(data.treasurer_id, group_id)
+    group = await db.groups.find_one({'id': group_id, 'status': 'active'})
+    member = await db.members.find_one({'id': data.member_id, 'group_id': group_id, 'status': 'active'})
+    if not group or not member:
+        raise HTTPException(status_code=404, detail='Active group membership not found')
+    amount = group.get('monthly_contribution')
+    if group.get('contribution_mode', 'fixed_monthly') != 'fixed_monthly' or group.get('group_type') == 'travel':
+        raise HTTPException(status_code=409, detail='Flexible or Travel groups do not create automatic monthly obligations')
+    if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not math.isfinite(amount) or amount <= 0:
+        raise HTTPException(status_code=409, detail='No valid monthly contribution amount is configured')
+    now = datetime.utcnow()
+    period = {'member_id': member['id'], 'group_id': group_id, 'month': now.month, 'year': now.year}
+    existing = await db.contributions.find_one(period)
+    if existing:
+        return {'contribution_id': existing['id']}
+    record = Contribution(**period, amount_due=amount).dict()
+    # A deterministic key also prevents duplicate inserts from concurrent requests.
+    record['_id'] = f"monthly:{group_id}:{member['id']}:{now.year}:{now.month}"
+    try:
+        await db.contributions.update_one(period, {'$setOnInsert': record}, upsert=True)
+    except DuplicateKeyError:
+        pass
+    recorded = await db.contributions.find_one(period)
+    if not recorded:
+        raise HTTPException(status_code=409, detail='Could not record this contribution. Please retry.')
+    return {'contribution_id': recorded['id']}
 
 # ==================== AUTHENTICATION ROUTES ====================
 
@@ -1732,21 +1815,10 @@ async def get_member_club_details(group_id: str, user_id: str):
         "year": now.year
     })
     
-    # If no contribution exists for current month, create one
-    if not current_contribution:
-        contribution = Contribution(
-            member_id=membership['id'],
-            group_id=group_id,
-            month=now.month,
-            year=now.year,
-            amount_due=group['monthly_contribution'],
-            contribution_status="pending"
-        )
-        await db.contributions.insert_one(contribution.dict())
-        current_contribution = contribution.dict()
-    
-    # Calculate status
-    status = calculate_contribution_status(current_contribution, group['payment_due_date'])
+    # Absence is explicit. Reading a screen never creates a contribution.
+    flexible = group.get('contribution_mode') == 'flexible_goal' or group.get('group_type') == 'travel'
+    status = (current_contribution['contribution_status'] if flexible else
+              calculate_contribution_status(current_contribution, group['payment_due_date'])) if current_contribution else None
     
     # Get payment history (last 6 months)
     payment_history = await db.contributions.find({
@@ -1759,6 +1831,7 @@ async def get_member_club_details(group_id: str, user_id: str):
             "id": group['id'],
             "name": group['group_name'],
             "type": group['group_type'],
+            "contribution_mode": group.get('contribution_mode', 'fixed_monthly'),
             "monthly_contribution": group['monthly_contribution'],
             "payment_due_date": group['payment_due_date'],
             "bank_name": group['bank_name'],
@@ -1768,16 +1841,19 @@ async def get_member_club_details(group_id: str, user_id: str):
         "current_contribution": {
             "id": current_contribution['id'],
             "amount_due": current_contribution['amount_due'],
+            "amount_paid": current_contribution.get('amount_paid'),
+            "outstanding_amount": contribution_outstanding(current_contribution),
+            "proof_eligible": proof_is_eligible(current_contribution),
             "status": status,
-            "due_date": f"{now.year}-{now.month:02d}-{min(group['payment_due_date'], 28):02d}",
+            "due_date": None if flexible else f"{now.year}-{now.month:02d}-{min(group['payment_due_date'], 28):02d}",
             "proof_uploaded": current_contribution.get('proof_of_payment') is not None,
             "payment_date": current_contribution.get('payment_date')
-        },
+        } if current_contribution else None,
         "payment_reference": {
             "reference_code": membership['unique_reference_code'],
             "bank_name": group['bank_name'],
             "account_number": decrypt_sensitive_field(group['bank_account_number']),  # Decrypted for display
-            "amount": group['monthly_contribution']
+            "amount": contribution_outstanding(current_contribution) if current_contribution else None
         },
         "payment_history": [
             {
@@ -1809,10 +1885,18 @@ async def upload_proof_of_payment(proof_data: ProofUpload):
             status_code=403, 
             detail="Access denied: You can only upload proof for your own contributions"
         )
+
+    group = await db.groups.find_one({'id': contribution['group_id'], 'status': 'active'})
+    if member.get('status') != 'active' or member.get('group_id') != contribution['group_id'] or not group:
+        raise HTTPException(status_code=403, detail='An active group membership is required')
+    if not proof_is_eligible(contribution):
+        raise HTTPException(status_code=409, detail='This contribution no longer needs a new proof. Refresh your contributions.')
     
     # Update contribution with proof
-    await db.contributions.update_one(
-        {"id": proof_data.contribution_id},
+    updated = await db.contributions.update_one(
+        {"id": proof_data.contribution_id, 'contribution_status': contribution['contribution_status'],
+         'amount_due': contribution['amount_due'], 'amount_paid': contribution['amount_paid'],
+         'proof_of_payment': contribution.get('proof_of_payment')},
         {"$set": {
             "proof_of_payment": proof_data.proof_image,
             "reference_number": proof_data.reference_number,
@@ -1820,6 +1904,8 @@ async def upload_proof_of_payment(proof_data: ProofUpload):
             "payment_date": datetime.utcnow()
         }}
     )
+    if updated.modified_count != 1:
+        raise HTTPException(status_code=409, detail='This contribution changed. Refresh before uploading proof.')
     
     # Get group info for alert
     group = await db.groups.find_one({"id": contribution['group_id']})
@@ -2033,6 +2119,7 @@ async def get_group_contributions(group_id: str, month: int, year: int, treasure
     contributions_list = []
     collected = 0.0
     outstanding = 0.0
+    expected = 0.0
     
     for member in members:
         # Get contribution for this month
@@ -2047,12 +2134,14 @@ async def get_group_contributions(group_id: str, month: int, year: int, treasure
         user = await db.users.find_one({"id": member['user_id']})
         
         if contribution:
-            status = calculate_contribution_status(contribution, group['payment_due_date'])
-            
-            if status == "confirmed":
+            status = (contribution['contribution_status'] if group.get('contribution_mode') == 'flexible_goal' or group.get('group_type') == 'travel'
+                      else calculate_contribution_status(contribution, group['payment_due_date']))
+
+            remaining = contribution_outstanding(contribution)
+            if remaining is not None and status != 'excused':
+                expected += contribution['amount_due']
                 collected += contribution['amount_paid']
-            else:
-                outstanding += contribution['amount_due']
+                outstanding += remaining
             
             contributions_list.append({
                 "id": contribution['id'],
@@ -2062,21 +2151,22 @@ async def get_group_contributions(group_id: str, month: int, year: int, treasure
                 "amount_due": contribution['amount_due'],
                 "amount_paid": contribution['amount_paid'],
                 "status": status,
+                "contribution_status": contribution['contribution_status'],
                 "proof_uploaded": contribution.get('proof_of_payment') is not None,
                 "proof_of_payment": contribution.get('proof_of_payment'),
                 "payment_date": contribution.get('payment_date'),
                 "reference_number": contribution.get('reference_number')
             })
         else:
-            outstanding += group['monthly_contribution']
             contributions_list.append({
                 "id": None,
                 "member_id": member['id'],
                 "member_name": user['full_name'],
                 "reference_code": member['unique_reference_code'],
-                "amount_due": group['monthly_contribution'],
+                "amount_due": None,
                 "amount_paid": 0.0,
-                "status": "pending",
+                "status": "unrecorded",
+                "contribution_status": None,
                 "proof_uploaded": False,
                 "proof_of_payment": None,
                 "payment_date": None,
@@ -2097,8 +2187,8 @@ async def get_group_contributions(group_id: str, month: int, year: int, treasure
         "summary": {
             "collected": collected,
             "outstanding": outstanding,
-            "total_expected": collected + outstanding,
-            "collection_rate": round((collected / (collected + outstanding) * 100) if (collected + outstanding) > 0 else 0, 1)
+            "total_expected": expected,
+            "collection_rate": round((collected / expected * 100) if expected > 0 else 0, 1)
         },
         "contributions": contributions_list
     }
@@ -2125,7 +2215,7 @@ async def get_club_detail(group_id: str, treasurer_id: str):
     year = now.year
     
     collected = 0.0
-    expected = len(members) * group['monthly_contribution']
+    expected = 0.0
     
     members_list = []
     for member in members:
@@ -2139,19 +2229,24 @@ async def get_club_detail(group_id: str, treasurer_id: str):
             "year": year
         })
         
-        status = "pending"
+        status = "unrecorded"
+        amount_due = None
         amount_paid = 0.0
         has_proof = False
         
         if contribution:
-            status = calculate_contribution_status(contribution, group['payment_due_date'])
+            status = (contribution['contribution_status'] if group.get('contribution_mode') == 'flexible_goal' or group.get('group_type') == 'travel'
+                      else calculate_contribution_status(contribution, group['payment_due_date']))
+            amount_due = contribution.get('amount_due')
+            if contribution_outstanding(contribution) is not None and contribution.get('contribution_status') != 'excused':
+                expected += amount_due
+                collected += contribution['amount_paid']
             amount_paid = contribution.get('amount_paid', 0)
             has_proof = contribution.get('proof_of_payment') is not None
-            if status == "confirmed":
-                collected += amount_paid
         
         members_list.append({
             "id": member['id'],
+            "contribution_id": contribution['id'] if contribution else None,
             "name": user['full_name'],
             "phone": user['phone_number'],
             "reference": member['unique_reference_code'],
@@ -2161,7 +2256,7 @@ async def get_club_detail(group_id: str, treasurer_id: str):
             # A new active admin may not have a contribution yet.
             "status": status,
             "amount_paid": amount_paid,
-            "amount_due": group['monthly_contribution'],
+            "amount_due": amount_due,
             "has_proof": has_proof
         })
     
@@ -2169,6 +2264,7 @@ async def get_club_detail(group_id: str, treasurer_id: str):
         "id": group['id'],
         "name": group['group_name'],
         "type": group.get('group_type', 'savings'),
+        "contribution_mode": group.get('contribution_mode', 'fixed_monthly'),
         "monthly_contribution": group['monthly_contribution'],
         "due_date": group['payment_due_date'],
         "bank_name": group.get('bank_name', 'N/A'),
@@ -2192,10 +2288,16 @@ async def confirm_payment(confirm_data: ConfirmPayment):
         raise HTTPException(status_code=404, detail="Group not found")
     
     await verify_user_is_group_treasurer(confirm_data.treasurer_id, contribution['group_id'])
+
+    outstanding = contribution_outstanding(contribution)
+    if (contribution.get('contribution_status') not in ('pending', 'due', 'late', 'proof_uploaded') or
+            outstanding is None or outstanding <= 0):
+        raise HTTPException(status_code=409, detail='This contribution is not awaiting payment confirmation. Refresh the group.')
     
     # Update contribution
-    await db.contributions.update_one(
-        {"id": confirm_data.contribution_id},
+    updated = await db.contributions.update_one(
+        {"id": confirm_data.contribution_id, 'contribution_status': contribution['contribution_status'],
+         'amount_due': contribution['amount_due'], 'amount_paid': contribution['amount_paid']},
         {"$set": {
             "contribution_status": "confirmed",
             "amount_paid": contribution['amount_due'],
@@ -2204,6 +2306,8 @@ async def confirm_payment(confirm_data: ConfirmPayment):
             "notes": confirm_data.notes
         }}
     )
+    if updated.modified_count != 1:
+        raise HTTPException(status_code=409, detail='This contribution changed. Refresh before confirming payment.')
     
     # Get member and user info
     member = await db.members.find_one({"id": contribution['member_id']})
