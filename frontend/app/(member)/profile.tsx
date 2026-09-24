@@ -7,6 +7,7 @@ import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
+import { usePersonalClaims } from '../../hooks/usePersonalClaims';
 
 interface UserStats {
   clubs_count: number;
@@ -24,15 +25,8 @@ interface Club {
   target_amount_per_member?: number | null;
 }
 
-interface PayoutSchedule {
-  club_name: string;
-  payout_date: string | null;
-  amount: number | null;
-  position: number | null;
-}
-
 export default function ProfileScreen() {
-  const { user, logout, updateProfilePhoto } = useAuth();
+  const { user, token, logout, updateProfilePhoto } = useAuth();
   const router = useRouter();
   const { showClubs } = useLocalSearchParams<{ showClubs?: string }>();
   const [uploading, setUploading] = useState(false);
@@ -41,7 +35,8 @@ export default function ProfileScreen() {
   const { clubs: membershipClubs, membershipError, refreshMemberships, selectGroup } = useWorkspace();
   const clubs = membershipClubs || [];
   const clubsError = !!membershipError || membershipClubs === null;
-  const [payoutSchedules, setPayoutSchedules] = useState<PayoutSchedule[]>([]);
+  const payouts = usePersonalClaims(user?.id, token);
+  const payoutSchedules = payouts.records;
   const [showClubsModal, setShowClubsModal] = useState(false);
   const [showPayoutModal, setShowPayoutModal] = useState(false);
 
@@ -63,18 +58,15 @@ export default function ProfileScreen() {
     if (!user?.id) return;
     setLoading(true);
     try {
-      const [statsResponse, , payoutResponse] = await Promise.allSettled([
+      const [statsResponse] = await Promise.allSettled([
         axios.get(`${API_URL}/api/user/stats/${user.id}`),
         refreshMemberships(),
-        axios.get(`${API_URL}/api/member/payout-schedule/${user.id}`),
       ]);
       if (statsResponse.status === 'fulfilled') setStats(statsResponse.value.data);
-      setPayoutSchedules(payoutResponse.status === 'fulfilled' ? payoutResponse.value.data.schedules || [] : []);
     } catch (error) {
       console.error('Error fetching profile data:', error);
       // Set defaults if API fails
       setStats({ clubs_count: 0, total_saved: 0, on_time_percentage: 0, trust_score: null, date_joined: null });
-      setPayoutSchedules([]);
     } finally {
       setLoading(false);
     }
@@ -209,7 +201,7 @@ export default function ProfileScreen() {
               <Text style={styles.menuItemText}>Payout Schedule</Text>
             </View>
             <View style={styles.menuItemRight}>
-              <Text style={styles.menuItemCount}>{payoutSchedules.length}</Text>
+              <Text style={styles.menuItemCount}>{payouts.phase === 'loading' ? 'Loading...' : payouts.phase === 'error' ? 'Unavailable' : payoutSchedules.length}</Text>
               <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
             </View>
           </TouchableOpacity>
@@ -324,7 +316,12 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalBody}>
-              {payoutSchedules.length > 0 ? (
+              {payouts.phase === 'loading' ? <ActivityIndicator color={Colors.mediumGreen} />
+              : payouts.phase === 'error' ? <View style={styles.emptyState}>
+                  <Text style={styles.emptyStateText}>Unable to load payout records</Text>
+                  <TouchableOpacity accessibilityRole="button" onPress={() => void payouts.reload()}><Text style={styles.emptyStateSubtext}>Retry</Text></TouchableOpacity>
+                </View>
+              : payoutSchedules.length > 0 ? (
                 payoutSchedules.map((schedule, index) => (
                   <View key={index} style={styles.scheduleItem}>
                     <View style={styles.scheduleIcon}>
@@ -335,16 +332,14 @@ export default function ProfileScreen() {
                       <Text style={styles.scheduleDate}>{schedule.payout_date || 'Date unavailable'}</Text>
                       <Text style={styles.scheduleAmount}>{schedule.amount == null ? 'Amount unavailable' : `R${schedule.amount.toLocaleString()}`}</Text>
                     </View>
-                    <View style={styles.schedulePosition}>
-                      <Text style={styles.positionText}>{schedule.position == null ? '--' : `#${schedule.position}`}</Text>
-                    </View>
+
                   </View>
                 ))
               ) : (
                 <View style={styles.emptyState}>
                   <Ionicons name="calendar-outline" size={48} color={Colors.textMuted} />
-                  <Text style={styles.emptyStateText}>No Payout Schedule</Text>
-                  <Text style={styles.emptyStateSubtext}>No recorded payout schedule is available yet</Text>
+                  <Text style={styles.emptyStateText}>No payout schedule set</Text>
+                  <Text style={styles.emptyStateSubtext}>No explicit payout or claim has been recorded.</Text>
                 </View>
               )}
             </ScrollView>

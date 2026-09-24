@@ -967,7 +967,7 @@ async def get_member_payout_schedule(user_id: str):
         claims = await db.claims.find({"member_id": membership["id"], "group_id": group["id"]}).sort("scheduled_claim_date", 1).to_list(100)
         for claim in claims:
             scheduled = claim.get("scheduled_claim_date")
-            schedules.append({"club_name": group["group_name"], "payout_date": scheduled.strftime("%B %Y") if scheduled else None, "amount": claim.get("claim_amount"), "position": membership.get("payout_position")})
+            schedules.append({"club_name": group["group_name"], "payout_date": scheduled.strftime("%B %Y") if scheduled else None, "amount": claim.get("claim_amount"), "position": None})
     return {"schedules": schedules}
 
 
@@ -1037,27 +1037,22 @@ async def get_admin_payout_schedules(user_id: str):
     
     groups = await verify_treasurer_owns_groups(user_id)
     
+    # Only explicitly stored claims support a schedule. Membership ordering and
+    # contribution configuration never establish a recipient, amount or date.
     schedules = []
     for group in groups:
-        # Find next member to receive payout
-        members = await db.members.find({
-            "group_id": group['id'],
-            "status": "active"
-        }).sort("payout_position", 1).to_list(100)
-        
-        if members:
-            next_member = members[0]
-            next_user = await db.users.find_one({"id": next_member['user_id']})
-            member_count = len(members)
-            estimated_payout = group['monthly_contribution'] * member_count
-            
+        claims = await db.claims.find({'group_id': group['id']}).sort('scheduled_claim_date', 1).to_list(None)
+        for claim in claims:
+            member = await db.members.find_one({'id': claim['member_id'], 'group_id': group['id']})
+            recipient = await db.users.find_one({'id': member['user_id']}) if member else None
+            scheduled = claim.get('scheduled_claim_date')
             schedules.append({
-                "club_name": group['group_name'],
-                "next_payout_member": next_user['full_name'] if next_user else "Unknown",
-                "payout_date": "Next Month",
-                "amount": estimated_payout
+                'claim_id': claim['id'], 'club_name': group['group_name'],
+                'recipient': recipient.get('full_name') if recipient else None,
+                'payout_date': scheduled.strftime('%Y-%m-%d') if scheduled else None,
+                'amount': claim.get('claim_amount'), 'status': claim.get('claim_status'),
             })
-    
+
     return {"schedules": schedules}
 
 @api_router.get("/admin/dashboard/{user_id}")

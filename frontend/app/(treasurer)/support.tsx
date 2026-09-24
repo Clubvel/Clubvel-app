@@ -46,8 +46,8 @@ export default function SupportScreen() {
       answer: 'From Members tab, tap the "+" button and fill in the new member details.',
     },
     {
-      question: 'How does the claims rotation work?',
-      answer: 'Claims are rotated monthly based on the order members joined. You can view the rotation schedule in the Claims tab.',
+      question: 'How are payout schedules determined?',
+      answer: 'Contributions and membership order do not create a payout schedule. Only explicitly recorded claim dates, amounts and recipients can be shown.',
     },
     {
       question: 'How do I generate reports?',

@@ -72,8 +72,8 @@ export default function AboutScreen() {
                 <Ionicons name="trophy" size={24} color={Colors.gold} />
               </View>
               <View style={styles.featureContent}>
-                <Text style={styles.featureTitle}>Claims Rotation</Text>
-                <Text style={styles.featureDesc}>Fair and transparent rotation system for payouts to all members.</Text>
+                <Text style={styles.featureTitle}>Recorded Claims</Text>
+                <Text style={styles.featureDesc}>View claim information only when it has been explicitly recorded for your group.</Text>
               </View>
             </View>
             

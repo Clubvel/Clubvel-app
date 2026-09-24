@@ -33,7 +33,7 @@ export default function TreasurerClaimsScreen() {
         <View style={styles.emptyState}>
           <Ionicons name="calendar-outline" size={64} color={Colors.mediumGreen} />
           <Text style={styles.emptyTitle}>No Claims Yet</Text>
-          <Text style={styles.emptySubtitle}>Claims will appear here once you create a club and add members</Text>
+          <Text style={styles.emptySubtitle}>Creating a group or adding members does not establish a claim or payout schedule.</Text>
         </View>
         
         {/* Ad Banner */}
