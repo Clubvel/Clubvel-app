@@ -1,238 +1,87 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Platform, Image } from 'react-native';
+import React from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { StatusPill } from '../../components/StatusPill';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { AdBanner } from '../../components/AdBanner';
-import * as ImagePicker from 'expo-image-picker';
-import axios from 'axios';
-
-interface MyContribution {
-  id: string;
-  group_name: string;
-  group_id: string;
-  month: string;
-  amount_due: number;
-  status: string;
-  due_date: string;
-  proof_uploaded: boolean;
-  payment_reference: string;
-}
+import { usePersonalContributions } from '../../hooks/usePersonalContributions';
+import { eligibleProofContributions } from '../../services/contributions';
 
 export default function MyContributionsScreen() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const router = useRouter();
-  const [contributions, setContributions] = useState<MyContribution[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [uploading, setUploading] = useState<string | null>(null);
-
-  const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
-
-  useEffect(() => {
-    fetchMyContributions();
-  }, []);
-
-  const fetchMyContributions = async () => {
-    try {
-      // Empty array - real data will come from API
-      setContributions([]);
-    } catch (error) {
-      console.error('Error fetching contributions:', error);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleUploadProof = async (contributionId: string, groupId: string) => {
-    // Request permissions
-    if (Platform.OS !== 'web') {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Please allow access to your photos to upload proof of payment');
-        return;
-      }
-    }
-
-    // Pick image
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.5,
-      base64: true,
-    });
-
-    if (!result.canceled && result.assets[0].base64) {
-      setUploading(contributionId);
-      try {
-        const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
-        
-        await axios.post(`${API_URL}/api/contributions/upload-proof`, {
-          contribution_id: contributionId,
-          proof_image: base64Image,
-          reference_number: contributions.find(c => c.id === contributionId)?.payment_reference,
-          user_id: user?.id,  // Authorization: Pass user ID for access control
-        });
-
-        Alert.alert('Success', 'Proof of payment uploaded successfully!');
-        fetchMyContributions(); // Refresh data
-      } catch (error: any) {
-        Alert.alert('Error', error.response?.data?.detail || 'Failed to upload proof of payment');
-      } finally {
-        setUploading(null);
-      }
-    }
-  };
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={Colors.mediumGreen} />
-      </View>
-    );
-  }
-
-  const pendingContributions = contributions.filter(c => c.status !== 'confirmed');
-  const completedContributions = contributions.filter(c => c.status === 'confirmed');
+  const { phase, records, reload } = usePersonalContributions(user?.id, token);
+  const eligible = eligibleProofContributions({ contributions: records.filter(record => record.proof_eligible) });
+  const paid = records.filter(record => record.status === 'paid' || record.status === 'confirmed');
+  const outstanding = records.filter(record => record.outstanding_amount > 0);
 
   return (
     <View style={styles.container}>
-      {/* Header with Profile Photo */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.headerTitle}>My Contributions</Text>
+          <Text style={styles.headerSubtitle}>Your own contributions across your active groups</Text>
         </View>
         <TouchableOpacity onPress={() => router.push('/(treasurer)/profile')} style={styles.profileButton}>
-          {user?.profile_photo ? (
-            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} />
-          ) : (
-            <View style={styles.profilePlaceholder}>
-              <Ionicons name="person" size={20} color={Colors.white} />
-            </View>
+          {user?.profile_photo ? <Image source={{ uri: user.profile_photo }} style={styles.profileImage} /> : (
+            <View style={styles.profilePlaceholder}><Ionicons name="person" size={20} color={Colors.white} /></View>
           )}
         </TouchableOpacity>
       </View>
-
       <ScrollView style={styles.content}>
-        {/* Summary Card */}
-        <View style={styles.summaryCard}>
-          <View style={styles.summaryRow}>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Total Clubs</Text>
-              <Text style={styles.summaryValue}>{contributions.length}</Text>
-            </View>
-            <View style={styles.summaryDivider} />
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Paid</Text>
-              <Text style={[styles.summaryValue, styles.paidValue]}>{completedContributions.length}</Text>
-            </View>
-            <View style={styles.summaryDivider} />
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Pending</Text>
-              <Text style={[styles.summaryValue, styles.pendingValue]}>{pendingContributions.length}</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Pending Contributions */}
-        {pendingContributions.length > 0 && (
+        {phase === 'loading' ? (
+          <View style={styles.infoBox}><ActivityIndicator color={Colors.mediumGreen} /><Text style={styles.infoBody}>Loading your contributions...</Text></View>
+        ) : phase === 'error' ? (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Pending Payments</Text>
-
-            {pendingContributions.map((contribution) => (
-              <View key={contribution.id} style={styles.contributionCard}>
-                <View style={styles.cardHeader}>
-                  <View style={styles.cardHeaderLeft}>
-                    <Text style={styles.groupName}>{contribution.group_name}</Text>
-                    <Text style={styles.month}>{contribution.month}</Text>
-                  </View>
-                  <StatusPill status={contribution.status} />
-                </View>
-
-                <View style={styles.cardBody}>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Amount Due:</Text>
-                    <Text style={styles.detailValue}>R{contribution.amount_due.toFixed(2)}</Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Due Date:</Text>
-                    <Text style={styles.detailValue}>{new Date(contribution.due_date).toLocaleDateString()}</Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Reference:</Text>
-                    <Text style={styles.detailValue}>{contribution.payment_reference}</Text>
-                  </View>
-                </View>
-
-                {!contribution.proof_uploaded ? (
-                  <TouchableOpacity
-                    style={[styles.uploadButton, uploading === contribution.id && styles.uploadButtonDisabled]}
-                    onPress={() => handleUploadProof(contribution.id, contribution.group_id)}
-                    disabled={uploading === contribution.id}
-                  >
-                    <Ionicons name="camera" size={20} color={Colors.white} />
-                    <Text style={styles.uploadButtonText}>
-                      {uploading === contribution.id ? 'Uploading...' : 'Upload Proof of Payment'}
-                    </Text>
-                  </TouchableOpacity>
-                ) : (
-                  <View style={styles.uploadedBanner}>
-                    <Ionicons name="time" size={20} color={Colors.gold} />
-                    <Text style={styles.uploadedText}>Proof uploaded - Awaiting confirmation</Text>
-                  </View>
-                )}
-              </View>
-            ))}
+            <Text style={styles.sectionTitle}>Unable to load your contributions</Text>
+            <Text style={styles.infoBody}>Your payment position could not be verified. Please try again.</Text>
+            <TouchableOpacity style={styles.uploadButton} onPress={() => void reload()}><Text style={styles.uploadButtonText}>Retry</Text></TouchableOpacity>
           </View>
+        ) : phase === 'empty' ? (
+          <View style={styles.infoBox}><View style={styles.infoText}>
+            <Text style={styles.infoTitle}>No personal contributions recorded</Text>
+            <Text style={styles.infoBody}>No contribution records were found for you in your active groups. Being an administrator does not create an amount owing. Flexible groups do not assume monthly payments.</Text>
+          </View></View>
+        ) : (
+          <>
+            <View style={styles.summaryCard}><View style={styles.summaryRow}>
+              <View style={styles.summaryItem}><Text style={styles.summaryLabel}>Records</Text><Text style={styles.summaryValue}>{records.length}</Text></View>
+              <View style={styles.summaryDivider} />
+              <View style={styles.summaryItem}><Text style={styles.summaryLabel}>Paid</Text><Text style={[styles.summaryValue, styles.paidValue]}>{paid.length}</Text></View>
+              <View style={styles.summaryDivider} />
+              <View style={styles.summaryItem}><Text style={styles.summaryLabel}>Outstanding</Text><Text style={[styles.summaryValue, styles.pendingValue]}>{outstanding.length}</Text></View>
+            </View></View>
+            <View style={styles.section}>
+              {eligible.length > 0 && <TouchableOpacity style={styles.uploadButton} onPress={() => router.push('/(treasurer)/personal-proofs')}>
+                <Ionicons name="cloud-upload" size={20} color={Colors.white} /><Text style={styles.uploadButtonText}>Upload Proof of Payment</Text>
+              </TouchableOpacity>}
+              {records.map(record => (
+                <View key={record.contribution_id} style={styles.contributionCard}>
+                  <View style={styles.cardHeader}>
+                    <View style={styles.cardHeaderLeft}><Text style={styles.groupName}>{record.group_name}</Text><Text style={styles.month}>{record.month}/{record.year}</Text></View>
+                    <StatusPill status={record.status} label={record.status === 'excused' ? 'Excused' : record.status === 'paid' ? 'Paid' : undefined} />
+                  </View>
+                  <View style={styles.cardBody}>
+                    <View style={styles.detailRow}><Text style={styles.detailLabel}>Recorded contribution:</Text><Text style={styles.detailValue}>R{record.amount_due.toFixed(2)}</Text></View>
+                    <View style={styles.detailRow}><Text style={styles.detailLabel}>Amount paid:</Text><Text style={styles.detailValue}>R{record.amount_paid.toFixed(2)}</Text></View>
+                    <View style={styles.detailRow}><Text style={styles.detailLabel}>Outstanding:</Text><Text style={styles.detailValue}>R{record.outstanding_amount.toFixed(2)}</Text></View>
+                    {record.due_date && <View style={styles.detailRow}><Text style={styles.detailLabel}>Due date:</Text><Text style={styles.detailValue}>{record.due_date}</Text></View>}
+                    {record.payment_reference && <View style={styles.detailRow}><Text style={styles.detailLabel}>Reference:</Text><Text style={styles.detailValue}>{record.payment_reference}</Text></View>}
+                  </View>
+                  {record.status === 'proof_uploaded' && <View style={styles.uploadedBanner}><Ionicons name="time" size={20} color={Colors.gold} /><Text style={styles.uploadedText}>Proof uploaded - Awaiting confirmation</Text></View>}
+                </View>
+              ))}
+            </View>
+          </>
         )}
-
-        {/* Completed Contributions */}
-        {completedContributions.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Completed Payments</Text>
-
-            {completedContributions.map((contribution) => (
-              <View key={contribution.id} style={[styles.contributionCard, styles.completedCard]}>
-                <View style={styles.cardHeader}>
-                  <View style={styles.cardHeaderLeft}>
-                    <Text style={styles.groupName}>{contribution.group_name}</Text>
-                    <Text style={styles.month}>{contribution.month}</Text>
-                  </View>
-                  <StatusPill status={contribution.status} />
-                </View>
-
-                <View style={styles.cardBody}>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Amount Paid:</Text>
-                    <Text style={styles.detailValue}>R{contribution.amount_due.toFixed(2)}</Text>
-                  </View>
-                  <View style={styles.detailRow}>
-                    <Text style={styles.detailLabel}>Reference:</Text>
-                    <Text style={styles.detailValue}>{contribution.payment_reference}</Text>
-                  </View>
-                </View>
-
-                <View style={styles.confirmedBanner}>
-                  <Ionicons name="checkmark-circle" size={16} color={Colors.statusPaid} />
-                  <Text style={styles.confirmedText}>Payment confirmed</Text>
-                </View>
-              </View>
-            ))}
-          </View>
-        )}
-
-        {/* Info Box */}
         <View style={styles.infoBox}>
           <Ionicons name="information-circle" size={24} color={Colors.mediumGreen} />
           <View style={styles.infoText}>
             <Text style={styles.infoTitle}>About Your Contributions</Text>
-            <Text style={styles.infoBody}>
-              This tab shows your personal payments for clubs where you're a regular member. Upload proof after paying, and another treasurer will confirm your payment.
-            </Text>
+            <Text style={styles.infoBody}>These are your personal contribution records, including groups where you are an Admin or Treasurer. They are separate from the group's overall finances. Uploading proof does not confirm payment.</Text>
           </View>
         </View>
-
         {/* Advertisement */}
         <View style={styles.adContainer}>
           <Text style={styles.adLabel}>Sponsored</Text>

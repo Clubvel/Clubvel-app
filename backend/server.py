@@ -601,29 +601,67 @@ def proof_is_eligible(contribution: dict) -> bool:
                 outstanding is not None and outstanding > 0)
 
 
-@api_router.get('/member/proof-eligible/{user_id}')
-async def get_proof_eligible_contributions(user_id: str, authorization: Optional[str] = Header(None)):
-    if authenticated_user_id(authorization) != user_id:
-        raise HTTPException(status_code=403, detail='You can only view your own contributions')
+async def get_person_contribution_records(user_id: str):
+    """One person-level source for all roles; never use group totals or create records."""
     # Read active records directly: do not reconcile/create memberships or contributions here.
     memberships = await db.members.find({'user_id': user_id, 'status': 'active'}).to_list(None)
     groups = await db.groups.find({'id': {'$in': [m['group_id'] for m in memberships]}, 'status': 'active'}).to_list(None)
     groups_by_id = {g['id']: g for g in groups}
     members_by_id = {m['id']: m for m in memberships if m['group_id'] in groups_by_id}
     records = await db.contributions.find({'member_id': {'$in': list(members_by_id)}}).to_list(None)
-    eligible = []
+    personal = []
     for record in records:
         membership = members_by_id.get(record['member_id'])
-        if not membership or record.get('group_id') != membership['group_id'] or not proof_is_eligible(record):
+        if not membership or record.get('group_id') != membership['group_id']:
             continue
-        group = groups_by_id[record['group_id']]
-        eligible.append({
-            'contribution_id': record['id'], 'group_id': group['id'], 'group_name': group['group_name'],
-            'amount_due': record['amount_due'], 'amount_paid': record['amount_paid'],
-            'contribution_status': record['contribution_status'], 'proof_uploaded': False,
-            'month': record['month'], 'year': record['year'],
-        })
-    return {'contributions': eligible}
+        personal.append((record, membership, groups_by_id[record['group_id']]))
+    return personal
+
+
+def personal_contribution_status(record: dict, group: dict) -> str:
+    raw = record['contribution_status']
+    if raw not in ('pending', 'due', 'late', 'proof_uploaded'):
+        return raw
+    if contribution_outstanding(record) == 0:
+        return 'paid'
+    if record.get('proof_of_payment'):
+        return 'proof_uploaded'
+    if group.get('contribution_mode') == 'flexible_goal' or group.get('group_type') == 'travel':
+        return raw
+    return calculate_contribution_status(record, group['payment_due_date'])
+
+
+def personal_contribution_view(record: dict, membership: dict, group: dict) -> dict:
+    outstanding = contribution_outstanding(record)
+    if outstanding is None:
+        raise HTTPException(status_code=409, detail='Some contribution amounts could not be verified. Please contact your group administrator.')
+    flexible = group.get('contribution_mode') == 'flexible_goal' or group.get('group_type') == 'travel'
+    return {
+        'contribution_id': record['id'], 'group_id': group['id'], 'group_name': group['group_name'],
+        'amount_due': record['amount_due'], 'amount_paid': record['amount_paid'],
+        'outstanding_amount': outstanding, 'contribution_status': record['contribution_status'],
+        'status': personal_contribution_status(record, group),
+        'proof_uploaded': bool(record.get('proof_of_payment')) or record['contribution_status'] == 'proof_uploaded',
+        'proof_eligible': proof_is_eligible(record), 'month': record['month'], 'year': record['year'],
+        'payment_reference': membership.get('unique_reference_code'),
+        'due_date': None if flexible else f"{record['year']}-{record['month']:02d}-{min(group['payment_due_date'], 28):02d}",
+    }
+
+
+@api_router.get('/member/contributions/{user_id}')
+async def get_personal_contributions(user_id: str, authorization: Optional[str] = Header(None)):
+    if authenticated_user_id(authorization) != user_id:
+        raise HTTPException(status_code=403, detail='You can only view your own contributions')
+    records = await get_person_contribution_records(user_id)
+    return {'contributions': [personal_contribution_view(*row) for row in records]}
+
+
+@api_router.get('/member/proof-eligible/{user_id}')
+async def get_proof_eligible_contributions(user_id: str, authorization: Optional[str] = Header(None)):
+    if authenticated_user_id(authorization) != user_id:
+        raise HTTPException(status_code=403, detail='You can only view your own contributions')
+    records = await get_person_contribution_records(user_id)
+    return {'contributions': [personal_contribution_view(*row) for row in records if proof_is_eligible(row[0])]}
 
 
 @api_router.post('/treasurer/contributions/{group_id}/current')
@@ -1817,8 +1855,7 @@ async def get_member_club_details(group_id: str, user_id: str):
     
     # Absence is explicit. Reading a screen never creates a contribution.
     flexible = group.get('contribution_mode') == 'flexible_goal' or group.get('group_type') == 'travel'
-    status = (current_contribution['contribution_status'] if flexible else
-              calculate_contribution_status(current_contribution, group['payment_due_date'])) if current_contribution else None
+    status = personal_contribution_status(current_contribution, group) if current_contribution else None
     
     # Get payment history (last 6 months)
     payment_history = await db.contributions.find({
@@ -1860,7 +1897,7 @@ async def get_member_club_details(group_id: str, user_id: str):
                 "month": p['month'],
                 "year": p['year'],
                 "amount": p['amount_paid'],
-                "status": p['contribution_status'],
+                "status": personal_contribution_status(p, group),
                 "payment_date": p.get('payment_date')
             }
             for p in payment_history

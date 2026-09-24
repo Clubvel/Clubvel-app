@@ -91,6 +91,7 @@ export default function TreasurerLayout() {
         }}
       />
       {/* Hidden screens - not in tab bar */}
+      <Tabs.Screen name="personal-proofs" options={{ href: null }} />
       <Tabs.Screen
         name="reports"
         options={{

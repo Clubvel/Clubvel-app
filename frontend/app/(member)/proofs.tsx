@@ -4,7 +4,7 @@ import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { AdBanner } from '../../components/AdBanner';
 import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -24,7 +24,7 @@ interface Proof {
   hasImage: boolean;
 }
 
-export default function ProofOfPaymentsScreen() {
+export default function ProofOfPaymentsScreen({ personalAdmin = false }: { personalAdmin?: boolean } = {}) {
   const { user, token } = useAuth();
   const router = useRouter();
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
@@ -43,6 +43,10 @@ export default function ProofOfPaymentsScreen() {
     return eligibleProofContributions(response.data);
   }, [API_URL, user?.id, token]);
   const selector = useProofSelector(loadContributions);
+  useFocusEffect(useCallback(() => {
+    if (personalAdmin) void selector.open();
+    return personalAdmin ? selector.close : undefined;
+  }, [personalAdmin, selector.open, selector.close]));
 
   const handleSelectClub = async (club: ProofContribution) => {
     selector.close();
@@ -165,10 +169,13 @@ export default function ProofOfPaymentsScreen() {
     <View style={styles.container}>
       {/* Header with Profile Photo */}
       <View style={styles.header}>
+        {personalAdmin && <TouchableOpacity accessibilityLabel="Back to my contributions" onPress={() => router.canGoBack() ? router.back() : router.replace('/(treasurer)/my-contributions')}>
+          <Ionicons name="arrow-back" size={24} color={Colors.white} />
+        </TouchableOpacity>}
         <View style={styles.headerLeft}>
           <Text style={styles.headerTitle}>Proof of Payments</Text>
         </View>
-        <TouchableOpacity onPress={() => router.push('/(member)/profile')} style={styles.profileButton}>
+        <TouchableOpacity onPress={() => router.push(personalAdmin ? '/(treasurer)/profile' : '/(member)/profile')} style={styles.profileButton}>
           {user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.profileImage} />
           ) : (

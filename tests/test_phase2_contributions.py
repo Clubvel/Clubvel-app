@@ -14,6 +14,7 @@ from unittest.mock import AsyncMock
 
 SOURCE = Path(__file__).resolve().parents[1] / 'backend' / 'server.py'
 NAMES = {'contribution_outstanding', 'proof_is_eligible', 'calculate_contribution_status',
+         'get_person_contribution_records', 'personal_contribution_status', 'personal_contribution_view',
          'get_proof_eligible_contributions', 'record_monthly_contribution',
          'get_member_club_details', 'upload_proof_of_payment', 'get_club_detail',
          'get_group_contributions', 'confirm_payment'}
