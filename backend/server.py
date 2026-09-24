@@ -2033,6 +2033,85 @@ async def admin_upload_proof_of_payment(proof_data: ProofUpload):
 
 
 
+def contribution_report(group: dict, records: list, memberships: list, users: list,
+                        year: int, month: Optional[int]) -> dict:
+    """Normalize recorded obligations once for both display and export. Never write data."""
+    members = {m['id']: m for m in memberships if m.get('group_id') == group['id']}
+    people = {u['id']: u for u in users}
+    rows, seen, late_people = [], set(), set()
+    collected = expected = applied = outstanding = awaiting = 0
+    for record in records:
+        if record.get('group_id') != group['id'] or record.get('year') != year or (month and record.get('month') != month):
+            continue
+        identity = record.get('id')
+        member = members.get(record.get('member_id'))
+        raw = record.get('contribution_status')
+        balance = contribution_outstanding(record)
+        if (not identity or identity in seen or not member or not member.get('user_id') or balance is None or
+                raw not in ('pending', 'due', 'late', 'proof_uploaded', 'confirmed', 'paid', 'excused') or
+                type(record.get('month')) is not int or not 1 <= record['month'] <= 12):
+            raise HTTPException(status_code=409, detail='Report records could not be verified. Ask your group administrator to review them.')
+        seen.add(identity)
+        due, paid = round(record['amount_due'] * 100), round(record['amount_paid'] * 100)
+        status = personal_contribution_status(record, group)
+        # Phase 2 settled/excused rules apply. Uploaded proof is awaiting review, not a payment request.
+        remaining = round(balance * 100)
+        pending_review = remaining if status == 'proof_uploaded' else 0
+        payable = remaining if status in ('pending', 'due', 'late') else 0
+        collected += paid
+        if raw != 'excused':
+            expected += due
+            applied += min(due, paid)
+        outstanding += payable
+        awaiting += pending_review
+        if status == 'late' and payable > 0:
+            late_people.add(member['user_id'])
+        person = people.get(member['user_id'], {})
+        date = record.get('payment_date')
+        rows.append({
+            'contribution_id': identity, 'member_id': member['id'], 'person_id': member['user_id'],
+            'member_name': person.get('full_name'), 'month': record['month'], 'year': record['year'],
+            'amount_due': due / 100, 'amount_paid': paid / 100, 'outstanding': payable / 100,
+            'awaiting_verification': pending_review / 100, 'status': status, 'recorded_status': raw,
+            'payment_date': date.isoformat() if isinstance(date, datetime) else date,
+        })
+    rows.sort(key=lambda r: (r['month'], r['member_name'] or '', r['contribution_id']))
+    return {
+        'schema_version': 1, 'group_id': group['id'], 'group_name': group['group_name'],
+        'year': year, 'month': month, 'generated_at': datetime.utcnow().isoformat() + 'Z',
+        'rows': rows, 'summary': {
+            'total_collected': collected / 100, 'recorded_obligations': expected / 100,
+            'collection_rate': round(applied / expected * 100, 2) if expected > 0 else None,
+            'outstanding': outstanding / 100, 'awaiting_verification': awaiting / 100,
+            'late_members': len(late_people),
+        },
+    }
+
+
+@api_router.get('/treasurer/reports/{group_id}')
+async def get_group_report(group_id: str, year: int, month: Optional[int] = None,
+                           authorization: Optional[str] = Header(None)):
+    person = authenticated_user_id(authorization)
+    # Strict active contextual authorization; reporting never reconciles or creates memberships.
+    membership = await db.members.find_one({'user_id': person, 'group_id': group_id, 'status': 'active',
+                                           'role_in_group': {'$in': ['admin', 'treasurer']}})
+    if not membership:
+        raise HTTPException(status_code=403, detail='Active group administration membership required')
+    if not 1 <= year <= 9999 or (month is not None and not 1 <= month <= 12):
+        raise HTTPException(status_code=422, detail='Invalid report period')
+    group = await db.groups.find_one({'id': group_id, 'status': 'active'})
+    if not group:
+        raise HTTPException(status_code=404, detail='Active group not found')
+    query = {'group_id': group_id, 'year': year}
+    if month is not None:
+        query['month'] = month
+    records = await db.contributions.find(query).to_list(None)
+    # Include former members' historical records, but never unrelated-group records.
+    members = await db.members.find({'group_id': group_id, 'id': {'$in': [r.get('member_id') for r in records]}}).to_list(None)
+    users = await db.users.find({'id': {'$in': [m.get('user_id') for m in members]}}).to_list(None)
+    return contribution_report(group, records, members, users, year, month)
+
+
 # ==================== TREASURER ROUTES ====================
 
 @api_router.get("/treasurer/dashboard/{user_id}")
