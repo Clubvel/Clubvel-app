@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image, TextInput, Platform } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
@@ -8,6 +8,9 @@ import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
+import { usePersonalContributions } from '../../hooks/usePersonalContributions';
+import { usePersonalClaims } from '../../hooks/usePersonalClaims';
+import { homeContributions } from '../../services/personalHome';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface Club {
@@ -25,23 +28,6 @@ interface Club {
   role?: 'member' | 'admin' | 'treasurer';
 }
 
-interface DashboardData {
-  user: {
-    id: string;
-    full_name: string;
-    first_name: string;
-  };
-  summary: {
-    total_saved: number;
-    active_clubs: number;
-    days_until_next_claim: number | null;
-    overdue_contributions: number;
-    upcoming_payments: number;
-    claims_count: number;
-  };
-  clubs: Club[];
-}
-
 interface PendingInvitation {
   id: string;
   group_id: string;
@@ -53,10 +39,11 @@ interface PendingInvitation {
 export default function MemberHomeScreen() {
   const { user, token, logout } = useAuth();
   const router = useRouter();
-  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const contributions = usePersonalContributions(user?.id, token);
+  const claims = usePersonalClaims(user?.id, token);
+  const homeRequest = useRef(0);
   const { clubs, membershipError: clubsError, refreshMemberships, selectGroup } = useWorkspace();
-  const [dashboardError, setDashboardError] = useState(false);
-  const [claimsCount, setClaimsCount] = useState<number | null>(null);
+
   const [paymentView, setPaymentView] = useState<'contributions' | 'upcoming' | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -147,23 +134,17 @@ export default function MemberHomeScreen() {
     }
   };
 
-  const fetchDashboard = async () => {
+  const fetchHomeData = async (refreshFinancial = true) => {
+    const ticket = ++homeRequest.current;
     try {
-      const [dashboardResponse, , invitationsResponse, claimsResponse] = await Promise.allSettled([
-        axios.get(`${API_URL}/api/member/dashboard/${user?.id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+      const [, invitationsResponse] = await Promise.allSettled([
         refreshMemberships(),
         axios.get(`${API_URL}/api/invitations/pending/${user?.id}`, {
-          headers: { Authorization: `Bearer ${token}` },
+          headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
         }),
-        axios.get(`${API_URL}/api/member/payout-schedule/${user?.id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
+        ...(refreshFinancial ? [contributions.reload(), claims.reload()] : []),
       ]);
-      setDashboardError(dashboardResponse.status === 'rejected');
-      setDashboardData(dashboardResponse.status === 'fulfilled' ? dashboardResponse.value.data : null);
-      setClaimsCount(claimsResponse.status === 'fulfilled' ? claimsResponse.value.data.schedules.length : null);
+      if (ticket !== homeRequest.current) return;
       if (invitationsResponse.status === 'fulfilled') {
         setPendingInvitations(invitationsResponse.value.data.invitations || []);
         setInvitationsError(null);
@@ -171,36 +152,31 @@ export default function MemberHomeScreen() {
         setPendingInvitations([]);
         setInvitationsError('Could not load invitations. Tap Join a Group to retry.');
       }
-    } catch (error) {
-      console.error('Error fetching dashboard:', error);
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (ticket === homeRequest.current) { setLoading(false); setRefreshing(false); }
     }
   };
 
   useFocusEffect(useCallback(() => {
-    if (user?.id) {
-      setLoading(true);
-      setDashboardData(null);
-      setClaimsCount(null);
-      fetchDashboard();
-    }
-  }, [user?.id, token]));
+    setPaymentView(null);
+    setLoading(true);
+    if (user?.id) void fetchHomeData(false);
+    else setLoading(false);
+    return () => { homeRequest.current += 1; };
+  }, [user?.id, token, refreshMemberships]));
 
-  const activeClubs = (clubs || []).map((club) => {
-    const payment = dashboardData?.clubs.find((item) => item.id === club.id);
-    return { ...payment, ...club, status: payment?.status, status_label: payment?.status_label };
+  const financialReady = contributions.phase === 'ready' || contributions.phase === 'empty';
+  const summary = homeContributions(contributions.records);
+  const now = new Date();
+  const activeClubs: Club[] = (clubs || []).map(club => {
+    const current = contributions.records.filter(record => record.group_id === club.id && record.month === now.getMonth() + 1 && record.year === now.getFullYear());
+    const payment = current.length === 1 ? current[0] : undefined;
+    return { ...club, status: payment?.status, status_label: !financialReady ? (contributions.phase === 'loading' ? 'Loading payments' : 'Payment status unavailable')
+      : current.length > 1 ? 'Multiple recorded contributions' : payment ? (({ confirmed: 'Paid', paid: 'Paid', excused: 'Excused', pending: 'Pending', due: 'Due', late: 'Late', proof_uploaded: 'Pending confirmation' } as Record<string, string>)[payment.status] || payment.status)
+      : 'No contribution recorded this month' };
   });
-  const upcomingClubs = activeClubs.filter((club) =>
-    club.contribution_mode !== 'flexible_goal' && ['pending', 'due', 'proof_uploaded'].includes(club.status || '')
-  );
-  const paymentClubs = paymentView === 'upcoming' ? upcomingClubs : activeClubs;
-
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchDashboard();
-  };
+  const paymentRecords = paymentView === 'upcoming' ? summary.outstanding : contributions.records;
+  const onRefresh = () => { setRefreshing(true); void fetchHomeData(); };
 
   const navigateToProfile = () => {
     setShowProfileMenu(false);
@@ -259,7 +235,7 @@ export default function MemberHomeScreen() {
       setTravelDestination('');
       setTravelTargetAmount('');
       setTravelTargetDate('');
-      await fetchDashboard();
+      await fetchHomeData();
       await selectGroup(response.data.group_id);
     } catch (error: any) {
       Alert.alert('Could not create group', error.response?.data?.detail || 'Please try again.');
@@ -293,7 +269,7 @@ export default function MemberHomeScreen() {
       }, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      await fetchDashboard();
+      await fetchHomeData();
       Alert.alert('Group joined', `You are now a member of ${invitation.group_name}.`);
     } catch (error: any) {
       Alert.alert('Could not accept invitation', error.response?.data?.detail || 'Please try again.');
@@ -340,7 +316,7 @@ export default function MemberHomeScreen() {
         <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" onPress={() => setPaymentView('contributions')}>
           <Text style={styles.summaryLabel}>Contributions</Text>
           <Text style={styles.summaryValue}>
-            {dashboardData ? `R${dashboardData.summary.total_saved.toFixed(2)}` : 'Unavailable'}
+            {financialReady ? `R${summary.totalPaid.toFixed(2)}` : contributions.phase === 'loading' ? 'Loading...' : 'Unavailable'}
           </Text>
         </TouchableOpacity>
 
@@ -353,12 +329,12 @@ export default function MemberHomeScreen() {
       <View style={styles.summaryContainer}>
         <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" onPress={() => setPaymentView('upcoming')}>
           <Text style={styles.summaryLabel}>Upcoming Payments</Text>
-          <Text style={styles.summaryValue}>{dashboardData && clubs !== null ? upcomingClubs.length : 'Unavailable'}</Text>
+          <Text style={styles.summaryValue}>{financialReady ? summary.outstanding.length : contributions.phase === 'loading' ? 'Loading...' : 'Unavailable'}</Text>
         </TouchableOpacity>
 
         <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" onPress={() => router.push('/(member)/claims')}>
           <Text style={styles.summaryLabel}>Claims</Text>
-          <Text style={styles.summaryValue}>{claimsCount ?? 'Unavailable'}</Text>
+          <Text style={styles.summaryValue}>{claims.phase === 'loading' ? 'Loading...' : claims.phase === 'error' ? 'Unavailable' : claims.records.length}</Text>
         </TouchableOpacity>
       </View>
 
@@ -366,7 +342,7 @@ export default function MemberHomeScreen() {
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>My Clubs</Text>
         {invitationsError && <Text style={styles.emptyStateSubtext}>{invitationsError}</Text>}
-        {dashboardError && <Text style={styles.emptyStateSubtext}>Payment information is unavailable. Pull down to retry.</Text>}
+        {contributions.phase === 'error' && <Text style={styles.emptyStateSubtext}>Payment information is unavailable. Pull down to retry.</Text>}
 
         {pendingInvitations.length > 0 && (
           <View style={styles.invitationsSection}>
@@ -447,32 +423,31 @@ export default function MemberHomeScreen() {
     <Modal visible={paymentView !== null} transparent animationType="slide" onRequestClose={() => setPaymentView(null)}>
       <View style={styles.modalOverlay}>
         <View style={styles.paymentModal}>
-          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close payment list" onPress={() => setPaymentView(null)}>
-            <Text style={styles.sectionTitle}>{paymentView === 'upcoming' ? 'Upcoming Payments' : 'My Contributions'} — Close</Text>
-          </TouchableOpacity>
-          {paymentView === 'contributions' && <Text style={styles.emptyStateSubtext}>Confirmed contributions: {dashboardData ? `R${dashboardData.summary.total_saved.toFixed(2)}` : 'Unavailable'}</Text>}
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}>
+            <Text style={styles.sectionTitle}>{paymentView === 'upcoming' ? 'Upcoming Payments' : 'My Contributions'}</Text>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close" hitSlop={12} onPress={() => setPaymentView(null)}>
+              <Ionicons name="close" size={24} color={Colors.textPrimary} />
+            </TouchableOpacity>
+          </View>
+          {financialReady && <Text style={styles.emptyStateSubtext}>{paymentView === 'contributions'
+            ? `Recorded paid contributions: R${summary.totalPaid.toFixed(2)}`
+            : 'Recorded outstanding obligations, including overdue payments and payments awaiting confirmation.'}</Text>}
           <ScrollView>
-            {clubs === null || (paymentView === 'upcoming' && !dashboardData) ? (
+            {contributions.phase === 'loading' ? <Text style={styles.emptyStateText}>Loading contribution records...</Text>
+            : contributions.phase === 'error' ? (
               <TouchableOpacity accessibilityRole="button" onPress={onRefresh}>
                 <Text style={styles.emptyStateText}>Could not load payment information. Tap to retry.</Text>
               </TouchableOpacity>
-            ) : paymentClubs.length === 0 ? (
-              <Text style={styles.emptyStateText}>{paymentView === 'upcoming' ? 'No upcoming monthly payments recorded. Overdue payments and travel goals can be viewed under Contributions.' : 'No clubs yet. Create or join a group from Home.'}</Text>
-            ) : paymentClubs.map((club) => (
-              <View key={club.id} style={styles.clubCard}>
-                <Text style={styles.clubName}>{club.name}</Text>
-                <Text style={styles.emptyStateSubtext}>{club.contribution_mode === 'flexible_goal'
-                  ? `${club.target_amount_per_member == null ? 'Goal amount unavailable' : `Goal: R${club.target_amount_per_member.toLocaleString()}`}${club.target_date ? ` • Target date: ${club.target_date}` : ''}`
-                  : `Monthly contribution: R${club.monthly_contribution}`}</Text>
-                <Text style={styles.emptyStateSubtext}>{club.status_label || (dashboardData ? 'No contribution recorded' : 'Payment status unavailable')}</Text>
-                {club.status && club.contribution_mode !== 'flexible_goal' && (
-                  <TouchableOpacity accessibilityRole="button" onPress={() => {
-                    setPaymentView(null);
-                    router.push({ pathname: '/(member)/club/[id]', params: { id: club.id } });
-                  }}>
-                    <Text style={styles.emptyStateText}>View my payment details →</Text>
-                  </TouchableOpacity>
-                )}
+            ) : paymentRecords.length === 0 ? (
+              <Text style={styles.emptyStateText}>{paymentView === 'upcoming' ? 'No outstanding contributions recorded.' : 'No personal contributions recorded.'}</Text>
+            ) : paymentRecords.map(record => (
+              <View key={record.contribution_id} style={styles.clubCard}>
+                <Text style={styles.clubName}>{record.group_name}</Text>
+                <Text style={styles.emptyStateSubtext}>{record.month}/{record.year}</Text>
+                <Text style={styles.emptyStateSubtext}>Recorded contribution: R{record.amount_due.toFixed(2)}</Text>
+                <Text style={styles.emptyStateSubtext}>Paid: R{record.amount_paid.toFixed(2)}</Text>
+                <Text style={styles.emptyStateSubtext}>Outstanding: R{record.outstanding_amount.toFixed(2)}</Text>
+                <Text style={styles.emptyStateSubtext}>{record.status === 'proof_uploaded' ? 'Awaiting confirmation' : record.status}</Text>
               </View>
             ))}
           </ScrollView>
@@ -496,11 +471,11 @@ export default function MemberHomeScreen() {
           <View style={styles.dropdownHeader}>
             <View style={styles.dropdownAvatar}>
               <Text style={styles.dropdownAvatarText}>
-                {dashboardData?.user.first_name.charAt(0)}
+                {user?.full_name.charAt(0)}
               </Text>
             </View>
             <View style={styles.dropdownUserInfo}>
-              <Text style={styles.dropdownUserName}>{dashboardData?.user.full_name}</Text>
+              <Text style={styles.dropdownUserName}>{user?.full_name}</Text>
               <Text style={styles.dropdownUserRole}>Member</Text>
             </View>
           </View>
@@ -773,8 +748,6 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.cardBorder,
-    borderTopWidth: 3,
-    borderTopColor: Colors.accent,
   },
   summaryLabel: {
     fontSize: 12,
