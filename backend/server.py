@@ -24,10 +24,13 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 # Import notification service
 from services.notification_service import (
-    send_otp, verify_stored_otp, get_notification_status,
+    send_otp, get_notification_status,
     send_payment_reminder, send_payment_confirmation, send_late_payment_alert,
     format_phone_number
 )
+
+from services.phone_numbers import normalize_phone, phone_aliases, phone_identity_query
+from services.auth_otp import AuthOTP, OTPError, runtime_mock_otp_allowed
 
 # Import bank feed service
 from services.bank_feed_service import (
@@ -66,12 +69,19 @@ db = client[os.environ.get('DB_NAME', 'clubvel')]
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # JWT settings
-SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'clubvel-secret-key-change-in-production')
+def required_secret(name: str) -> str:
+    value = os.environ.get(name)
+    if not value or len(value) < 32:
+        raise RuntimeError(f"Configure {name} privately with the existing environment key (at least 32 characters).")
+    return value
+
+
+SECRET_KEY = required_secret('JWT_SECRET_KEY')
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Session expires after 30 minutes of inactivity
+ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Absolute JWT lifetime; the client also tracks inactivity.
 
 # Field-level encryption key (for sensitive data at rest)
-ENCRYPTION_KEY = os.environ.get('FIELD_ENCRYPTION_KEY', 'clubvel-encryption-key-32bytes!')
+ENCRYPTION_KEY = required_secret('FIELD_ENCRYPTION_KEY')
 
 def get_fernet_key():
     """Generate a Fernet-compatible key from the encryption key"""
@@ -533,14 +543,14 @@ def authenticated_user_id(authorization: Optional[str]) -> str:
     return user_id
 
 
+def require_account_owner(user_id: str, authorization: Optional[str]) -> None:
+    """Account identity comes from the signed session, never a supplied ID."""
+    if authenticated_user_id(authorization) != user_id:
+        raise HTTPException(status_code=403, detail="You may only access your own account")
+
+
 def phone_variants(phone_number: str) -> list[str]:
-    """Match current E.164 and legacy local formatting for the same SA number."""
-    normalized = format_phone_number(phone_number)
-    variants = {phone_number, normalized}
-    if normalized.startswith("+27"):
-        variants.add("0" + normalized[3:])
-        variants.add(normalized[1:])
-    return list(variants)
+    return sorted(set(phone_aliases(phone_number)) | {phone_number})
 
 def generate_reference_code(prefix: str, member_position: int) -> str:
     """Generate unique reference code for member"""
@@ -566,227 +576,166 @@ def calculate_contribution_status(contribution: dict, due_day: int) -> str:
 
 # ==================== AUTHENTICATION ROUTES ====================
 
+auth_otp = AuthOTP(
+    db.auth_otp_challenges, send_otp, get_notification_status, SECRET_KEY,
+    allow_mock=runtime_mock_otp_allowed(os.environ),
+)
+
+
+def auth_phone(phone: str) -> str:
+    try:
+        return normalize_phone(phone)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error))
+
+
+async def find_auth_user(phone: str):
+    matches = await db.users.find(phone_identity_query(auth_phone(phone))).to_list(2)
+    if len(matches) > 1:
+        # Never select or merge two existing identities based on a phone alias.
+        raise HTTPException(status_code=409, detail="Multiple accounts use this phone number. Please contact support.")
+    return matches[0] if matches else None
+
+
+async def issue_auth_code(phone: str, purpose: str, channel: str = "whatsapp"):
+    if channel not in ("whatsapp", "sms"):
+        raise HTTPException(status_code=422, detail="Choose WhatsApp or SMS.")
+    try:
+        return await auth_otp.issue(auth_phone(phone), purpose, channel)
+    except OTPError as error:
+        raise HTTPException(status_code=503, detail=str(error))
+
+
+async def check_auth_code(phone: str, purpose: str, otp: str, consume: bool = False):
+    try:
+        await auth_otp.check(auth_phone(phone), purpose, otp, consume=consume)
+    except OTPError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+
 @api_router.post("/auth/register")
-@limiter.limit("5/minute")  # Limit to 5 registration attempts per minute
+@limiter.limit("5/minute")
 async def register(request: Request, user_data: UserCreate):
-    # Check if phone number already exists
-    existing_user = await db.users.find_one({"phone_number": user_data.phone_number})
-    
-    if existing_user:
-        # A phone number identifies one person. Never create another identity or
-        # mutate account-wide roles during registration.
-        return {
-            "message": "This phone number already has a Clubvel account. Please login.",
-            "user_id": existing_user['id'],
-            "already_registered": True
-        }
-    
-    # Account creation establishes identity only. Group roles are created in members.
-    user = User(
-        full_name=user_data.full_name,
-        phone_number=user_data.phone_number,
-        email=user_data.email,
-        password_hash=hash_password(user_data.password),
-        stokvel_memberships=[],  # New contextual membership array - populated when joining stokvels
-        otp_verified=False
-    )
-    
-    await db.users.insert_one(person_document(user))
-        
-    # Send OTP via WhatsApp (with SMS fallback)
-    otp_result = await send_otp(user_data.phone_number, preferred_channel='whatsapp')
-    
-    # Get notification status for response
-    notif_status = get_notification_status()
-    
-    response = {
-        "message": "User registered successfully. OTP sent to phone.",
-        "user_id": user.id,
-        "otp_channel": otp_result.get('channel', 'whatsapp'),
-        "notification_mode": notif_status['mode']
-    }
-    
-    # Include mock OTP in response if in mock mode
-    if notif_status['mode'] == 'mock':
-        response["mock_otp"] = "1234"
-        response["note"] = "App is in demo mode. Real WhatsApp/SMS will be enabled when Twilio is configured."
-    
-    return response
+    phone = auth_phone(user_data.phone_number)
+    if not user_data.full_name.strip() or len(user_data.password) < 6:
+        raise HTTPException(status_code=422, detail="Enter your name and a password of at least 6 characters.")
+    existing = await find_auth_user(phone)
+    if existing:
+        if existing.get('otp_verified') is not False or not verify_password(user_data.password, existing['password_hash']):
+            return {"message": "This phone number already has a Clubvel account. Please sign in.",
+                    "already_registered": True}
+        # Resume interrupted registration without replacing its password or identity.
+        result = await issue_auth_code(phone, "registration")
+        return {**result, "user_id": existing['id'], "already_registered": False}
+
+    # A sparse unique key protects new registrations against concurrent alias requests.
+    # Legacy records remain untouched and are checked above before insertion.
+    await db.users.create_index("phone_e164", unique=True, sparse=True)
+    user = User(full_name=user_data.full_name.strip(), phone_number=phone, email=user_data.email,
+                password_hash=hash_password(user_data.password), stokvel_memberships=[], otp_verified=False)
+    document = person_document(user)
+    document['phone_e164'] = phone
+    try:
+        await db.users.insert_one(document)
+    except DuplicateKeyError:
+        raise HTTPException(status_code=409, detail="An account was just created for this number. Please sign in.")
+    result = await issue_auth_code(phone, "registration")
+    return {**result, "user_id": user.id, "already_registered": False}
 
 
 @api_router.post("/auth/send-otp")
-@limiter.limit("3/minute")  # Limit to 3 OTP requests per minute
+@limiter.limit("3/minute")
 async def send_otp_endpoint(request: Request, otp_request: SendOTPRequest):
-    """Send or resend OTP to phone number"""
-    # Check if user exists
-    user = await db.users.find_one({"phone_number": otp_request.phone_number})
+    user = await find_auth_user(otp_request.phone_number)
     if not user:
         raise HTTPException(status_code=404, detail="User not found. Please register first.")
-    
-    if user.get('otp_verified'):
-        raise HTTPException(status_code=400, detail="Phone already verified. Please login.")
-    
-    # Send OTP
-    otp_result = await send_otp(otp_request.phone_number, preferred_channel=otp_request.channel)
-    
-    if not otp_result['success']:
-        raise HTTPException(status_code=500, detail=f"Failed to send OTP: {otp_result.get('error', 'Unknown error')}")
-    
-    notif_status = get_notification_status()
-    
-    response = {
-        "message": f"OTP sent via {otp_result['channel']}",
-        "channel": otp_result['channel'],
-        "notification_mode": notif_status['mode']
-    }
-    
-    if notif_status['mode'] == 'mock':
-        response["mock_otp"] = "1234"
-    
-    return response
+    if user.get('otp_verified') is not False:
+        raise HTTPException(status_code=400, detail="Phone already verified. Please sign in.")
+    return await issue_auth_code(otp_request.phone_number, "registration", otp_request.channel)
 
 
 @api_router.post("/auth/verify-otp")
 async def verify_otp(otp_data: OTPVerify):
-    # Verify OTP using notification service
-    verification_result = verify_stored_otp(otp_data.phone_number, otp_data.otp)
-    
-    if not verification_result['valid']:
-        raise HTTPException(status_code=400, detail=verification_result['error'])
-    
-    # Update user verification status
-    result = await db.users.update_one(
-        {"phone_number": otp_data.phone_number},
-        {"$set": {"otp_verified": True}}
-    )
-    
-    if result.modified_count == 0:
+    user = await find_auth_user(otp_data.phone_number)
+    if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    return {
-        "message": "OTP verified successfully",
-        "channel": verification_result.get('channel', 'unknown')
-    }
+    await check_auth_code(otp_data.phone_number, "registration", otp_data.otp, consume=True)
+    await db.users.update_one({"id": user['id']}, {"$set": {"otp_verified": True}})
+    return {"message": "Phone verified. You can now sign in."}
 
 
 @api_router.get("/auth/notification-status")
 async def get_notification_service_status():
-    """Get current notification service configuration status"""
     return get_notification_status()
 
+
 @api_router.post("/auth/login")
-@limiter.limit("10/minute")  # Limit to 10 login attempts per minute
+@limiter.limit("10/minute")
 async def login(request: Request, login_data: UserLogin):
-    # Find user
-    user = await db.users.find_one({"phone_number": login_data.phone_number})
-    if not user:
+    user = await find_auth_user(login_data.phone_number)
+    if not user or not verify_password(login_data.password, user['password_hash']):
         raise HTTPException(status_code=401, detail="Invalid phone number or password")
-    
-    # Verify password
-    if not verify_password(login_data.password, user['password_hash']):
-        raise HTTPException(status_code=401, detail="Invalid phone number or password")
-
-    # One-time/lazy compatibility migration for groups that explicitly identify
-    # this existing person as a legacy treasurer or administrator.
+    if user.get('otp_verified') is False:
+        raise HTTPException(status_code=403, detail={"code": "verification_required",
+                            "message": "Please verify your phone number to finish registration."})
     await reconcile_legacy_admin_memberships(user['id'])
-    
-    # The session identifies a person only. Authorization loads the selected
-    # group's active membership instead of embedding global roles in the token.
-    access_token = create_access_token(
-        data={"user_id": user['id'], "phone": user['phone_number']}
-    )
-    
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {
-            "id": user['id'],
-            "full_name": user['full_name'],
-            "phone_number": user['phone_number'],
-            "profile_photo": user.get('profile_photo')
-        }
-    }
+    access_token = create_access_token(data={"user_id": user['id'], "phone": user['phone_number']})
+    return {"access_token": access_token, "token_type": "bearer", "user": {
+        "id": user['id'], "full_name": user['full_name'], "phone_number": user['phone_number'],
+        "profile_photo": user.get('profile_photo')}}
 
-
-# ==================== FORGOT PASSWORD ENDPOINTS ====================
 
 class ForgotPasswordRequest(BaseModel):
     phone_number: str
 
+
 class VerifyResetOTPRequest(BaseModel):
     phone_number: str
     otp: str
+
 
 class ResetPasswordRequest(BaseModel):
     phone_number: str
     otp: str
     new_password: str
 
+
 @api_router.post("/auth/forgot-password")
 @limiter.limit("3/minute")
 async def forgot_password(request: Request, data: ForgotPasswordRequest):
-    """Send password reset OTP to user's phone"""
-    user = await db.users.find_one({"phone_number": data.phone_number})
+    user = await find_auth_user(data.phone_number)
     if not user:
         raise HTTPException(status_code=404, detail="No account found with this phone number")
-    
-    # Send OTP via WhatsApp/SMS
-    otp_result = await send_otp(data.phone_number, preferred_channel='whatsapp')
-    
-    if not otp_result['success']:
-        raise HTTPException(status_code=500, detail="Failed to send reset code. Please try again.")
-    
-    notif_status = get_notification_status()
-    response = {
-        "message": f"Reset code sent via {otp_result['channel']}",
-        "channel": otp_result['channel']
-    }
-    
-    if notif_status['mode'] == 'mock':
-        response["mock_otp"] = "1234"
-    
-    return response
+    return await issue_auth_code(data.phone_number, "password_reset")
+
 
 @api_router.post("/auth/verify-reset-otp")
 async def verify_reset_otp(data: VerifyResetOTPRequest):
-    """Verify reset OTP before allowing password change"""
-    user = await db.users.find_one({"phone_number": data.phone_number})
+    user = await find_auth_user(data.phone_number)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    verification_result = verify_stored_otp(data.phone_number, data.otp)
-    
-    if not verification_result['valid']:
-        raise HTTPException(status_code=400, detail=verification_result['error'])
-    
-    return {"message": "OTP verified successfully", "can_reset": True}
+    await check_auth_code(data.phone_number, "password_reset", data.otp)
+    return {"message": "Code verified", "can_reset": True}
+
 
 @api_router.post("/auth/reset-password")
 async def reset_password(data: ResetPasswordRequest):
-    """Reset user password after OTP verification"""
-    user = await db.users.find_one({"phone_number": data.phone_number})
+    if len(data.new_password) < 6:
+        raise HTTPException(status_code=422, detail="Password must be at least 6 characters")
+    user = await find_auth_user(data.phone_number)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # Verify OTP again for security
-    verification_result = verify_stored_otp(data.phone_number, data.otp)
-    if not verification_result['valid']:
-        raise HTTPException(status_code=400, detail="Invalid or expired reset code")
-    
-    # Update password
     new_hash = hash_password(data.new_password)
-    await db.users.update_one(
-        {"phone_number": data.phone_number},
-        {"$set": {"password_hash": new_hash}}
-    )
-    
+    await check_auth_code(data.phone_number, "password_reset", data.otp, consume=True)
+    await db.users.update_one({"id": user['id']}, {"$set": {"password_hash": new_hash, "otp_verified": True}})
     return {"message": "Password reset successful"}
 
 
 # ==================== USER STATS ENDPOINTS ====================
 
 @api_router.get("/user/stats/{user_id}")
-async def get_user_stats(user_id: str):
+async def get_user_stats(user_id: str, authorization: Optional[str] = Header(None)):
+    require_account_owner(user_id, authorization)
     """Get truthful profile statistics from authoritative records."""
     user = await db.users.find_one({"id": user_id})
     if not user:
@@ -1367,8 +1316,9 @@ class ProfilePhotoUpdate(BaseModel):
     profile_photo: str  # base64 encoded image
 
 @api_router.post("/user/profile-photo")
-async def update_profile_photo(data: ProfilePhotoUpdate):
+async def update_profile_photo(data: ProfilePhotoUpdate, authorization: Optional[str] = Header(None)):
     """Update user's profile photo"""
+    require_account_owner(data.user_id, authorization)
     user = await db.users.find_one({"id": data.user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1385,8 +1335,9 @@ async def update_profile_photo(data: ProfilePhotoUpdate):
 # ==================== NOTIFICATION PREFERENCES ====================
 
 @api_router.get("/user/notification-preferences/{user_id}")
-async def get_notification_preferences(user_id: str):
+async def get_notification_preferences(user_id: str, authorization: Optional[str] = Header(None)):
     """Get user's notification preferences. Creates default (all OFF) if not exists."""
+    require_account_owner(user_id, authorization)
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1410,8 +1361,9 @@ async def get_notification_preferences(user_id: str):
 
 
 @api_router.put("/user/notification-preferences")
-async def update_notification_preferences(prefs_update: NotificationPreferencesUpdate):
+async def update_notification_preferences(prefs_update: NotificationPreferencesUpdate, authorization: Optional[str] = Header(None)):
     """Update user's notification preferences"""
+    require_account_owner(prefs_update.user_id, authorization)
     user = await db.users.find_one({"id": prefs_update.user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1490,13 +1442,14 @@ class DeleteAccountRequest(BaseModel):
 
 
 @api_router.delete("/user/delete-account")
-async def delete_user_account(data: DeleteAccountRequest):
+async def delete_user_account(data: DeleteAccountRequest, authorization: Optional[str] = Header(None)):
     """
     POPIA-compliant account deletion.
     - Deletes personal information (name, contact details, login credentials)
     - Keeps contribution/claims records but replaces member name with "Deleted Member"
     - Logs the deletion request with timestamp for compliance records
     """
+    require_account_owner(data.user_id, authorization)
     user = await db.users.find_one({"id": data.user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")

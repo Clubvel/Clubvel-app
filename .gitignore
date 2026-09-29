@@ -1265,3 +1265,8 @@ credentials.json
 *.pem
 *.key
 .credentials
+
+# Local mobile outputs must never enter the authentication candidate
+*.apk
+*.aab
+*.ipa

@@ -1,5 +1,6 @@
 import React from 'react';
-import { Tabs } from 'expo-router';
+import { Tabs, Redirect } from 'expo-router';
+import { useAuth } from '../../contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/Colors';
 import { Platform } from 'react-native';
@@ -7,6 +8,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TreasurerLayout() {
   const insets = useSafeAreaInsets();
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (!user) return <Redirect href="/auth" />;
   
   return (
     <Tabs

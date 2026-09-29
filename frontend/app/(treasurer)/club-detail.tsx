@@ -755,6 +755,22 @@ const styles = StyleSheet.create({
   section: {
     padding: 16,
   },
+  emptyState: {
+    alignItems: 'center',
+    padding: 32,
+  },
+  emptyStateText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    marginTop: 12,
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: Colors.textMuted,
+    marginTop: 4,
+    textAlign: 'center',
+  },
   memberCard: {
     flexDirection: 'row',
     alignItems: 'center',

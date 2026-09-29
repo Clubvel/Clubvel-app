@@ -45,7 +45,7 @@ interface DashboardData {
 }
 
 export default function AdminDashboardScreen() {
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
   const router = useRouter();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -176,6 +176,7 @@ export default function AdminDashboardScreen() {
     setDeleting(true);
     try {
       await axios.delete(`${API_URL}/api/user/delete-account`, {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
         data: {
           user_id: user?.id,
           confirmation: 'DELETE'
@@ -320,7 +321,7 @@ export default function AdminDashboardScreen() {
               <View style={styles.urgentInfo}>
                 <Text style={styles.urgentMemberName}>{alert.member_name}</Text>
                 <Text style={styles.urgentDetails}>
-                  {alert.group_name} • {alert.days_late} days late • R{alert.amount}
+                  {alert.group_name} â€¢ {alert.days_late} days late â€¢ R{alert.amount}
                 </Text>
               </View>
               <TouchableOpacity
@@ -409,7 +410,7 @@ export default function AdminDashboardScreen() {
             </View>
             <Text style={styles.claimMember}>{dashboardData.next_claim.member_name}</Text>
             <Text style={styles.claimDetails}>
-              {dashboardData.next_claim.group_name} • {dashboardData.next_claim.date}
+              {dashboardData.next_claim.group_name} â€¢ {dashboardData.next_claim.date}
             </Text>
           </View>
         </View>

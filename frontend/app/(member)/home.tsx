@@ -98,6 +98,7 @@ export default function MemberHomeScreen() {
     setDeleting(true);
     try {
       await axios.delete(`${API_URL}/api/user/delete-account`, {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
         data: {
           user_id: user?.id,
           confirmation: 'DELETE'
@@ -361,7 +362,7 @@ export default function MemberHomeScreen() {
                   <View style={styles.clubMeta}>
                     <Ionicons name="people" size={14} color={Colors.textSecondary} />
                     <Text style={styles.clubMetaText}>{club.member_count} members</Text>
-                    <Text style={styles.clubMetaText}> • </Text>
+                    <Text style={styles.clubMetaText}> â€¢ </Text>
                     <Text style={styles.clubMetaText}>R{club.monthly_contribution}/month</Text>
                   </View>
                 </View>

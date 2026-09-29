@@ -29,7 +29,7 @@ interface PayoutSchedule {
 }
 
 export default function ProfileScreen() {
-  const { user, logout, updateProfilePhoto } = useAuth();
+  const { user, token, logout, updateProfilePhoto } = useAuth();
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -48,7 +48,9 @@ export default function ProfileScreen() {
   const fetchProfileData = async () => {
     try {
       // Fetch user stats
-      const statsResponse = await axios.get(`${API_URL}/api/user/stats/${user?.id}`);
+      const statsResponse = await axios.get(`${API_URL}/api/user/stats/${user?.id}`, {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+      });
       setStats(statsResponse.data);
 
       // Fetch user clubs
