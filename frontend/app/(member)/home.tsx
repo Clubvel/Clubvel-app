@@ -369,7 +369,7 @@ export default function MemberHomeScreen() {
                   <View style={styles.clubMeta}>
                     <Ionicons name="people" size={14} color={Colors.textSecondary} />
                     <Text style={styles.clubMetaText}>{club.member_count} members</Text>
-                    <Text style={styles.clubMetaText}> â€¢ </Text>
+                    <Text style={styles.clubMetaText}> • </Text>
                     <Text style={styles.clubMetaText}>R{club.monthly_contribution}/month</Text>
                   </View>
                 </View>
@@ -387,11 +387,11 @@ export default function MemberHomeScreen() {
         <View style={styles.primaryActions}>
           <TouchableOpacity style={styles.createButton} onPress={() => setShowCreateGroup(true)}>
             <Ionicons name="add" size={20} color={Colors.white} />
-            <Text style={styles.createButtonText}>Create Stokvel / Social Club / Society Group</Text>
+            <Text style={styles.createButtonText}>Create Group</Text>
           </TouchableOpacity>
           <TouchableOpacity style={styles.inviteButton} onPress={openInvitations}>
             <Ionicons name="mail-outline" size={20} color={Colors.accent} />
-            <Text style={styles.inviteButtonText}>Join Stokvel / Social Club / Society Group</Text>
+            <Text style={styles.inviteButtonText}>Join Group</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -624,7 +624,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.darkGreen,
     paddingTop: 52,
     paddingBottom: 16,
     paddingHorizontal: 24,
@@ -643,7 +643,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontSize: 18,
     fontWeight: '700',
-    color: Colors.darkGreen,
+    color: Colors.white,
     letterSpacing: 0.2,
   },
   greeting: {

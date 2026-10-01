@@ -76,10 +76,7 @@ export default function ClaimsScreen() {
       );
 
       const groups = Array.isArray(response.data?.clubs)
-        ? response.data.clubs.filter(
-            (group: { id: string; name: string; status: string }) =>
-              group.status === 'active'
-          )
+        ? response.data.clubs
         : [];
 
       setActiveGroups(groups);

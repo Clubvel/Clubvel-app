@@ -328,7 +328,7 @@ export default function AdminDashboardScreen() {
               <View style={styles.urgentInfo}>
                 <Text style={styles.urgentMemberName}>{alert.member_name}</Text>
                 <Text style={styles.urgentDetails}>
-                  {alert.group_name} â€¢ {alert.days_late} days late â€¢ R{alert.amount}
+                  {alert.group_name} • {alert.days_late} days late • R{alert.amount}
                 </Text>
               </View>
               <TouchableOpacity
@@ -417,7 +417,7 @@ export default function AdminDashboardScreen() {
             </View>
             <Text style={styles.claimMember}>{dashboardData.next_claim.member_name}</Text>
             <Text style={styles.claimDetails}>
-              {dashboardData.next_claim.group_name} â€¢ {dashboardData.next_claim.date}
+              {dashboardData.next_claim.group_name} • {dashboardData.next_claim.date}
             </Text>
           </View>
         </View>
@@ -646,7 +646,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.darkGreen,
     paddingTop: 52,
     paddingBottom: 16,
     paddingHorizontal: 24,
@@ -665,7 +665,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
     fontSize: 18,
     fontWeight: '700',
-    color: Colors.darkGreen,
+    color: Colors.white,
     letterSpacing: 0.2,
   },
   summaryContainer: {

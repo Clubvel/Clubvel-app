@@ -461,7 +461,7 @@ export default function ClubDetailScreen() {
         <View style={styles.summaryDivider} />
         <View style={styles.summaryItem}>
           <Text style={[styles.summaryValue, { color: Colors.mediumGreen }]}>
-            {Math.round((clubData.collected / clubData.expected) * 100)}%
+            {clubData.expected > 0 ? Math.round((clubData.collected / clubData.expected) * 100) : 0}%
           </Text>
           <Text style={styles.summaryLabel}>Progress</Text>
         </View>
