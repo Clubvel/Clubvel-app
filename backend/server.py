@@ -235,12 +235,28 @@ class Claim(BaseModel):
     member_id: str
     group_id: str
     claim_amount: float
-    scheduled_claim_date: datetime
-    claim_status: str = "upcoming"  # upcoming, ready, processing, paid, confirmed
+    scheduled_claim_date: Optional[datetime] = None
+    claim_status: str = "upcoming"  # legacy payout states plus pending_review, approved, rejected
     confirmed_by_treasurer_id: Optional[str] = None
     confirmation_date: Optional[datetime] = None
     notes: Optional[str] = None
     actual_amount_paid: Optional[float] = None
+    reason: Optional[str] = None
+    submitted_at: Optional[datetime] = None
+    reviewed_at: Optional[datetime] = None
+    reviewed_by_treasurer_id: Optional[str] = None
+    rejection_reason: Optional[str] = None
+
+
+class ClaimSubmission(BaseModel):
+    group_id: str
+    claim_amount: float
+    reason: str
+
+
+class ClaimReview(BaseModel):
+    action: str
+    rejection_reason: Optional[str] = None
 
 class Alert(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -921,6 +937,252 @@ async def get_member_payout_schedule(user_id: str, authorization: Optional[str] 
             scheduled = claim.get("scheduled_claim_date")
             schedules.append({"club_name": group["group_name"], "payout_date": scheduled.strftime("%B %Y") if scheduled else None, "amount": claim.get("claim_amount"), "position": None})
     return {"schedules": schedules}
+
+
+@api_router.post("/member/claims")
+async def submit_member_claim(data: ClaimSubmission, authorization: Optional[str] = Header(None)):
+    """Submit a claim for the authenticated person's active membership."""
+    user_id = authenticated_user_id(authorization)
+
+    group = await db.groups.find_one({
+        "id": data.group_id,
+        "status": "active"
+    })
+    if not group:
+        raise HTTPException(status_code=404, detail="Active group not found")
+
+    membership = await db.members.find_one({
+        "user_id": user_id,
+        "group_id": data.group_id,
+        "status": "active"
+    })
+    if not membership:
+        raise HTTPException(
+            status_code=403,
+            detail="You must be an active member of this group to submit a claim"
+        )
+
+    amount = data.claim_amount
+    if (
+        isinstance(amount, bool)
+        or not isinstance(amount, (int, float))
+        or not math.isfinite(amount)
+        or amount <= 0
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Claim amount must be greater than zero"
+        )
+
+    reason = data.reason.strip()
+    if not reason:
+        raise HTTPException(
+            status_code=422,
+            detail="Please provide a reason for the claim"
+        )
+    if len(reason) > 1000:
+        raise HTTPException(
+            status_code=422,
+            detail="Claim reason must be 1000 characters or fewer"
+        )
+
+    claim = Claim(
+        member_id=membership["id"],
+        group_id=data.group_id,
+        claim_amount=round(float(amount), 2),
+        claim_status="pending_review",
+        reason=reason,
+        submitted_at=datetime.utcnow(),
+    )
+
+    await db.claims.insert_one(claim.dict())
+
+    return {
+        "claim_id": claim.id,
+        "status": claim.claim_status,
+        "message": "Claim submitted for review"
+    }
+
+
+@api_router.get("/member/claims/{user_id}")
+async def get_member_claims(user_id: str, authorization: Optional[str] = Header(None)):
+    """Return claims belonging only to the authenticated person's active memberships."""
+    require_account_owner(user_id, authorization)
+
+    memberships = await db.members.find({
+        "user_id": user_id,
+        "status": "active"
+    }).to_list(None)
+
+    membership_by_id = {membership["id"]: membership for membership in memberships}
+    if not membership_by_id:
+        return {"claims": []}
+
+    groups = await db.groups.find({
+        "id": {"$in": [membership["group_id"] for membership in memberships]},
+        "status": "active"
+    }).to_list(None)
+    groups_by_id = {group["id"]: group for group in groups}
+
+    records = await db.claims.find({
+        "member_id": {"$in": list(membership_by_id)}
+    }).to_list(None)
+
+    claims = []
+    for claim in records:
+        membership = membership_by_id.get(claim.get("member_id"))
+        if not membership:
+            continue
+
+        group = groups_by_id.get(claim.get("group_id"))
+        if not group or membership.get("group_id") != group.get("id"):
+            continue
+
+        claims.append({
+            "claim_id": claim.get("id"),
+            "group_id": group["id"],
+            "group_name": group["group_name"],
+            "amount": claim.get("claim_amount"),
+            "reason": claim.get("reason"),
+            "status": claim.get("claim_status"),
+            "submitted_at": claim.get("submitted_at"),
+            "scheduled_claim_date": claim.get("scheduled_claim_date"),
+            "actual_amount_paid": claim.get("actual_amount_paid"),
+            "rejection_reason": claim.get("rejection_reason"),
+        })
+
+    claims.sort(
+        key=lambda item: item.get("submitted_at")
+        or item.get("scheduled_claim_date")
+        or datetime.min,
+        reverse=True
+    )
+
+    return {"claims": claims}
+
+
+@api_router.get("/treasurer/groups/{group_id}/claims")
+async def get_group_claims(group_id: str, authorization: Optional[str] = Header(None)):
+    """Return claims for a group only to an authenticated admin/treasurer."""
+    user_id = authenticated_user_id(authorization)
+    group = await verify_user_is_group_treasurer(user_id, group_id)
+
+    records = await db.claims.find({
+        "group_id": group_id
+    }).to_list(None)
+
+    claims = []
+    for claim in records:
+        member = await db.members.find_one({
+            "id": claim.get("member_id"),
+            "group_id": group_id
+        })
+        person = await db.users.find_one({
+            "id": member.get("user_id")
+        }) if member else None
+
+        claims.append({
+            "claim_id": claim.get("id"),
+            "group_id": group_id,
+            "group_name": group.get("group_name"),
+            "member_name": person.get("full_name") if person else "Member",
+            "amount": claim.get("claim_amount"),
+            "reason": claim.get("reason"),
+            "status": claim.get("claim_status"),
+            "submitted_at": claim.get("submitted_at"),
+            "scheduled_claim_date": claim.get("scheduled_claim_date"),
+            "actual_amount_paid": claim.get("actual_amount_paid"),
+            "rejection_reason": claim.get("rejection_reason"),
+        })
+
+    claims.sort(
+        key=lambda item: item.get("submitted_at")
+        or item.get("scheduled_claim_date")
+        or datetime.min,
+        reverse=True
+    )
+
+    return {"claims": claims}
+
+
+@api_router.post("/treasurer/groups/{group_id}/claims/{claim_id}/review")
+async def review_group_claim(
+    group_id: str,
+    claim_id: str,
+    data: ClaimReview,
+    authorization: Optional[str] = Header(None)
+):
+    """Approve or reject a pending member claim."""
+    user_id = authenticated_user_id(authorization)
+    await verify_user_is_group_treasurer(user_id, group_id)
+
+    action = data.action.strip().lower()
+    if action not in ("approve", "reject"):
+        raise HTTPException(
+            status_code=422,
+            detail="Action must be approve or reject"
+        )
+
+    claim = await db.claims.find_one({
+        "id": claim_id,
+        "group_id": group_id
+    })
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+
+    if claim.get("claim_status") != "pending_review":
+        raise HTTPException(
+            status_code=409,
+            detail="Only pending claims can be reviewed"
+        )
+
+    rejection_reason = (
+        data.rejection_reason.strip()
+        if data.rejection_reason else ""
+    )
+
+    if action == "reject" and not rejection_reason:
+        raise HTTPException(
+            status_code=422,
+            detail="Please provide a reason for rejecting the claim"
+        )
+
+    if len(rejection_reason) > 1000:
+        raise HTTPException(
+            status_code=422,
+            detail="Rejection reason must be 1000 characters or fewer"
+        )
+
+    new_status = "approved" if action == "approve" else "rejected"
+    now = datetime.utcnow()
+
+    result = await db.claims.update_one(
+        {
+            "id": claim_id,
+            "group_id": group_id,
+            "claim_status": "pending_review"
+        },
+        {
+            "$set": {
+                "claim_status": new_status,
+                "reviewed_at": now,
+                "reviewed_by_treasurer_id": user_id,
+                "rejection_reason": rejection_reason if action == "reject" else None,
+            }
+        }
+    )
+
+    if result.modified_count != 1:
+        raise HTTPException(
+            status_code=409,
+            detail="This claim has already been reviewed. Please refresh."
+        )
+
+    return {
+        "claim_id": claim_id,
+        "status": new_status,
+        "message": "Claim approved" if action == "approve" else "Claim rejected"
+    }
 
 
 # ==================== ADMIN ENDPOINTS ====================
