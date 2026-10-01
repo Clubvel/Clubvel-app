@@ -3,7 +3,7 @@ import { Tabs, Redirect } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/Colors';
-import { Platform } from 'react-native';
+import { Platform, Text } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TreasurerLayout() {
@@ -73,6 +73,21 @@ export default function TreasurerLayout() {
         name="my-contributions"
         options={{
           title: 'My Contributions',
+          tabBarLabel: ({ color }) => (
+            <Text
+              numberOfLines={2}
+              style={{
+                color,
+                fontSize: 10,
+                fontWeight: '600',
+                textAlign: 'center',
+                lineHeight: 11,
+                marginBottom: 2,
+              }}
+            >
+              {'My\nContributions'}
+            </Text>
+          ),
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="wallet" size={size} color={color} />
           ),

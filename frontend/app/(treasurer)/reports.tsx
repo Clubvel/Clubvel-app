@@ -1,23 +1,161 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import React, { useEffect, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, RefreshControl } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useRouter } from 'expo-router';
 import { AdBanner } from '../../components/AdBanner';
+import axios from 'axios';
 import { 
   generatePDFReport, 
   sharePDFReport, 
   printPDFReport,
-  generateSampleReportData,
   ReportData 
 } from '../../services/pdfReportService';
 
 export default function ReportsScreen() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const router = useRouter();
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingType, setGeneratingType] = useState<string | null>(null);
+  const [dashboardData, setDashboardData] = useState<any>(null);
+  const [loadingReports, setLoadingReports] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+
+  const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+
+  const fetchReportData = async () => {
+    if (!user?.id) return;
+
+    try {
+      const response = await axios.get(`${API_URL}/api/admin/dashboard/${user.id}`);
+      setDashboardData(response.data);
+    } catch (error) {
+      console.error('Error fetching report data:', error);
+      Alert.alert('Unable to Load Reports', 'Clubvel could not load the latest financial data. Please try again.');
+    } finally {
+      setLoadingReports(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (user?.id) {
+      fetchReportData();
+    }
+  }, [user?.id]);
+
+  const buildReportData = async (
+    reportType: 'monthly' | 'annual'
+  ): Promise<ReportData> => {
+    if (!token) {
+      throw new Error('Authentication session is not available.');
+    }
+
+    const managedClubs = (dashboardData?.clubs || []).filter(
+      (club: any) => club?.id
+    );
+
+    if (managedClubs.length === 0) {
+      throw new Error('No managed groups are available for this report.');
+    }
+
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+
+    const responses = await Promise.all(
+      managedClubs.map((club: any) =>
+        axios.get(`${API_URL}/api/treasurer/reports/${club.id}`, {
+          params: reportType === 'monthly'
+            ? { year, month }
+            : { year },
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        })
+      )
+    );
+
+    const reports = responses.map((response) => response.data);
+    const rows = reports.flatMap((report: any) => report.rows || []);
+
+    const totalCollected = reports.reduce(
+      (sum: number, report: any) =>
+        sum + Number(report.summary?.total_collected || 0),
+      0
+    );
+
+    const totalExpected = reports.reduce(
+      (sum: number, report: any) =>
+        sum + Number(report.summary?.recorded_obligations || 0),
+      0
+    );
+
+    const appliedToObligations = rows.reduce(
+      (sum: number, row: any) => {
+        if (row.recorded_status === 'excused') {
+          return sum;
+        }
+
+        return sum + Math.min(
+          Number(row.amount_due || 0),
+          Number(row.amount_paid || 0)
+        );
+      },
+      0
+    );
+
+    const memberIds = new Set(
+      rows.map((row: any) => row.person_id).filter(Boolean)
+    );
+
+    const lateMemberIds = new Set(
+      rows
+        .filter(
+          (row: any) =>
+            row.status === 'late' &&
+            Number(row.outstanding || 0) > 0
+        )
+        .map((row: any) => row.person_id)
+        .filter(Boolean)
+    );
+
+    return {
+      reportType,
+      treasurerName: user?.full_name || 'Treasurer',
+      generatedDate: now.toLocaleString('en-ZA'),
+      period: reportType === 'monthly'
+        ? `${monthNames[now.getMonth()]} ${year}`
+        : `${year}`,
+      clubs: reports.map((report: any) => ({
+        id: report.group_id,
+        name: report.group_name,
+        member_count: new Set(
+          (report.rows || [])
+            .map((row: any) => row.person_id)
+            .filter(Boolean)
+        ).size,
+        collected: Number(report.summary?.total_collected || 0),
+        expected: Number(report.summary?.recorded_obligations || 0),
+        late_count: Number(report.summary?.late_members || 0),
+      })),
+      summary: {
+        totalCollected,
+        totalExpected,
+        collectionRate:
+          totalExpected > 0
+            ? (appliedToObligations / totalExpected) * 100
+            : 0,
+        totalMembers: memberIds.size,
+        latePayments: lateMemberIds.size,
+      },
+    };
+  };
 
   const handleExportPDF = async (reportType: 'monthly' | 'quarterly' | 'annual' | 'member') => {
     setIsGenerating(true);
@@ -25,10 +163,20 @@ export default function ReportsScreen() {
 
     try {
       // Generate report data (in production, fetch from API)
-      const reportData: ReportData = {
-        ...generateSampleReportData(user?.full_name || 'Treasurer'),
-        reportType,
-      };
+      if (!dashboardData) {
+        Alert.alert('Report Not Ready', 'Please wait for the latest financial data to load.');
+        return;
+      }
+
+      if (reportType !== 'monthly' && reportType !== 'annual') {
+        Alert.alert(
+          'Report Not Available',
+          'This report requires its own member or historical selection and will not be generated from unrelated financial data.'
+        );
+        return;
+      }
+
+      const reportData = await buildReportData(reportType);
 
       // Update period based on report type
       const now = new Date();
@@ -39,15 +187,8 @@ export default function ReportsScreen() {
         case 'monthly':
           reportData.period = `${monthNames[now.getMonth()]} ${now.getFullYear()}`;
           break;
-        case 'quarterly':
-          const quarter = Math.floor(now.getMonth() / 3) + 1;
-          reportData.period = `Q${quarter} ${now.getFullYear()}`;
-          break;
         case 'annual':
           reportData.period = `${now.getFullYear()}`;
-          break;
-        case 'member':
-          reportData.period = `Jan - ${monthNames[now.getMonth()]} ${now.getFullYear()}`;
           break;
       }
 
@@ -79,10 +220,20 @@ export default function ReportsScreen() {
     setGeneratingType(reportType);
 
     try {
-      const reportData: ReportData = {
-        ...generateSampleReportData(user?.full_name || 'Treasurer'),
-        reportType,
-      };
+      if (!dashboardData) {
+        Alert.alert('Report Not Ready', 'Please wait for the latest financial data to load.');
+        return;
+      }
+
+      if (reportType !== 'monthly' && reportType !== 'annual') {
+        Alert.alert(
+          'Report Not Available',
+          'This report requires its own member or historical selection and will not be generated from unrelated financial data.'
+        );
+        return;
+      }
+
+      const reportData = await buildReportData(reportType);
 
       const result = await printPDFReport(reportData);
 
@@ -102,10 +253,20 @@ export default function ReportsScreen() {
     setGeneratingType(reportType);
 
     try {
-      const reportData: ReportData = {
-        ...generateSampleReportData(user?.full_name || 'Treasurer'),
-        reportType,
-      };
+      if (!dashboardData) {
+        Alert.alert('Report Not Ready', 'Please wait for the latest financial data to load.');
+        return;
+      }
+
+      if (reportType !== 'monthly' && reportType !== 'annual') {
+        Alert.alert(
+          'Report Not Available',
+          'This report requires its own member or historical selection and will not be generated from unrelated financial data.'
+        );
+        return;
+      }
+
+      const reportData = await buildReportData(reportType);
 
       const result = await generatePDFReport(reportData);
 
@@ -164,19 +325,36 @@ export default function ReportsScreen() {
           <View style={styles.summaryCard}>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Total Collected</Text>
-              <Text style={[styles.summaryValue, styles.collectedValue]}>R500.00</Text>
+              <Text style={[styles.summaryValue, styles.collectedValue]}>
+                R{(dashboardData?.clubs || []).reduce((sum: number, club: any) => sum + Number(club.collected || 0), 0).toFixed(2)}
+              </Text>
             </View>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Collection Rate</Text>
-              <Text style={styles.summaryValue}>50%</Text>
+              <Text style={styles.summaryValue}>
+                {(() => {
+                  const clubs = dashboardData?.clubs || [];
+                  const collected = clubs.reduce((sum: number, club: any) => sum + Number(club.collected || 0), 0);
+                  const expected = clubs.reduce((sum: number, club: any) => sum + Number(club.expected || 0), 0);
+                  return expected > 0 ? `${Math.round((collected / expected) * 100)}%` : '0%';
+                })()}
+              </Text>
             </View>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Outstanding</Text>
-              <Text style={[styles.summaryValue, styles.outstandingValue]}>R500.00</Text>
+              <Text style={[styles.summaryValue, styles.outstandingValue]}>
+                R{Math.max(
+                  0,
+                  (dashboardData?.clubs || []).reduce((sum: number, club: any) => sum + Number(club.expected || 0), 0) -
+                  (dashboardData?.clubs || []).reduce((sum: number, club: any) => sum + Number(club.collected || 0), 0)
+                ).toFixed(2)}
+              </Text>
             </View>
             <View style={styles.summaryRow}>
               <Text style={styles.summaryLabel}>Late Members</Text>
-              <Text style={[styles.summaryValue, styles.lateValue]}>1</Text>
+              <Text style={[styles.summaryValue, styles.lateValue]}>
+                {(dashboardData?.clubs || []).reduce((sum: number, club: any) => sum + Number(club.late_count || 0), 0)}
+              </Text>
             </View>
           </View>
         </View>
