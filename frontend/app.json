@@ -16,7 +16,7 @@
       "policy": "appVersion"
     },
     "orientation": "portrait",
-    "icon": "./assets/images/clubvel-final-icon.png",
+    "icon": "./assets/images/clubvel-launcher-icon.png",
     "scheme": "clubvel",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
@@ -41,7 +41,7 @@
       "googleServicesFile": "./google-services.json",
       "versionCode": 13,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/clubvel-android-icon-final.png",
+        "foregroundImage": "./assets/images/clubvel-launcher-icon.png",
         "backgroundColor": "#FFFFFF"
       },
       "edgeToEdgeEnabled": true,

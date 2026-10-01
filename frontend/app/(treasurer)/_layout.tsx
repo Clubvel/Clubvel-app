@@ -72,7 +72,7 @@ export default function TreasurerLayout() {
       <Tabs.Screen
         name="my-contributions"
         options={{
-          title: 'My Payments',
+          title: 'My Contributions',
           tabBarIcon: ({ color, size }) => (
             <Ionicons name="wallet" size={size} color={color} />
           ),

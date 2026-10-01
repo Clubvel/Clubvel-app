@@ -253,7 +253,14 @@ export default function AdminDashboardScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.logoText}>Clubvel</Text>
+        <View style={styles.brandLockup}>
+          <Image
+            source={require('../../assets/images/clubvel-community-icon.png')}
+            style={styles.brandLogo}
+            resizeMode="contain"
+          />
+          <Text style={styles.brandName}>clubvel</Text>
+        </View>
         <TouchableOpacity 
           style={styles.avatarButton}
           onPress={() => setShowProfileMenu(true)}
@@ -639,13 +646,27 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.darkGreen,
-    paddingTop: 60,
-    paddingBottom: 24,
+    backgroundColor: Colors.white,
+    paddingTop: 52,
+    paddingBottom: 16,
     paddingHorizontal: 24,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  brandLockup: {
+    alignItems: 'center',
+  },
+  brandLogo: {
+    width: 72,
+    height: 58,
+  },
+  brandName: {
+    marginTop: 2,
+    fontSize: 18,
+    fontWeight: '700',
+    color: Colors.darkGreen,
+    letterSpacing: 0.2,
   },
   summaryContainer: {
     flexDirection: 'row',

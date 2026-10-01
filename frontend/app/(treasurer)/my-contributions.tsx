@@ -115,6 +115,16 @@ export default function MyContributionsScreen() {
       </View>
 
       <ScrollView style={styles.content}>
+        {contributions.length === 0 ? (
+          <View style={styles.emptyState}>
+            <Ionicons name="wallet-outline" size={52} color={Colors.accent} />
+            <Text style={styles.emptyTitle}>No contributions yet</Text>
+            <Text style={styles.emptyText}>
+              Your personal contributions will appear here when a contribution is assigned to you.
+            </Text>
+          </View>
+        ) : (
+          <>
         {/* Summary Card */}
         <View style={styles.summaryCard}>
           <View style={styles.summaryRow}>
@@ -222,16 +232,8 @@ export default function MyContributionsScreen() {
           </View>
         )}
 
-        {/* Info Box */}
-        <View style={styles.infoBox}>
-          <Ionicons name="information-circle" size={24} color={Colors.mediumGreen} />
-          <View style={styles.infoText}>
-            <Text style={styles.infoTitle}>About Your Contributions</Text>
-            <Text style={styles.infoBody}>
-              This tab shows your personal payments for clubs where you're a regular member. Upload proof after paying, and another treasurer will confirm your payment.
-            </Text>
-          </View>
-        </View>
+          </>
+        )}
 
         {/* Advertisement */}
         <View style={styles.adContainer}>
@@ -258,6 +260,25 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     backgroundColor: Colors.lightBackground,
+  },
+  emptyState: {
+    alignItems: 'center',
+    justifyContent: 'center',
+    paddingHorizontal: 32,
+    paddingVertical: 64,
+  },
+  emptyTitle: {
+    fontSize: 20,
+    fontWeight: '700',
+    color: Colors.textPrimary,
+    marginTop: 16,
+    marginBottom: 8,
+  },
+  emptyText: {
+    fontSize: 15,
+    lineHeight: 22,
+    color: Colors.textSecondary,
+    textAlign: 'center',
   },
   header: {
     backgroundColor: Colors.mediumGreen,
