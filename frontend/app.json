@@ -65,7 +65,7 @@
       [
         "expo-splash-screen",
         {
-          "image":  "./assets/images/clubvel-final-splash.png",
+          "image": "./assets/images/clubvel-launcher-icon.png",
           "imageWidth": 300,
           "resizeMode": "contain",
           "backgroundColor": "#FFFFFF"
