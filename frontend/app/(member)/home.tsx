@@ -56,7 +56,9 @@ export default function MemberHomeScreen() {
   const [showCreateGroup, setShowCreateGroup] = useState(false);
   const [creatingGroup, setCreatingGroup] = useState(false);
   const [groupName, setGroupName] = useState('');
+  const [groupType, setGroupType] = useState('savings');
   const [monthlyContribution, setMonthlyContribution] = useState('');
+  const [paymentDueDate, setPaymentDueDate] = useState('25');
   const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([]);
   const [acceptingInvitation, setAcceptingInvitation] = useState<string | null>(null);
   const [showInvitations, setShowInvitations] = useState(false);
@@ -187,7 +189,10 @@ export default function MemberHomeScreen() {
 
   const openClub = (club: Club) => {
     if (club.role === 'admin' || club.role === 'treasurer') {
-      router.push({ pathname: '/(treasurer)/club-detail', params: { id: club.id, name: club.name } });
+      router.push({
+        pathname: '/(treasurer)/club-detail',
+        params: { id: club.id, name: club.name, from: 'member' }
+      });
       return;
     }
     router.push(`/(member)/club/${club.id}`);
@@ -195,23 +200,38 @@ export default function MemberHomeScreen() {
 
   const createGroup = async () => {
     const amount = Number(monthlyContribution);
-    if (!groupName.trim() || !Number.isFinite(amount) || amount < 0) {
-      Alert.alert('Check the details', 'Enter a group name and a valid contribution amount.');
+    const dueDate = Number(paymentDueDate);
+
+    if (
+      !groupName.trim() ||
+      !Number.isFinite(amount) ||
+      amount < 0 ||
+      !Number.isInteger(dueDate) ||
+      dueDate < 1 ||
+      dueDate > 31
+    ) {
+      Alert.alert(
+        'Check the details',
+        'Enter a group name, a valid contribution amount, and a payment due date from 1 to 31.'
+      );
       return;
     }
+
     setCreatingGroup(true);
     try {
       const response = await axios.post(`${API_URL}/api/groups/create`, {
         group_name: groupName.trim(),
-        group_type: 'savings',
+        group_type: groupType,
         monthly_contribution: amount,
-        payment_due_date: 25,
+        payment_due_date: dueDate,
         admin_user_id: user?.id,
         payment_reference_prefix: groupName.trim().slice(0, 3).toUpperCase() || 'CLB',
       });
       setShowCreateGroup(false);
       setGroupName('');
+      setGroupType('savings');
       setMonthlyContribution('');
+      setPaymentDueDate('25');
       await fetchDashboard();
       router.push({
         pathname: '/(treasurer)/club-detail',
@@ -276,14 +296,7 @@ export default function MemberHomeScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <View style={styles.brandLockup}>
-            <Image
-              source={require('../../assets/images/clubvel-community-icon.png')}
-              style={styles.brandLogo}
-              resizeMode="contain"
-            />
-            <Text style={styles.brandName}>clubvel</Text>
-          </View>
+          <Text style={styles.brandName}>clubvel</Text>
           <TouchableOpacity 
             style={styles.avatarButton}
             onPress={() => setShowProfileMenu(true)}
@@ -525,19 +538,48 @@ export default function MemberHomeScreen() {
         <View style={styles.formCard}>
           <Text style={styles.formTitle}>Create a Group</Text>
           <Text style={styles.formHelp}>You will be the admin of this group only.</Text>
+          <Text style={styles.inputLabel}>Group Name *</Text>
           <TextInput
             style={styles.input}
-            placeholder="Group name"
+            placeholder="e.g. Family Savings Group"
             value={groupName}
             onChangeText={setGroupName}
           />
+
+          <Text style={styles.inputLabel}>Group Type</Text>
+          <View style={styles.typeSelector}>
+            {['savings', 'burial', 'investment', 'grocery', 'social'].map((type) => (
+              <TouchableOpacity
+                key={type}
+                style={[styles.typeButton, groupType === type && styles.typeButtonActive]}
+                onPress={() => setGroupType(type)}
+              >
+                <Text style={[styles.typeButtonText, groupType === type && styles.typeButtonTextActive]}>
+                  {type.charAt(0).toUpperCase() + type.slice(1)}
+                </Text>
+              </TouchableOpacity>
+            ))}
+          </View>
+
+          <Text style={styles.inputLabel}>Monthly Contribution (R) *</Text>
           <TextInput
             style={styles.input}
-            placeholder="Monthly contribution (R)"
+            placeholder="e.g. 500"
             keyboardType="decimal-pad"
             value={monthlyContribution}
             onChangeText={setMonthlyContribution}
           />
+
+          <Text style={styles.inputLabel}>Payment Due Date (Day of Month)</Text>
+          <TextInput
+            style={styles.input}
+            placeholder="e.g. 25"
+            keyboardType="numeric"
+            maxLength={2}
+            value={paymentDueDate}
+            onChangeText={setPaymentDueDate}
+          />
+
           <View style={styles.formActions}>
             <TouchableOpacity style={styles.cancelButton} onPress={() => setShowCreateGroup(false)} disabled={creatingGroup}>
               <Text style={styles.cancelButtonText}>Cancel</Text>
@@ -632,16 +674,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  brandLockup: {
-    alignItems: 'center',
-  },
-  brandLogo: {
-    width: 72,
-    height: 58,
-  },
   brandName: {
-    marginTop: 2,
-    fontSize: 18,
+    fontSize: 24,
     fontWeight: '700',
     color: Colors.white,
     letterSpacing: 0.2,
@@ -998,10 +1032,19 @@ const styles = StyleSheet.create({
   },
   formTitle: { color: Colors.textPrimary, fontSize: 22, fontWeight: '700' },
   formHelp: { color: Colors.textSecondary, fontSize: 14, marginBottom: 20, marginTop: 6 },
+  inputLabel: { color: Colors.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 6 },
   input: {
     borderColor: Colors.cardBorder, borderRadius: 10, borderWidth: 1, color: Colors.textPrimary,
     fontSize: 16, marginBottom: 12, paddingHorizontal: 14, paddingVertical: 13,
   },
+  typeSelector: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
+  typeButton: {
+    borderColor: Colors.cardBorder, borderRadius: 18, borderWidth: 1,
+    paddingHorizontal: 12, paddingVertical: 8,
+  },
+  typeButtonActive: { backgroundColor: Colors.accent, borderColor: Colors.accent },
+  typeButtonText: { color: Colors.textSecondary, fontSize: 13, fontWeight: '600' },
+  typeButtonTextActive: { color: Colors.white },
   formActions: { flexDirection: 'row', gap: 12, marginTop: 8 },
   cancelButton: {
     alignItems: 'center', borderColor: Colors.cardBorder, borderRadius: 10,

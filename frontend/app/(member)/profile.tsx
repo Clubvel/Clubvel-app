@@ -46,26 +46,46 @@ export default function ProfileScreen() {
   }, []);
 
   const fetchProfileData = async () => {
+    if (!user?.id || !token) {
+      setLoading(false);
+      return;
+    }
+
     try {
-      // Fetch user stats
-      const statsResponse = await axios.get(`${API_URL}/api/user/stats/${user?.id}`, {
-        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
-      });
-      setStats(statsResponse.data);
+      const headers = { Authorization: `Bearer ${token}` };
 
-      // Fetch user clubs
-      const clubsResponse = await axios.get(`${API_URL}/api/member/clubs/${user?.id}`);
-      setClubs(clubsResponse.data.clubs || []);
+      const [statsResult, clubsResult, payoutResult] = await Promise.allSettled([
+        axios.get(`${API_URL}/api/user/stats/${user.id}`, {
+          headers,
+          timeout: 15000,
+        }),
+        axios.get(`${API_URL}/api/member/clubs/${user.id}`, {
+          headers,
+          timeout: 15000,
+        }),
+        axios.get(`${API_URL}/api/member/payout-schedule/${user.id}`, {
+          headers,
+          timeout: 15000,
+        }),
+      ]);
 
-      // Fetch payout schedules
-      const payoutResponse = await axios.get(`${API_URL}/api/member/payout-schedule/${user?.id}`);
-      setPayoutSchedules(payoutResponse.data.schedules || []);
-    } catch (error) {
-      console.error('Error fetching profile data:', error);
-      // Set defaults if API fails
-      setStats({ clubs_count: 0, total_saved: 0, on_time_percentage: 0, trust_score: null, date_joined: null });
-      setClubs([]);
-      setPayoutSchedules([]);
+      if (statsResult.status === 'fulfilled') {
+        setStats(statsResult.value.data);
+      } else {
+        console.error('Error fetching user stats:', statsResult.reason);
+      }
+
+      if (clubsResult.status === 'fulfilled') {
+        setClubs(clubsResult.value.data.clubs || []);
+      } else {
+        console.error('Error fetching user clubs:', clubsResult.reason);
+      }
+
+      if (payoutResult.status === 'fulfilled') {
+        setPayoutSchedules(payoutResult.value.data.schedules || []);
+      } else {
+        console.error('Error fetching payout schedules:', payoutResult.reason);
+      }
     } finally {
       setLoading(false);
     }

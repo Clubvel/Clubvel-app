@@ -15,7 +15,7 @@ interface Member {
   role_in_group: 'member' | 'admin' | 'treasurer';
   status: string;
   amount_paid: number;
-  amount_due: number;
+  amount_due: number | null;
   has_proof: boolean;
 }
 
@@ -48,9 +48,17 @@ interface ClubData {
 }
 
 export default function ClubDetailScreen() {
-  const { id, name } = useLocalSearchParams<{ id: string; name: string }>();
+  const { id, name, from } = useLocalSearchParams<{ id: string; name: string; from?: string }>();
   const { user, token } = useAuth();
   const router = useRouter();
+
+  const handleBack = () => {
+    if (from === 'member') {
+      router.replace('/(member)/home');
+      return;
+    }
+    router.back();
+  };
   const insets = useSafeAreaInsets();
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
@@ -394,7 +402,7 @@ export default function ClubDetailScreen() {
       case 'confirmed': return Colors.statusPaid;
       case 'proof_uploaded': return Colors.gold;
       case 'late': return Colors.statusLate;
-      case 'active': return Colors.mediumGreen;
+      case 'active': return Colors.accent;
       default: return Colors.textMuted;
     }
   };
@@ -426,7 +434,7 @@ export default function ClubDetailScreen() {
         <TouchableOpacity style={styles.retryButton} onPress={fetchClubData}>
           <Text style={styles.retryButtonText}>Retry</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
           <Text style={styles.backButtonText}>Go Back</Text>
         </TouchableOpacity>
       </View>
@@ -437,7 +445,7 @@ export default function ClubDetailScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerBackButton}>
+        <TouchableOpacity onPress={handleBack} style={styles.headerBackButton}>
           <Ionicons name="arrow-back" size={24} color={Colors.white} />
         </TouchableOpacity>
         <View style={styles.headerContent}>
@@ -455,12 +463,12 @@ export default function ClubDetailScreen() {
         </View>
         <View style={styles.summaryDivider} />
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryValue}>R{clubData.expected.toFixed(2)}</Text>
+          <Text style={[styles.summaryValue, { color: '#16A34A' }]}>R{clubData.expected.toFixed(2)}</Text>
           <Text style={styles.summaryLabel}>Expected</Text>
         </View>
         <View style={styles.summaryDivider} />
         <View style={styles.summaryItem}>
-          <Text style={[styles.summaryValue, { color: Colors.mediumGreen }]}>
+          <Text style={[styles.summaryValue, { color: Colors.accent }]}>
             {clubData.expected > 0 ? Math.round((clubData.collected / clubData.expected) * 100) : 0}%
           </Text>
           <Text style={styles.summaryLabel}>Progress</Text>
@@ -473,28 +481,28 @@ export default function ClubDetailScreen() {
           style={[styles.tab, activeTab === 'members' && styles.activeTab]}
           onPress={() => setActiveTab('members')}
         >
-          <Ionicons name="people" size={20} color={activeTab === 'members' ? Colors.mediumGreen : Colors.textMuted} />
+          <Ionicons name="people" size={20} color={activeTab === 'members' ? Colors.accent : Colors.textMuted} />
           <Text style={[styles.tabText, activeTab === 'members' && styles.activeTabText]}>Members</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.tab, activeTab === 'payments' && styles.activeTab]}
           onPress={() => setActiveTab('payments')}
         >
-          <Ionicons name="cash" size={20} color={activeTab === 'payments' ? Colors.mediumGreen : Colors.textMuted} />
+          <Ionicons name="cash" size={20} color={activeTab === 'payments' ? Colors.accent : Colors.textMuted} />
           <Text style={[styles.tabText, activeTab === 'payments' && styles.activeTabText]}>Payments</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.tab, activeTab === 'claims' && styles.activeTab]}
           onPress={() => setActiveTab('claims')}
         >
-          <Ionicons name="trophy" size={20} color={activeTab === 'claims' ? Colors.mediumGreen : Colors.textMuted} />
+          <Ionicons name="trophy" size={20} color={activeTab === 'claims' ? Colors.accent : Colors.textMuted} />
           <Text style={[styles.tabText, activeTab === 'claims' && styles.activeTabText]}>Claims</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.tab, activeTab === 'settings' && styles.activeTab]}
           onPress={() => setActiveTab('settings')}
         >
-          <Ionicons name="settings" size={20} color={activeTab === 'settings' ? Colors.mediumGreen : Colors.textMuted} />
+          <Ionicons name="settings" size={20} color={activeTab === 'settings' ? Colors.accent : Colors.textMuted} />
           <Text style={[styles.tabText, activeTab === 'settings' && styles.activeTabText]}>Settings</Text>
         </TouchableOpacity>
       </View>
@@ -516,7 +524,7 @@ export default function ClubDetailScreen() {
                     <Text style={styles.memberPhone}>{member.phone}</Text>
                   </View>
                 </View>
-                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(member.membership_status) + '20' }]}>
+                <View style={[styles.statusBadge, { backgroundColor: Colors.mediumGreen + '20' }]}>
                   <Text style={[styles.statusText, { color: getStatusColor(member.membership_status) }]}>
                     {getStatusLabel(member.membership_status)}
                   </Text>
@@ -538,7 +546,9 @@ export default function ClubDetailScreen() {
                     <View style={styles.memberDetails}>
                       <Text style={styles.memberName}>{member.name}</Text>
                       <Text style={styles.paymentAmount}>
-                        R{member.amount_paid.toFixed(2)} / R{member.amount_due.toFixed(2)}
+                        {member.amount_due == null
+                          ? `R${member.amount_paid.toFixed(2)} / Not recorded`
+                          : `R${member.amount_paid.toFixed(2)} / R${member.amount_due.toFixed(2)}`}
                       </Text>
                     </View>
                   </View>
@@ -1070,7 +1080,7 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   activeTabText: {
-    color: Colors.mediumGreen,
+    color: Colors.accent,
   },
   content: {
     flex: 1,

@@ -56,7 +56,7 @@ export default function AdminDashboardScreen() {
   const [showCreateClubModal, setShowCreateClubModal] = useState(false);
   const [creatingClub, setCreatingClub] = useState(false);
   
-  // Create Club Form State
+  // Create Group Form State
   const [clubName, setClubName] = useState('');
   const [clubType, setClubType] = useState('savings');
   const [monthlyContribution, setMonthlyContribution] = useState('');
@@ -128,7 +128,7 @@ export default function AdminDashboardScreen() {
         start_date: new Date().toISOString()
       });
 
-      Alert.alert('Success', `Club "${clubName}" created successfully!`);
+      Alert.alert('Success', `Group "${clubName}" created successfully!`);
       setShowCreateClubModal(false);
       // Reset form
       setClubName('');
@@ -138,7 +138,7 @@ export default function AdminDashboardScreen() {
       // Refresh dashboard
       fetchDashboard();
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to create club');
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to create group');
     } finally {
       setCreatingClub(false);
     }
@@ -253,14 +253,7 @@ export default function AdminDashboardScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <View style={styles.brandLockup}>
-          <Image
-            source={require('../../assets/images/clubvel-community-icon.png')}
-            style={styles.brandLogo}
-            resizeMode="contain"
-          />
-          <Text style={styles.brandName}>clubvel</Text>
-        </View>
+        <Text style={styles.brandName}>clubvel</Text>
         <TouchableOpacity 
           style={styles.avatarButton}
           onPress={() => setShowProfileMenu(true)}
@@ -304,14 +297,14 @@ export default function AdminDashboardScreen() {
         </View>
       </View>
 
-      {/* Create Club Button */}
+      {/* Create Group Button */}
       <View style={styles.createClubSection}>
         <TouchableOpacity 
           style={styles.createClubButton}
           onPress={() => setShowCreateClubModal(true)}
         >
           <Ionicons name="add-circle" size={24} color={Colors.white} />
-          <Text style={styles.createClubButtonText}>Create New Club/Stokvel/Society</Text>
+          <Text style={styles.createClubButtonText}>Create a Group</Text>
         </TouchableOpacity>
       </View>
 
@@ -400,8 +393,8 @@ export default function AdminDashboardScreen() {
         ) : (
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={48} color={Colors.textMuted} />
-            <Text style={styles.emptyStateText}>No clubs managed</Text>
-            <Text style={styles.emptyStateSubtext}>Tap "Create New Club" above to get started</Text>
+            <Text style={styles.emptyStateText}>No groups managed</Text>
+            <Text style={styles.emptyStateSubtext}>Tap "Create a Group" above to get started</Text>
           </View>
         )}
       </View>
@@ -500,7 +493,7 @@ export default function AdminDashboardScreen() {
       </TouchableOpacity>
     </Modal>
 
-    {/* Create Club Modal */}
+    {/* Create Group Modal */}
     <Modal
       visible={showCreateClubModal}
       transparent={true}
@@ -514,7 +507,7 @@ export default function AdminDashboardScreen() {
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.createClubModalContent}>
             <View style={styles.createClubModalHeader}>
-              <Text style={styles.createClubModalTitle}>Create New Club</Text>
+              <Text style={styles.createClubModalTitle}>Create a Group</Text>
               <TouchableOpacity onPress={() => setShowCreateClubModal(false)}>
                 <Ionicons name="close" size={28} color={Colors.textPrimary} />
               </TouchableOpacity>
@@ -525,15 +518,15 @@ export default function AdminDashboardScreen() {
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={true}
             >
-              <Text style={styles.inputLabel}>Club Name *</Text>
+              <Text style={styles.inputLabel}>Group Name *</Text>
               <TextInput
                 style={styles.input}
-                placeholder="e.g. Family Savings Club"
+                placeholder="e.g. Family Savings Group"
                 value={clubName}
                 onChangeText={setClubName}
               />
 
-              <Text style={styles.inputLabel}>Club Type</Text>
+              <Text style={styles.inputLabel}>Group Type</Text>
               <View style={styles.typeSelector}>
                 {['savings', 'burial', 'investment', 'grocery', 'social'].map((type) => (
                   <TouchableOpacity
@@ -579,7 +572,7 @@ export default function AdminDashboardScreen() {
               {creatingClub ? (
                 <ActivityIndicator color={Colors.white} />
               ) : (
-                <Text style={styles.createClubSubmitText}>Create Club</Text>
+                <Text style={styles.createClubSubmitText}>Create Group</Text>
               )}
             </TouchableOpacity>
           </View>
@@ -654,16 +647,8 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'center',
   },
-  brandLockup: {
-    alignItems: 'center',
-  },
-  brandLogo: {
-    width: 72,
-    height: 58,
-  },
   brandName: {
-    marginTop: 2,
-    fontSize: 18,
+    fontSize: 24,
     fontWeight: '700',
     color: Colors.white,
     letterSpacing: 0.2,
@@ -1017,7 +1002,7 @@ const styles = StyleSheet.create({
     color: Colors.statusLate,
     fontWeight: '500',
   },
-  // Create Club Modal Styles
+  // Create Group Modal Styles
   createClubModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
