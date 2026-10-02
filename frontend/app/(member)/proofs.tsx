@@ -6,7 +6,7 @@ import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
 import { useRouter } from 'expo-router';
 import { AdBanner } from '../../components/AdBanner';
-import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import axios from 'axios';
@@ -46,6 +46,8 @@ export default function ProofOfPaymentsScreen() {
   const [proofs, setProofs] = useState<Proof[]>([]); // uploads made in this session; never presented as complete history
   const [viewingProof, setViewingProof] = useState<string | null>(null);
   const [proofImage, setProofImage] = useState<string | null>(null);
+  const [proofMimeType, setProofMimeType] = useState<string>('image/jpeg');
+  const [proofFileName, setProofFileName] = useState<string | null>(null);
   const [loadingProof, setLoadingProof] = useState(false);
 
   const fetchClubs = async () => {
@@ -70,8 +72,8 @@ export default function ProofOfPaymentsScreen() {
   };
 
   const handleUploadPress = async () => {
-    await fetchClubs();
     setShowClubModal(true);
+    await fetchClubs();
   };
 
   const uploadProofForClub = async (
@@ -81,24 +83,30 @@ export default function ProofOfPaymentsScreen() {
   ) => {
     setShowClubModal(false);
 
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permissionResult.granted) {
-      Alert.alert(
-        'Permission Required',
-        'Please allow access to your photo library to upload proof of payment.'
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.7,
-      base64: true,
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ['application/pdf', 'image/*'],
+      copyToCacheDirectory: true,
+      multiple: false,
     });
 
-    if (!result.canceled && result.assets[0].base64) {
+    if (!result.canceled && result.assets[0]) {
+      const asset = result.assets[0];
+
+      if (asset.size && asset.size > 5 * 1024 * 1024) {
+        Alert.alert('File Too Large', 'Please select a proof of payment smaller than 5 MB.');
+        return;
+      }
+
+      const mimeType =
+        asset.mimeType ||
+        (asset.name?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+
+      const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const proofData = `data:${mimeType};base64,${base64}`;
+
       setUploading(true);
       try {
         let resolvedContributionId = contributionId;
@@ -117,7 +125,9 @@ export default function ProofOfPaymentsScreen() {
 
         await axios.post(`${API_URL}/api/contributions/upload-proof`, {
           contribution_id: resolvedContributionId,
-          proof_image: `data:image/jpeg;base64,${result.assets[0].base64}`,
+          proof_image: proofData,
+          proof_mime_type: mimeType,
+          proof_file_name: asset.name || null,
           reference_number: '',
           user_id: user?.id,
         });
@@ -183,26 +193,32 @@ export default function ProofOfPaymentsScreen() {
       return;
     }
 
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permissionResult.granted) {
-      Alert.alert(
-        'Permission Required',
-        'Please allow access to your photo library to upload proof of payment.'
-      );
-      return;
-    }
-
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.7,
-      base64: true,
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ['application/pdf', 'image/*'],
+      copyToCacheDirectory: true,
+      multiple: false,
     });
 
-    if (result.canceled || !result.assets[0].base64) {
+    if (result.canceled || !result.assets[0]) {
       return;
     }
+
+    const asset = result.assets[0];
+
+    if (asset.size && asset.size > 5 * 1024 * 1024) {
+      Alert.alert('File Too Large', 'Please select a proof of payment smaller than 5 MB.');
+      return;
+    }
+
+    const mimeType =
+      asset.mimeType ||
+      (asset.name?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+
+    const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    const proofData = `data:${mimeType};base64,${base64}`;
 
     setUploading(true);
 
@@ -226,7 +242,9 @@ export default function ProofOfPaymentsScreen() {
 
       await axios.post(`${API_URL}/api/contributions/upload-proof`, {
         contribution_id: contributionId,
-        proof_image: `data:image/jpeg;base64,${result.assets[0].base64}`,
+        proof_image: proofData,
+        proof_mime_type: mimeType,
+        proof_file_name: asset.name || null,
         reference_number: '',
         user_id: user?.id,
       });
@@ -280,9 +298,41 @@ export default function ProofOfPaymentsScreen() {
       const response = await axios.get(
         `${API_URL}/api/contributions/${proof.contribution_id}/proof?user_id=${user?.id}`
       );
-      setProofImage(response.data.proof_image);
+      const proofData = response.data.proof_image;
+      const mimeType =
+        response.data.proof_mime_type ||
+        (proofData?.startsWith('data:application/pdf') ? 'application/pdf' : 'image/jpeg');
+
+      setProofMimeType(mimeType);
+      setProofFileName(response.data.proof_file_name || null);
+
+      if (mimeType === 'application/pdf') {
+        const isAvailable = await Sharing.isAvailableAsync();
+        if (!isAvailable) {
+          Alert.alert('Error', 'Opening PDF files is not available on this device.');
+          setViewingProof(null);
+          return;
+        }
+
+        const base64Data = proofData.replace(/^data:application\/pdf;base64,/, '');
+        const fileUri = FileSystem.documentDirectory + `proof_${Date.now()}.pdf`;
+
+        await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        setViewingProof(null);
+
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Open Proof of Payment',
+        });
+        return;
+      }
+
+      setProofImage(proofData);
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to load proof image');
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to load proof of payment');
       setViewingProof(null);
     } finally {
       setLoadingProof(false);
@@ -293,31 +343,33 @@ export default function ProofOfPaymentsScreen() {
     if (!proofImage) return;
 
     try {
-      // Check if sharing is available
       const isAvailable = await Sharing.isAvailableAsync();
       if (!isAvailable) {
         Alert.alert('Error', 'Sharing is not available on this device');
         return;
       }
 
-      // Save to file system and share
-      const filename = `proof_${Date.now()}.jpg`;
+      const isPdf =
+        proofMimeType === 'application/pdf' ||
+        proofImage.startsWith('data:application/pdf');
+
+      const extension = isPdf ? 'pdf' : 'jpg';
+      const filename = proofFileName || `proof_${Date.now()}.${extension}`;
       const fileUri = FileSystem.documentDirectory + filename;
-      
-      // Remove data URL prefix if present
-      const base64Data = proofImage.replace(/^data:image\/\w+;base64,/, '');
-      
+
+      const base64Data = proofImage.replace(/^data:[^;]+;base64,/, '');
+
       await FileSystem.writeAsStringAsync(fileUri, base64Data, {
         encoding: FileSystem.EncodingType.Base64,
       });
 
       await Sharing.shareAsync(fileUri, {
-        mimeType: 'image/jpeg',
+        mimeType: isPdf ? 'application/pdf' : proofMimeType,
         dialogTitle: 'Save Proof of Payment',
       });
     } catch (error) {
       console.error('Download error:', error);
-      Alert.alert('Error', 'Failed to download proof image');
+      Alert.alert('Error', 'Failed to save proof of payment');
     }
   };
 
@@ -525,14 +577,17 @@ export default function ProofOfPaymentsScreen() {
               Enter the amount you paid to {selectedFlexibleClub?.name}.
             </Text>
 
-            <TextInput
-              style={styles.amountInput}
-              value={flexibleAmount}
-              onChangeText={setFlexibleAmount}
-              placeholder="0.00"
-              keyboardType="decimal-pad"
-              editable={!uploading}
-            />
+            <View style={styles.amountInputContainer}>
+              <Text style={styles.currencyPrefix}>R</Text>
+              <TextInput
+                style={styles.amountInput}
+                value={flexibleAmount}
+                onChangeText={setFlexibleAmount}
+                placeholder="0.00"
+                keyboardType="decimal-pad"
+                editable={!uploading}
+              />
+            </View>
 
             <TouchableOpacity
               style={styles.continueButton}
@@ -866,17 +921,27 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     marginBottom: 16,
   },
-  amountInput: {
+  amountInputContainer: {
     marginHorizontal: 24,
     marginBottom: 16,
     paddingHorizontal: 16,
-    paddingVertical: 14,
     borderWidth: 1,
     borderColor: Colors.cardBorder,
     borderRadius: 12,
+    backgroundColor: Colors.white,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  currencyPrefix: {
     fontSize: 18,
     color: Colors.textPrimary,
-    backgroundColor: Colors.white,
+    marginRight: 4,
+  },
+  amountInput: {
+    flex: 1,
+    paddingVertical: 14,
+    fontSize: 18,
+    color: Colors.textPrimary,
   },
   continueButton: {
     marginHorizontal: 24,

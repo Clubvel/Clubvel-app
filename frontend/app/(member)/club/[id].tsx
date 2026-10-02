@@ -5,7 +5,8 @@ import { useAuth } from '../../../contexts/AuthContext';
 import { StatusPill } from '../../../components/StatusPill';
 import { Colors } from '../../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
-import * as ImagePicker from 'expo-image-picker';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import axios from 'axios';
 
 interface ClubDetails {
@@ -70,42 +71,57 @@ export default function ClubDetailScreen() {
   }, [user, id]);
 
   const handleUploadProof = async () => {
-    // Request permissions
-    if (Platform.OS !== 'web') {
-      const { status } = await ImagePicker.requestMediaLibraryPermissionsAsync();
-      if (status !== 'granted') {
-        Alert.alert('Permission needed', 'Please allow access to your photos to upload proof of payment');
-        return;
-      }
-    }
-
-    // Pick image
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      quality: 0.5,
-      base64: true,
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ['application/pdf', 'image/*'],
+      copyToCacheDirectory: true,
+      multiple: false,
     });
 
-    if (!result.canceled && result.assets[0].base64) {
-      setUploading(true);
-      try {
-        const base64Image = `data:image/jpeg;base64,${result.assets[0].base64}`;
-        
-        await axios.post(`${API_URL}/api/contributions/upload-proof`, {
-          contribution_id: clubData?.current_contribution.id,
-          proof_image: base64Image,
-          reference_number: clubData?.payment_reference.reference_code,
-          user_id: user?.id,  // Authorization: Pass user ID for access control
-        });
+    if (result.canceled || !result.assets[0]) {
+      return;
+    }
 
-        Alert.alert('Success', 'Proof of payment uploaded successfully! Your treasurer will confirm shortly.');
-        fetchClubDetails(); // Refresh data
-      } catch (error: any) {
-        Alert.alert('Error', error.response?.data?.detail || 'Failed to upload proof of payment');
-      } finally {
-        setUploading(false);
-      }
+    const asset = result.assets[0];
+
+    if (asset.size && asset.size > 5 * 1024 * 1024) {
+      Alert.alert('File Too Large', 'Please select a proof of payment smaller than 5 MB.');
+      return;
+    }
+
+    const mimeType =
+      asset.mimeType ||
+      (asset.name?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+
+    const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    const proofData = `data:${mimeType};base64,${base64}`;
+
+    setUploading(true);
+
+    try {
+      await axios.post(`${API_URL}/api/contributions/upload-proof`, {
+        contribution_id: clubData?.current_contribution.id,
+        proof_image: proofData,
+        proof_mime_type: mimeType,
+        proof_file_name: asset.name || null,
+        reference_number: clubData?.payment_reference.reference_code,
+        user_id: user?.id,
+      });
+
+      Alert.alert(
+        'Success',
+        'Proof of payment uploaded successfully! Your treasurer will confirm shortly.'
+      );
+      fetchClubDetails();
+    } catch (error: any) {
+      Alert.alert(
+        'Error',
+        error.response?.data?.detail || 'Failed to upload proof of payment'
+      );
+    } finally {
+      setUploading(false);
     }
   };
 

@@ -28,6 +28,8 @@ export default function AuthScreen() {
   const [resetOTP, setResetOTP] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [resetStep, setResetStep] = useState(1); // 1: enter phone, 2: enter OTP, 3: new password
   const [resetLoading, setResetLoading] = useState(false);
   
@@ -595,20 +597,45 @@ export default function AuthScreen() {
                   <Text style={styles.resetStepDesc}>
                     Enter your new password below
                   </Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="New Password"
-                    value={newPassword}
-                    onChangeText={setNewPassword}
-                    secureTextEntry
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Confirm New Password"
-                    value={confirmPassword}
-                    onChangeText={setConfirmPassword}
-                    secureTextEntry
-                  />
+                  <View style={{ position: 'relative' }}>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="New Password"
+                      value={newPassword}
+                      onChangeText={setNewPassword}
+                      secureTextEntry={!showNewPassword}
+                    />
+                    <TouchableOpacity
+                      onPress={() => setShowNewPassword(!showNewPassword)}
+                      style={{ position: 'absolute', right: 18, top: 18 }}
+                    >
+                      <Ionicons
+                        name={showNewPassword ? 'eye-off-outline' : 'eye-outline'}
+                        size={24}
+                        color="gray"
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={{ position: 'relative' }}>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Confirm New Password"
+                      value={confirmPassword}
+                      onChangeText={setConfirmPassword}
+                      secureTextEntry={!showConfirmPassword}
+                    />
+                    <TouchableOpacity
+                      onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                      style={{ position: 'absolute', right: 18, top: 18 }}
+                    >
+                      <Ionicons
+                        name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
+                        size={24}
+                        color="gray"
+                      />
+                    </TouchableOpacity>
+                  </View>
                   <TouchableOpacity
                     style={[styles.button, resetLoading && styles.buttonDisabled]}
                     onPress={handleResetPassword}

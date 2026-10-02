@@ -289,9 +289,11 @@ class NotificationPreferencesUpdate(BaseModel):
 
 class ProofUpload(BaseModel):
     contribution_id: str
-    proof_image: str  # base64
+    proof_image: str  # base64 data URL; retained for backward compatibility
     reference_number: str
     user_id: str  # Requesting user - for authorization
+    proof_mime_type: Optional[str] = None
+    proof_file_name: Optional[str] = None
 
 class ConfirmPayment(BaseModel):
     contribution_id: str
@@ -2226,6 +2228,8 @@ async def upload_proof_of_payment(proof_data: ProofUpload):
          'proof_of_payment': contribution.get('proof_of_payment')},
         {"$set": {
             "proof_of_payment": proof_data.proof_image,
+            "proof_mime_type": proof_data.proof_mime_type,
+            "proof_file_name": proof_data.proof_file_name,
             "reference_number": proof_data.reference_number,
             "contribution_status": "proof_uploaded",
             "payment_date": datetime.utcnow()
@@ -2289,6 +2293,11 @@ async def get_contribution_proof(contribution_id: str, user_id: str):
     return {
         "contribution_id": contribution_id,
         "proof_image": proof_image,
+        "proof_mime_type": contribution.get('proof_mime_type') or (
+            'application/pdf' if proof_image.startswith('data:application/pdf')
+            else 'image/jpeg'
+        ),
+        "proof_file_name": contribution.get('proof_file_name'),
         "reference_number": contribution.get('reference_number'),
         "upload_date": contribution.get('payment_date'),
         "status": contribution.get('contribution_status')
@@ -2314,6 +2323,8 @@ async def admin_upload_proof_of_payment(proof_data: ProofUpload):
         {"id": proof_data.contribution_id},
         {"$set": {
             "proof_of_payment": proof_data.proof_image,
+            "proof_mime_type": proof_data.proof_mime_type,
+            "proof_file_name": proof_data.proof_file_name,
             "reference_number": proof_data.reference_number,
             "contribution_status": "proof_uploaded",
             "payment_date": datetime.utcnow(),
