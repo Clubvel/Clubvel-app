@@ -65,7 +65,7 @@ export default function MemberLayout() {
         options={{
           title: 'Alerts',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="notifications" size={size} color={Colors.accent} />
+            <Ionicons name="notifications" size={size} color={color} />
           ),
         }}
       />

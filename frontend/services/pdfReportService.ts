@@ -103,9 +103,6 @@ const generateReportHTML = (data: ReportData): string => {
           margin-bottom: 5px;
           letter-spacing: 0.2px;
         }
-        .logo-accent {
-          color: #F97316;
-        }
         .subtitle {
           font-size: 13px;
           color: #3F4145;
@@ -223,7 +220,7 @@ const generateReportHTML = (data: ReportData): string => {
     </head>
     <body>
       <div class="header">
-        <div class="logo">club<span class="logo-accent">vel</span></div>
+        <div class="logo">Clubvel</div>
         <div class="subtitle">save, plan, grow together</div>
       </div>
 

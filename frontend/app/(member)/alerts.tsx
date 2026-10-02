@@ -179,7 +179,7 @@ export default function AlertsScreen() {
 
         {today.length === 0 && yesterday.length === 0 && earlier.length === 0 && (
           <View style={styles.emptyState}>
-            <Ionicons name="notifications-outline" size={64} color={Colors.textMuted} />
+            <Ionicons name="notifications-outline" size={64} color={Colors.accent} />
             <Text style={styles.emptyStateText}>No alerts</Text>
             <Text style={styles.emptyStateSubtext}>You're all caught up!</Text>
           </View>

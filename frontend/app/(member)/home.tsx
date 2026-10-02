@@ -296,7 +296,7 @@ export default function MemberHomeScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.brandName}>clubvel</Text>
+          <Text style={styles.brandName}>Clubvel</Text>
           <TouchableOpacity 
             style={styles.avatarButton}
             onPress={() => setShowProfileMenu(true)}
@@ -1013,7 +1013,7 @@ const styles = StyleSheet.create({
   acceptButtonText: { color: Colors.white, fontSize: 14, fontWeight: '700' },
   primaryActions: { gap: 12, marginTop: 16 },
   createButton: {
-    alignItems: 'center', backgroundColor: Colors.accent, borderRadius: 12,
+    alignItems: 'center', backgroundColor: Colors.primary, borderRadius: 12,
     flexDirection: 'row', gap: 8, justifyContent: 'center', paddingVertical: 14,
   },
   createButtonText: { color: Colors.white, fontSize: 16, fontWeight: '700' },

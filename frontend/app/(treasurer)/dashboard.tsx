@@ -253,7 +253,7 @@ export default function AdminDashboardScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.brandName}>clubvel</Text>
+        <Text style={styles.brandName}>Clubvel</Text>
         <TouchableOpacity 
           style={styles.avatarButton}
           onPress={() => setShowProfileMenu(true)}

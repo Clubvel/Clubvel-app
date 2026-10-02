@@ -302,6 +302,10 @@ class RecordMonthlyContribution(BaseModel):
     member_id: str
     treasurer_id: str
 
+class RecordFlexibleContribution(BaseModel):
+    group_id: str
+    amount: float = Field(gt=0)
+
 # ==================== HELPER FUNCTIONS ====================
 
 def hash_password(password: str) -> str:
@@ -688,6 +692,65 @@ async def get_proof_eligible_contributions(user_id: str, authorization: Optional
         raise HTTPException(status_code=403, detail='You can only view your own contributions')
     records = await get_person_contribution_records(user_id)
     return {'contributions': [personal_contribution_view(*row) for row in records if proof_is_eligible(row[0])]}
+
+
+@api_router.post('/member/contributions/flexible')
+async def record_flexible_contribution(
+    data: RecordFlexibleContribution,
+    authorization: Optional[str] = Header(None)
+):
+    """Explicit member action to record a payment amount for a flexible or Travel group."""
+    user_id = authenticated_user_id(authorization)
+
+    group = await db.groups.find_one({
+        'id': data.group_id,
+        'status': 'active'
+    })
+    if not group:
+        raise HTTPException(status_code=404, detail='Active group not found')
+
+    membership = await db.members.find_one({
+        'user_id': user_id,
+        'group_id': data.group_id,
+        'status': 'active'
+    })
+    if not membership:
+        raise HTTPException(
+            status_code=403,
+            detail='You are not an active member of this group'
+        )
+
+    flexible = (
+        group.get('contribution_mode') == 'flexible_goal'
+        or group.get('group_type') == 'travel'
+    )
+    if not flexible:
+        raise HTTPException(
+            status_code=409,
+            detail='This action is only available for flexible or Travel groups'
+        )
+
+    amount = float(data.amount)
+    if not math.isfinite(amount) or amount <= 0:
+        raise HTTPException(status_code=422, detail='Enter a valid contribution amount')
+
+    now = datetime.utcnow()
+    record = Contribution(
+        member_id=membership['id'],
+        group_id=data.group_id,
+        month=now.month,
+        year=now.year,
+        amount_due=round(amount, 2)
+    ).dict()
+
+    await db.contributions.insert_one(record)
+
+    return {
+        'contribution_id': record['id'],
+        'group_id': data.group_id,
+        'amount_due': record['amount_due'],
+        'status': record['contribution_status']
+    }
 
 
 @api_router.post('/treasurer/contributions/{group_id}/current')

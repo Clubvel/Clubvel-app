@@ -443,7 +443,7 @@ const styles = StyleSheet.create({
   submitButton: {
     minHeight: 50,
     borderRadius: 12,
-    backgroundColor: Colors.accent,
+    backgroundColor: Colors.primary,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
