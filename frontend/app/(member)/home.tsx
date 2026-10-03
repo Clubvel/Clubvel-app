@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image, TextInput, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image, TextInput, Platform, KeyboardAvoidingView } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { StatusPill } from '../../components/StatusPill';
@@ -534,7 +534,10 @@ export default function MemberHomeScreen() {
     </Modal>
 
     <Modal visible={showCreateGroup} transparent animationType="slide" onRequestClose={() => setShowCreateGroup(false)}>
-      <View style={styles.formOverlay}>
+      <KeyboardAvoidingView
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        style={styles.formOverlay}
+      >
         <View style={[styles.formCard, { maxHeight: '85%' }]}>
           <ScrollView
             keyboardShouldPersistTaps="handled"
@@ -568,7 +571,7 @@ export default function MemberHomeScreen() {
           <Text style={styles.inputLabel}>Monthly Contribution (R) *</Text>
           <TextInput
             style={styles.input}
-            placeholder="e.g. 500"
+            placeholder="R  e.g. 500"
             keyboardType="decimal-pad"
             value={monthlyContribution}
             onChangeText={setMonthlyContribution}
@@ -594,7 +597,7 @@ export default function MemberHomeScreen() {
           </View>
           </ScrollView>
         </View>
-      </View>
+      </KeyboardAvoidingView>
     </Modal>
 
     <Modal visible={showInvitations} transparent animationType="slide" onRequestClose={() => setShowInvitations(false)}>

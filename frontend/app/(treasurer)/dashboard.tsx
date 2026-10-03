@@ -544,7 +544,7 @@ export default function AdminDashboardScreen() {
               <Text style={styles.inputLabel}>Monthly Contribution (R) *</Text>
               <TextInput
                 style={styles.input}
-                placeholder="e.g. 500"
+                placeholder="R  e.g. 500"
                 value={monthlyContribution}
                 onChangeText={setMonthlyContribution}
                 keyboardType="numeric"
@@ -564,17 +564,27 @@ export default function AdminDashboardScreen() {
               <View style={{ height: 150 }} />
             </ScrollView>
 
-            <TouchableOpacity
-              style={[styles.createClubSubmitButton, creatingClub && styles.buttonDisabled]}
-              onPress={handleCreateClub}
-              disabled={creatingClub}
-            >
-              {creatingClub ? (
-                <ActivityIndicator color={Colors.white} />
-              ) : (
-                <Text style={styles.createClubSubmitText}>Create Group</Text>
-              )}
-            </TouchableOpacity>
+            <View style={styles.createClubActions}>
+              <TouchableOpacity
+                style={styles.createClubCancelButton}
+                onPress={() => setShowCreateClubModal(false)}
+                disabled={creatingClub}
+              >
+                <Text style={styles.createClubCancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.createClubSubmitButton, creatingClub && styles.buttonDisabled]}
+                onPress={handleCreateClub}
+                disabled={creatingClub}
+              >
+                {creatingClub ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <Text style={styles.createClubSubmitText}>Create Group</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
@@ -1076,9 +1086,27 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontWeight: '600',
   },
-  createClubSubmitButton: {
-    backgroundColor: Colors.accent,
+  createClubActions: {
+    flexDirection: 'row',
+    gap: 12,
     marginHorizontal: 20,
+  },
+  createClubCancelButton: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    alignItems: 'center',
+  },
+  createClubCancelText: {
+    color: Colors.textPrimary,
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  createClubSubmitButton: {
+    flex: 1,
+    backgroundColor: Colors.accent,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
