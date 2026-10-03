@@ -544,7 +544,7 @@ export default function AdminDashboardScreen() {
               <Text style={styles.inputLabel}>Monthly Contribution (R) *</Text>
               <TextInput
                 style={styles.input}
-                placeholder="R  e.g. 500"
+                placeholder="e.g. R500"
                 value={monthlyContribution}
                 onChangeText={setMonthlyContribution}
                 keyboardType="numeric"

@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, Alert, ActivityIndicator, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, Alert, ActivityIndicator, Image, KeyboardAvoidingView, Platform } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
@@ -267,8 +267,15 @@ export default function MembersScreen() {
         animationType="slide"
         onRequestClose={() => setShowInviteModal(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
           <View style={styles.modalContent}>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={true}
+            >
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Invite Member</Text>
               <TouchableOpacity onPress={() => setShowInviteModal(false)}>
@@ -360,8 +367,9 @@ export default function MembersScreen() {
               <Ionicons name="information-circle" size={14} color={Colors.textMuted} />
               {' '}The person will receive an SMS with a link to download Clubvel and join your club.
             </Text>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
