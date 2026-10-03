@@ -436,13 +436,25 @@ export default function AuthScreen() {
                 keyboardType="phone-pad"
               />
 
-              <TextInput
-                style={styles.input}
-                placeholder="Password"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-              />
+              <View style={{ position: 'relative' }}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Password"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPassword(!showPassword)}
+                  style={{ position: 'absolute', right: 18, top: 18 }}
+                >
+                  <Ionicons
+                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={24}
+                    color="gray"
+                  />
+                </TouchableOpacity>
+              </View>
 
               <TouchableOpacity
                 style={[styles.button, loading && styles.buttonDisabled]}
@@ -455,7 +467,9 @@ export default function AuthScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity onPress={() => setIsLogin(true)}>
-                <Text style={styles.switchText}>Already a member? Sign In</Text>
+                <Text style={styles.switchText}>
+                  Already a member? <Text style={{ color: Colors.gold }}>Sign In</Text>
+                </Text>
               </TouchableOpacity>
             </>
           )}

@@ -1010,6 +1010,7 @@ const styles = StyleSheet.create({
   },
   createClubModalContent: {
     backgroundColor: Colors.white,
+    marginBottom: 16,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     maxHeight: '85%',
