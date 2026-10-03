@@ -1028,7 +1028,7 @@ const styles = StyleSheet.create({
   },
   formCard: {
     backgroundColor: Colors.white, borderTopLeftRadius: 24, borderTopRightRadius: 24,
-    padding: 24, paddingBottom: 36,
+    padding: 24, paddingBottom: 36, marginBottom: 16,
   },
   formTitle: { color: Colors.textPrimary, fontSize: 22, fontWeight: '700' },
   formHelp: { color: Colors.textSecondary, fontSize: 14, marginBottom: 20, marginTop: 6 },

@@ -1063,8 +1063,8 @@ const styles = StyleSheet.create({
     borderColor: Colors.cardBorder,
   },
   typeButtonActive: {
-    backgroundColor: Colors.mediumGreen,
-    borderColor: Colors.mediumGreen,
+    backgroundColor: Colors.accent,
+    borderColor: Colors.accent,
   },
   typeButtonText: {
     fontSize: 14,
@@ -1075,7 +1075,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   createClubSubmitButton: {
-    backgroundColor: Colors.mediumGreen,
+    backgroundColor: Colors.accent,
     marginHorizontal: 20,
     paddingVertical: 16,
     borderRadius: 12,
