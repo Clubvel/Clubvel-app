@@ -528,7 +528,7 @@ export default function AdminDashboardScreen() {
 
               <Text style={styles.inputLabel}>Group Type</Text>
               <View style={styles.typeSelector}>
-                {['savings', 'burial', 'investment', 'grocery', 'social'].map((type) => (
+                {['savings', 'burial', 'investment', 'grocery', 'social', 'travel'].map((type) => (
                   <TouchableOpacity
                     key={type}
                     style={[styles.typeButton, clubType === type && styles.typeButtonActive]}
@@ -1055,6 +1055,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   typeButton: {
+    width: '31%',
+    alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,

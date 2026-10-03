@@ -535,7 +535,11 @@ export default function MemberHomeScreen() {
 
     <Modal visible={showCreateGroup} transparent animationType="slide" onRequestClose={() => setShowCreateGroup(false)}>
       <View style={styles.formOverlay}>
-        <View style={styles.formCard}>
+        <View style={[styles.formCard, { maxHeight: '85%' }]}>
+          <ScrollView
+            keyboardShouldPersistTaps="handled"
+            showsVerticalScrollIndicator={true}
+          >
           <Text style={styles.formTitle}>Create a Group</Text>
           <Text style={styles.formHelp}>You will be the admin of this group only.</Text>
           <Text style={styles.inputLabel}>Group Name *</Text>
@@ -548,7 +552,7 @@ export default function MemberHomeScreen() {
 
           <Text style={styles.inputLabel}>Group Type</Text>
           <View style={styles.typeSelector}>
-            {['savings', 'burial', 'investment', 'grocery', 'social'].map((type) => (
+            {['savings', 'burial', 'investment', 'grocery', 'social', 'travel'].map((type) => (
               <TouchableOpacity
                 key={type}
                 style={[styles.typeButton, groupType === type && styles.typeButtonActive]}
@@ -588,6 +592,7 @@ export default function MemberHomeScreen() {
               {creatingGroup ? <ActivityIndicator color={Colors.white} /> : <Text style={styles.submitButtonText}>Create</Text>}
             </TouchableOpacity>
           </View>
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -1039,6 +1044,8 @@ const styles = StyleSheet.create({
   },
   typeSelector: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
   typeButton: {
+    width: '31%',
+    alignItems: 'center',
     borderColor: Colors.cardBorder, borderRadius: 18, borderWidth: 1,
     paddingHorizontal: 12, paddingVertical: 8,
   },
