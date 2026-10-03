@@ -6,6 +6,8 @@ import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
 import { useRouter } from 'expo-router';
 import { AdBanner } from '../../components/AdBanner';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import axios from 'axios';
 
 interface Contribution {
@@ -72,9 +74,37 @@ export default function ContributionsScreen() {
     setLoading(true);
   };
 
-  const handleViewProof = (proof: string) => {
-    setSelectedProof(proof);
-    setModalVisible(true);
+  const handleViewProof = async (proof: string) => {
+    const isPdf = proof.startsWith('data:application/pdf');
+
+    if (!isPdf) {
+      setSelectedProof(proof);
+      setModalVisible(true);
+      return;
+    }
+
+    try {
+      const isAvailable = await Sharing.isAvailableAsync();
+      if (!isAvailable) {
+        Alert.alert('Error', 'Opening PDF files is not available on this device.');
+        return;
+      }
+
+      const base64Data = proof.replace(/^data:application\/pdf;base64,/, '');
+      const fileUri = FileSystem.documentDirectory + `proof_${Date.now()}.pdf`;
+
+      await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      await Sharing.shareAsync(fileUri, {
+        mimeType: 'application/pdf',
+        dialogTitle: 'Open Proof of Payment',
+      });
+    } catch (error) {
+      console.error('PDF proof error:', error);
+      Alert.alert('Error', 'Failed to open proof of payment.');
+    }
   };
 
   const handleConfirmPayment = async (contributionId: string) => {

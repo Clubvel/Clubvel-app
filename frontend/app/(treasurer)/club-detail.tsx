@@ -11,10 +11,26 @@ interface Member {
   id: string;
   name: string;
   phone: string;
+  membership_status: string;
+  role_in_group: 'member' | 'admin' | 'treasurer';
   status: string;
   amount_paid: number;
-  amount_due: number;
+  amount_due: number | null;
   has_proof: boolean;
+}
+
+interface GroupClaim {
+  claim_id: string;
+  group_id: string;
+  group_name: string;
+  member_name: string;
+  amount: number | null;
+  reason: string | null;
+  status: string;
+  submitted_at: string | null;
+  scheduled_claim_date: string | null;
+  actual_amount_paid: number | null;
+  rejection_reason: string | null;
 }
 
 interface ClubData {
@@ -32,9 +48,17 @@ interface ClubData {
 }
 
 export default function ClubDetailScreen() {
-  const { id, name } = useLocalSearchParams<{ id: string; name: string }>();
-  const { user } = useAuth();
+  const { id, name, from } = useLocalSearchParams<{ id: string; name: string; from?: string }>();
+  const { user, token } = useAuth();
   const router = useRouter();
+
+  const handleBack = () => {
+    if (from === 'member') {
+      router.replace('/(member)/home');
+      return;
+    }
+    router.back();
+  };
   const insets = useSafeAreaInsets();
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
@@ -44,6 +68,13 @@ export default function ClubDetailScreen() {
   const [activeTab, setActiveTab] = useState<'members' | 'payments' | 'claims' | 'settings'>('members');
   const [error, setError] = useState<string | null>(null);
   
+  const [claims, setClaims] = useState<GroupClaim[]>([]);
+  const [claimsLoading, setClaimsLoading] = useState(false);
+  const [claimsError, setClaimsError] = useState<string | null>(null);
+  const [reviewingClaim, setReviewingClaim] = useState<string | null>(null);
+  const [rejectingClaim, setRejectingClaim] = useState<GroupClaim | null>(null);
+  const [rejectionReason, setRejectionReason] = useState('');
+
   // Admin modals state
   const [showEditNameModal, setShowEditNameModal] = useState(false);
   const [showDeleteClubModal, setShowDeleteClubModal] = useState(false);
@@ -78,9 +109,141 @@ export default function ClubDetailScreen() {
     }
   }, [id]);
 
+  const fetchClaims = async () => {
+    if (!id || !token) return;
+
+    setClaimsLoading(true);
+    setClaimsError(null);
+
+    try {
+      const response = await axios.get(
+        `${API_URL}/api/treasurer/groups/${id}/claims`,
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 15000,
+        }
+      );
+
+      if (!response.data || !Array.isArray(response.data.claims)) {
+        throw new Error('Invalid claims response');
+      }
+
+      setClaims(response.data.claims);
+    } catch (err: any) {
+      console.error('Error fetching claims:', err);
+      setClaimsError(
+        err.response?.status === 403
+          ? 'You are not authorized to review claims for this group.'
+          : 'Unable to load claims. Please try again.'
+      );
+    } finally {
+      setClaimsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (activeTab === 'claims' && id && token) {
+      fetchClaims();
+    }
+  }, [activeTab, id, token]);
+
+  const reviewClaim = async (
+    claim: GroupClaim,
+    action: 'approve' | 'reject',
+    rejectionReason?: string
+  ) => {
+    if (!id || !token || reviewingClaim) return;
+
+    setReviewingClaim(claim.claim_id);
+
+    try {
+      await axios.post(
+        `${API_URL}/api/treasurer/groups/${id}/claims/${claim.claim_id}/review`,
+        {
+          action,
+          rejection_reason: action === 'reject' ? rejectionReason : null,
+        },
+        {
+          headers: { Authorization: `Bearer ${token}` },
+          timeout: 15000,
+        }
+      );
+
+      await fetchClaims();
+
+      Alert.alert(
+        action === 'approve' ? 'Claim Approved' : 'Claim Rejected',
+        action === 'approve'
+          ? 'The claim has been approved. No payment has been recorded.'
+          : 'The claim has been rejected.'
+      );
+    } catch (err: any) {
+      const detail = err.response?.data?.detail;
+      Alert.alert(
+        'Unable to Review Claim',
+        typeof detail === 'string'
+          ? detail
+          : 'The claim could not be reviewed. Please try again.'
+      );
+    } finally {
+      setReviewingClaim(null);
+    }
+  };
+
+  const handleApproveClaim = (claim: GroupClaim) => {
+    Alert.alert(
+      'Approve Claim',
+      `Approve ${claim.member_name}'s claim${
+        claim.amount == null ? '' : ` for R${claim.amount.toLocaleString()}`
+      }? This does not mark the claim as paid.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Approve',
+          onPress: () => reviewClaim(claim, 'approve'),
+        },
+      ]
+    );
+  };
+
+  const handleRejectClaim = (claim: GroupClaim) => {
+    if (Platform.OS === 'ios') {
+      Alert.prompt(
+        'Reject Claim',
+        'Enter the reason for rejecting this claim.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          {
+            text: 'Reject',
+            style: 'destructive',
+            onPress: (value?: string) => {
+              const reason = value?.trim();
+              if (!reason) {
+                Alert.alert(
+                  'Reason Required',
+                  'Please provide a reason for rejecting the claim.'
+                );
+                return;
+              }
+              reviewClaim(claim, 'reject', reason);
+            },
+          },
+        ],
+        'plain-text'
+      );
+      return;
+    }
+
+    setRejectingClaim(claim);
+    setRejectionReason('');
+  };
+
   const onRefresh = () => {
     setRefreshing(true);
     fetchClubData();
+    if (activeTab === 'claims') {
+      fetchClaims();
+    }
   };
 
   const handleConfirmPayment = (memberId: string, memberName: string) => {
@@ -239,7 +402,7 @@ export default function ClubDetailScreen() {
       case 'confirmed': return Colors.statusPaid;
       case 'proof_uploaded': return Colors.gold;
       case 'late': return Colors.statusLate;
-      case 'active': return Colors.mediumGreen;
+      case 'active': return Colors.accent;
       default: return Colors.textMuted;
     }
   };
@@ -271,7 +434,7 @@ export default function ClubDetailScreen() {
         <TouchableOpacity style={styles.retryButton} onPress={fetchClubData}>
           <Text style={styles.retryButtonText}>Retry</Text>
         </TouchableOpacity>
-        <TouchableOpacity style={styles.backButton} onPress={() => router.back()}>
+        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
           <Text style={styles.backButtonText}>Go Back</Text>
         </TouchableOpacity>
       </View>
@@ -282,12 +445,12 @@ export default function ClubDetailScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.headerBackButton}>
+        <TouchableOpacity onPress={handleBack} style={styles.headerBackButton}>
           <Ionicons name="arrow-back" size={24} color={Colors.white} />
         </TouchableOpacity>
         <View style={styles.headerContent}>
           <Text style={styles.headerTitle}>{clubData.name}</Text>
-          <Text style={styles.headerSubtitle}>{clubData.member_count} members • Due: {clubData.due_date}th</Text>
+          <Text style={styles.headerSubtitle}>{clubData.member_count} {clubData.member_count === 1 ? 'member' : 'members'}</Text>
         </View>
         <View style={{ width: 40 }} />
       </View>
@@ -300,13 +463,13 @@ export default function ClubDetailScreen() {
         </View>
         <View style={styles.summaryDivider} />
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryValue}>R{clubData.expected.toFixed(2)}</Text>
+          <Text style={[styles.summaryValue, { color: '#16A34A' }]}>R{clubData.expected.toFixed(2)}</Text>
           <Text style={styles.summaryLabel}>Expected</Text>
         </View>
         <View style={styles.summaryDivider} />
         <View style={styles.summaryItem}>
-          <Text style={[styles.summaryValue, { color: Colors.mediumGreen }]}>
-            {Math.round((clubData.collected / clubData.expected) * 100)}%
+          <Text style={[styles.summaryValue, { color: Colors.accent }]}>
+            {clubData.expected > 0 ? Math.round((clubData.collected / clubData.expected) * 100) : 0}%
           </Text>
           <Text style={styles.summaryLabel}>Progress</Text>
         </View>
@@ -318,28 +481,28 @@ export default function ClubDetailScreen() {
           style={[styles.tab, activeTab === 'members' && styles.activeTab]}
           onPress={() => setActiveTab('members')}
         >
-          <Ionicons name="people" size={20} color={activeTab === 'members' ? Colors.mediumGreen : Colors.textMuted} />
+          <Ionicons name="people" size={20} color={activeTab === 'members' ? Colors.accent : Colors.textMuted} />
           <Text style={[styles.tabText, activeTab === 'members' && styles.activeTabText]}>Members</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.tab, activeTab === 'payments' && styles.activeTab]}
           onPress={() => setActiveTab('payments')}
         >
-          <Ionicons name="cash" size={20} color={activeTab === 'payments' ? Colors.mediumGreen : Colors.textMuted} />
+          <Ionicons name="cash" size={20} color={activeTab === 'payments' ? Colors.accent : Colors.textMuted} />
           <Text style={[styles.tabText, activeTab === 'payments' && styles.activeTabText]}>Payments</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.tab, activeTab === 'claims' && styles.activeTab]}
           onPress={() => setActiveTab('claims')}
         >
-          <Ionicons name="trophy" size={20} color={activeTab === 'claims' ? Colors.mediumGreen : Colors.textMuted} />
+          <Ionicons name="trophy" size={20} color={activeTab === 'claims' ? Colors.accent : Colors.textMuted} />
           <Text style={[styles.tabText, activeTab === 'claims' && styles.activeTabText]}>Claims</Text>
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.tab, activeTab === 'settings' && styles.activeTab]}
           onPress={() => setActiveTab('settings')}
         >
-          <Ionicons name="settings" size={20} color={activeTab === 'settings' ? Colors.mediumGreen : Colors.textMuted} />
+          <Ionicons name="settings" size={20} color={activeTab === 'settings' ? Colors.accent : Colors.textMuted} />
           <Text style={[styles.tabText, activeTab === 'settings' && styles.activeTabText]}>Settings</Text>
         </TouchableOpacity>
       </View>
@@ -361,9 +524,9 @@ export default function ClubDetailScreen() {
                     <Text style={styles.memberPhone}>{member.phone}</Text>
                   </View>
                 </View>
-                <View style={[styles.statusBadge, { backgroundColor: getStatusColor(member.status) + '20' }]}>
-                  <Text style={[styles.statusText, { color: getStatusColor(member.status) }]}>
-                    {getStatusLabel(member.status)}
+                <View style={[styles.statusBadge, { backgroundColor: Colors.mediumGreen + '20' }]}>
+                  <Text style={[styles.statusText, { color: getStatusColor(member.membership_status) }]}>
+                    {getStatusLabel(member.membership_status)}
                   </Text>
                 </View>
               </View>
@@ -383,7 +546,9 @@ export default function ClubDetailScreen() {
                     <View style={styles.memberDetails}>
                       <Text style={styles.memberName}>{member.name}</Text>
                       <Text style={styles.paymentAmount}>
-                        R{member.amount_paid.toFixed(2)} / R{member.amount_due.toFixed(2)}
+                        {member.amount_due == null
+                          ? `R${member.amount_paid.toFixed(2)} / Not recorded`
+                          : `R${member.amount_paid.toFixed(2)} / R${member.amount_due.toFixed(2)}`}
                       </Text>
                     </View>
                   </View>
@@ -422,35 +587,109 @@ export default function ClubDetailScreen() {
 
         {activeTab === 'claims' && (
           <View style={styles.section}>
-            <View style={styles.claimCard}>
-              <View style={styles.claimHeader}>
-                <Ionicons name="trophy" size={32} color={Colors.gold} />
-                <View style={styles.claimInfo}>
-                  <Text style={styles.claimTitle}>Next Claim</Text>
-                  <Text style={styles.claimAmount}>R{clubData.expected.toFixed(2)}</Text>
-                </View>
+            {claimsLoading && claims.length === 0 ? (
+              <View style={styles.emptyState}>
+                <ActivityIndicator color={Colors.accent} />
+                <Text style={styles.emptyStateSubtext}>Loading claims...</Text>
               </View>
-              <View style={styles.claimRecipient}>
-                <Text style={styles.claimLabel}>Recipient:</Text>
-                <Text style={styles.claimName}>{clubData.members[0]?.name || 'TBD'}</Text>
+            ) : claimsError ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="alert-circle-outline" size={48} color={Colors.textMuted} />
+                <Text style={styles.emptyStateText}>Unable to load claims</Text>
+                <Text style={styles.emptyStateSubtext}>{claimsError}</Text>
+                <TouchableOpacity style={styles.confirmButton} onPress={fetchClaims}>
+                  <Text style={styles.confirmButtonText}>Retry</Text>
+                </TouchableOpacity>
               </View>
-              <Text style={styles.claimDate}>Payout Date: End of Month</Text>
-            </View>
+            ) : claims.length === 0 ? (
+              <View style={styles.emptyState}>
+                <Ionicons name="document-text-outline" size={48} color={Colors.textMuted} />
+                <Text style={styles.emptyStateText}>No claims yet</Text>
+                <Text style={styles.emptyStateSubtext}>
+                  Claims submitted by members of this group will appear here.
+                </Text>
+              </View>
+            ) : (
+              claims.map(claim => {
+                const pending = claim.status === 'pending_review';
+                const statusLabel =
+                  claim.status === 'pending_review'
+                    ? 'Pending Review'
+                    : claim.status === 'approved'
+                      ? 'Approved'
+                      : claim.status === 'rejected'
+                        ? 'Rejected'
+                        : claim.status.charAt(0).toUpperCase() + claim.status.slice(1);
 
-            <Text style={styles.rotationTitle}>Rotation Order</Text>
-            {clubData.members.map((member, index) => (
-              <View key={member.id} style={styles.rotationItem}>
-                <View style={styles.rotationNumber}>
-                  <Text style={styles.rotationNumberText}>{index + 1}</Text>
-                </View>
-                <Text style={styles.rotationName}>{member.name}</Text>
-                {index === 0 && (
-                  <View style={styles.nextBadge}>
-                    <Text style={styles.nextBadgeText}>NEXT</Text>
+                return (
+                  <View key={claim.claim_id} style={styles.claimCard}>
+                    <View style={styles.claimHeader}>
+                      <Ionicons
+                        name="document-text-outline"
+                        size={28}
+                        color={Colors.accent}
+                      />
+                      <View style={styles.claimInfo}>
+                        <Text style={styles.claimTitle}>{statusLabel}</Text>
+                        <Text style={styles.claimAmount}>
+                          {claim.amount == null
+                            ? 'Amount unavailable'
+                            : `R${claim.amount.toLocaleString()}`}
+                        </Text>
+                      </View>
+                    </View>
+
+                    <View style={styles.claimRecipient}>
+                      <Text style={styles.claimLabel}>Member</Text>
+                      <Text style={styles.claimName}>{claim.member_name}</Text>
+                    </View>
+
+                    {claim.reason ? (
+                      <View style={styles.claimRecipient}>
+                        <Text style={styles.claimLabel}>Reason</Text>
+                        <Text style={styles.claimName}>{claim.reason}</Text>
+                      </View>
+                    ) : null}
+
+                    {claim.submitted_at ? (
+                      <Text style={styles.claimDate}>
+                        Submitted {new Date(claim.submitted_at).toLocaleDateString()}
+                      </Text>
+                    ) : null}
+
+                    {claim.status === 'rejected' && claim.rejection_reason ? (
+                      <Text style={styles.claimDate}>
+                        Rejection reason: {claim.rejection_reason}
+                      </Text>
+                    ) : null}
+
+                    {pending ? (
+                      <View style={styles.claimActions}>
+                        <TouchableOpacity
+                          style={styles.rejectClaimButton}
+                          disabled={reviewingClaim === claim.claim_id}
+                          onPress={() => handleRejectClaim(claim)}
+                        >
+                          <Text style={styles.rejectClaimButtonText}>Reject</Text>
+                        </TouchableOpacity>
+
+                        <TouchableOpacity
+                          style={styles.approveClaimButton}
+                          disabled={reviewingClaim === claim.claim_id}
+                          onPress={() => handleApproveClaim(claim)}
+                        >
+                          {reviewingClaim === claim.claim_id ? (
+                            <ActivityIndicator color={Colors.white} />
+                          ) : (
+                            <Text style={styles.approveClaimButtonText}>Approve</Text>
+                          )}
+                        </TouchableOpacity>
+                      </View>
+                    ) : null}
                   </View>
-                )}
-              </View>
-            ))}
+                );
+              })
+            )}
           </View>
         )}
 
@@ -551,6 +790,78 @@ export default function ClubDetailScreen() {
                   <ActivityIndicator color={Colors.white} size="small" />
                 ) : (
                   <Text style={styles.modalConfirmText}>Save</Text>
+                )}
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
+      </Modal>
+
+      {/* Reject Claim Modal - Android */}
+      <Modal
+        visible={!!rejectingClaim}
+        transparent
+        animationType="fade"
+        onRequestClose={() => {
+          if (!reviewingClaim) {
+            setRejectingClaim(null);
+            setRejectionReason('');
+          }
+        }}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Reject Claim</Text>
+            <Text style={styles.modalSubtitle}>
+              Enter the reason for rejecting this claim.
+            </Text>
+
+            <TextInput
+              style={[styles.modalInput, { minHeight: 100, textAlignVertical: 'top' }]}
+              placeholder="Reason for rejection"
+              value={rejectionReason}
+              onChangeText={setRejectionReason}
+              multiline
+              maxLength={1000}
+              editable={!reviewingClaim}
+            />
+
+            <View style={styles.modalButtons}>
+              <TouchableOpacity
+                style={styles.modalCancelBtn}
+                disabled={!!reviewingClaim}
+                onPress={() => {
+                  setRejectingClaim(null);
+                  setRejectionReason('');
+                }}
+              >
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[
+                  styles.modalDeleteBtn,
+                  (!!reviewingClaim || !rejectionReason.trim()) && { opacity: 0.6 },
+                ]}
+                disabled={!!reviewingClaim || !rejectionReason.trim()}
+                onPress={async () => {
+                  if (!rejectingClaim || !rejectionReason.trim()) return;
+
+                  const claim = rejectingClaim;
+                  const reason = rejectionReason.trim();
+
+                  await reviewClaim(claim, 'reject', reason);
+                  setRejectingClaim(null);
+                  setRejectionReason('');
+                }}
+              >
+                {reviewingClaim ? (
+                  <ActivityIndicator color={Colors.white} size="small" />
+                ) : (
+                  <Text style={styles.modalConfirmText}>Reject Claim</Text>
                 )}
               </TouchableOpacity>
             </View>
@@ -769,13 +1080,29 @@ const styles = StyleSheet.create({
     marginLeft: 4,
   },
   activeTabText: {
-    color: Colors.mediumGreen,
+    color: Colors.accent,
   },
   content: {
     flex: 1,
   },
   section: {
     padding: 16,
+  },
+  emptyState: {
+    alignItems: 'center',
+    padding: 32,
+  },
+  emptyStateText: {
+    fontSize: 16,
+    fontWeight: '600',
+    color: Colors.textSecondary,
+    marginTop: 12,
+  },
+  emptyStateSubtext: {
+    fontSize: 14,
+    color: Colors.textMuted,
+    marginTop: 4,
+    textAlign: 'center',
   },
   memberCard: {
     flexDirection: 'row',
@@ -920,6 +1247,39 @@ const styles = StyleSheet.create({
     fontWeight: '600',
     color: Colors.textPrimary,
     marginLeft: 8,
+  },
+  claimActions: {
+    flexDirection: 'row',
+    gap: 12,
+    marginTop: 18,
+  },
+  approveClaimButton: {
+    flex: 1,
+    backgroundColor: Colors.accent,
+    paddingVertical: 12,
+    borderRadius: 8,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  approveClaimButtonText: {
+    color: Colors.white,
+    fontSize: 14,
+    fontWeight: '600',
+  },
+  rejectClaimButton: {
+    flex: 1,
+    backgroundColor: Colors.white,
+    paddingVertical: 12,
+    borderRadius: 8,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  rejectClaimButtonText: {
+    color: Colors.textPrimary,
+    fontSize: 14,
+    fontWeight: '600',
   },
   claimDate: {
     fontSize: 13,

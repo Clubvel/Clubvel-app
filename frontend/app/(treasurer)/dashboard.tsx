@@ -45,7 +45,7 @@ interface DashboardData {
 }
 
 export default function AdminDashboardScreen() {
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
   const router = useRouter();
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
@@ -56,7 +56,7 @@ export default function AdminDashboardScreen() {
   const [showCreateClubModal, setShowCreateClubModal] = useState(false);
   const [creatingClub, setCreatingClub] = useState(false);
   
-  // Create Club Form State
+  // Create Group Form State
   const [clubName, setClubName] = useState('');
   const [clubType, setClubType] = useState('savings');
   const [monthlyContribution, setMonthlyContribution] = useState('');
@@ -128,7 +128,7 @@ export default function AdminDashboardScreen() {
         start_date: new Date().toISOString()
       });
 
-      Alert.alert('Success', `Club "${clubName}" created successfully!`);
+      Alert.alert('Success', `Group "${clubName}" created successfully!`);
       setShowCreateClubModal(false);
       // Reset form
       setClubName('');
@@ -138,14 +138,23 @@ export default function AdminDashboardScreen() {
       // Refresh dashboard
       fetchDashboard();
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to create club');
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to create group');
     } finally {
       setCreatingClub(false);
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setShowProfileMenu(false);
+
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm('Are you sure you want to sign out?');
+      if (!confirmed) return;
+      await logout();
+      router.replace('/auth');
+      return;
+    }
+
     Alert.alert(
       'Sign Out',
       'Are you sure you want to sign out?',
@@ -167,6 +176,7 @@ export default function AdminDashboardScreen() {
     setDeleting(true);
     try {
       await axios.delete(`${API_URL}/api/user/delete-account`, {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
         data: {
           user_id: user?.id,
           confirmation: 'DELETE'
@@ -243,7 +253,7 @@ export default function AdminDashboardScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.logoText}>Clubvel</Text>
+        <Text style={styles.brandName}>Clubvel</Text>
         <TouchableOpacity 
           style={styles.avatarButton}
           onPress={() => setShowProfileMenu(true)}
@@ -287,14 +297,14 @@ export default function AdminDashboardScreen() {
         </View>
       </View>
 
-      {/* Create Club Button */}
+      {/* Create Group Button */}
       <View style={styles.createClubSection}>
         <TouchableOpacity 
           style={styles.createClubButton}
           onPress={() => setShowCreateClubModal(true)}
         >
           <Ionicons name="add-circle" size={24} color={Colors.white} />
-          <Text style={styles.createClubButtonText}>Create New Club/Stokvel/Society</Text>
+          <Text style={styles.createClubButtonText}>Create a Group</Text>
         </TouchableOpacity>
       </View>
 
@@ -343,23 +353,18 @@ export default function AdminDashboardScreen() {
             >
               <View style={styles.clubCardHeader}>
                 <Text style={styles.clubName}>{club.name}</Text>
-                {club.late_count > 0 ? (
-                  <View style={styles.lateBadge}>
-                    <Text style={styles.lateBadgeText}>{club.late_count} late</Text>
-                  </View>
-                ) : (
+                {club.expected > 0 && club.collected >= club.expected ? (
                   <View style={styles.paidBadge}>
                     <Ionicons name="checkmark-circle" size={16} color={Colors.statusPaid} />
-                    <Text style={styles.paidBadgeText}>All paid</Text>
+                    <Text style={styles.paidBadgeText}>Contributions confirmed</Text>
                   </View>
-                )}
+                ) : null}
               </View>
 
               <View style={styles.clubMeta}>
                 <Ionicons name="people" size={14} color={Colors.textSecondary} />
                 <Text style={styles.clubMetaText}>{club.member_count} members</Text>
-                <Text style={styles.clubMetaText}> • </Text>
-                <Text style={styles.clubMetaText}>Due: {club.due_date} of month</Text>
+
               </View>
 
               <View style={styles.clubProgress}>
@@ -388,8 +393,8 @@ export default function AdminDashboardScreen() {
         ) : (
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={48} color={Colors.textMuted} />
-            <Text style={styles.emptyStateText}>No clubs managed</Text>
-            <Text style={styles.emptyStateSubtext}>Tap "Create New Club" above to get started</Text>
+            <Text style={styles.emptyStateText}>No groups managed</Text>
+            <Text style={styles.emptyStateSubtext}>Tap "Create a Group" above to get started</Text>
           </View>
         )}
       </View>
@@ -488,7 +493,7 @@ export default function AdminDashboardScreen() {
       </TouchableOpacity>
     </Modal>
 
-    {/* Create Club Modal */}
+    {/* Create Group Modal */}
     <Modal
       visible={showCreateClubModal}
       transparent={true}
@@ -502,7 +507,7 @@ export default function AdminDashboardScreen() {
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.createClubModalContent}>
             <View style={styles.createClubModalHeader}>
-              <Text style={styles.createClubModalTitle}>Create New Club</Text>
+              <Text style={styles.createClubModalTitle}>Create a Group</Text>
               <TouchableOpacity onPress={() => setShowCreateClubModal(false)}>
                 <Ionicons name="close" size={28} color={Colors.textPrimary} />
               </TouchableOpacity>
@@ -513,17 +518,17 @@ export default function AdminDashboardScreen() {
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={true}
             >
-              <Text style={styles.inputLabel}>Club Name *</Text>
+              <Text style={styles.inputLabel}>Group Name *</Text>
               <TextInput
                 style={styles.input}
-                placeholder="e.g. Family Savings Club"
+                placeholder="e.g. Family Savings Group"
                 value={clubName}
                 onChangeText={setClubName}
               />
 
-              <Text style={styles.inputLabel}>Club Type</Text>
+              <Text style={styles.inputLabel}>Group Type</Text>
               <View style={styles.typeSelector}>
-                {['savings', 'burial', 'investment', 'grocery', 'social'].map((type) => (
+                {['savings', 'burial', 'investment', 'grocery', 'social', 'travel'].map((type) => (
                   <TouchableOpacity
                     key={type}
                     style={[styles.typeButton, clubType === type && styles.typeButtonActive]}
@@ -539,7 +544,7 @@ export default function AdminDashboardScreen() {
               <Text style={styles.inputLabel}>Monthly Contribution (R) *</Text>
               <TextInput
                 style={styles.input}
-                placeholder="e.g. 500"
+                placeholder="e.g. R500"
                 value={monthlyContribution}
                 onChangeText={setMonthlyContribution}
                 keyboardType="numeric"
@@ -559,17 +564,27 @@ export default function AdminDashboardScreen() {
               <View style={{ height: 150 }} />
             </ScrollView>
 
-            <TouchableOpacity
-              style={[styles.createClubSubmitButton, creatingClub && styles.buttonDisabled]}
-              onPress={handleCreateClub}
-              disabled={creatingClub}
-            >
-              {creatingClub ? (
-                <ActivityIndicator color={Colors.white} />
-              ) : (
-                <Text style={styles.createClubSubmitText}>Create Club</Text>
-              )}
-            </TouchableOpacity>
+            <View style={styles.createClubActions}>
+              <TouchableOpacity
+                style={styles.createClubCancelButton}
+                onPress={() => setShowCreateClubModal(false)}
+                disabled={creatingClub}
+              >
+                <Text style={styles.createClubCancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.createClubSubmitButton, creatingClub && styles.buttonDisabled]}
+                onPress={handleCreateClub}
+                disabled={creatingClub}
+              >
+                {creatingClub ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <Text style={styles.createClubSubmitText}>Create Group</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
@@ -635,12 +650,18 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: Colors.darkGreen,
-    paddingTop: 60,
-    paddingBottom: 24,
+    paddingTop: 52,
+    paddingBottom: 16,
     paddingHorizontal: 24,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+  },
+  brandName: {
+    fontSize: 24,
+    fontWeight: '700',
+    color: Colors.white,
+    letterSpacing: 0.2,
   },
   summaryContainer: {
     flexDirection: 'row',
@@ -991,7 +1012,7 @@ const styles = StyleSheet.create({
     color: Colors.statusLate,
     fontWeight: '500',
   },
-  // Create Club Modal Styles
+  // Create Group Modal Styles
   createClubModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -999,6 +1020,7 @@ const styles = StyleSheet.create({
   },
   createClubModalContent: {
     backgroundColor: Colors.white,
+    marginBottom: 16,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     maxHeight: '85%',
@@ -1043,6 +1065,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   typeButton: {
+    width: '31%',
+    alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
@@ -1051,8 +1075,8 @@ const styles = StyleSheet.create({
     borderColor: Colors.cardBorder,
   },
   typeButtonActive: {
-    backgroundColor: Colors.mediumGreen,
-    borderColor: Colors.mediumGreen,
+    backgroundColor: Colors.accent,
+    borderColor: Colors.accent,
   },
   typeButtonText: {
     fontSize: 14,
@@ -1062,9 +1086,27 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontWeight: '600',
   },
-  createClubSubmitButton: {
-    backgroundColor: Colors.mediumGreen,
+  createClubActions: {
+    flexDirection: 'row',
+    gap: 12,
     marginHorizontal: 20,
+  },
+  createClubCancelButton: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    alignItems: 'center',
+  },
+  createClubCancelText: {
+    color: Colors.textPrimary,
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  createClubSubmitButton: {
+    flex: 1,
+    backgroundColor: Colors.accent,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
