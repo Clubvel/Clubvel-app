@@ -1,10 +1,10 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useCallback, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform, RefreshControl } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { AdBanner } from '../../components/AdBanner';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -28,8 +28,12 @@ interface Proof {
   month: string;
   amount: number;
   status: string;
-  uploadDate: string;
+  uploadDate: string | null;
   hasImage: boolean;
+  groupId: string;
+  proofVersion: string | null;
+  declineReason: string | null;
+  canDelete: boolean;
 }
 
 export default function ProofOfPaymentsScreen() {
@@ -43,12 +47,67 @@ export default function ProofOfPaymentsScreen() {
   const [flexibleAmount, setFlexibleAmount] = useState('');
   const [uploading, setUploading] = useState(false);
   const [loadingClubs, setLoadingClubs] = useState(false);
-  const [proofs, setProofs] = useState<Proof[]>([]); // uploads made in this session; never presented as complete history
+  const [proofs, setProofs] = useState<Proof[]>([]);
+  const [proofsLoading, setProofsLoading] = useState(false);
+  const [proofsError, setProofsError] = useState<string | null>(null);
+  const [deletingProof, setDeletingProof] = useState<string | null>(null);
   const [viewingProof, setViewingProof] = useState<string | null>(null);
   const [proofImage, setProofImage] = useState<string | null>(null);
   const [proofMimeType, setProofMimeType] = useState<string>('image/jpeg');
   const [proofFileName, setProofFileName] = useState<string | null>(null);
   const [loadingProof, setLoadingProof] = useState(false);
+
+  const fetchProofs = useCallback(async () => {
+    if (!user?.id || !token) return;
+    setProofsLoading(true);
+    setProofsError(null);
+    try {
+      const response = await axios.get(`${API_URL}/api/member/contributions/${user.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      setProofs(response.data.contributions.filter((record: any) => record.proof_uploaded).map((record: any) => ({
+        id: record.contribution_id,
+        contribution_id: record.contribution_id,
+        groupId: record.group_id,
+        groupName: record.group_name,
+        month: new Date(record.year, record.month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+        amount: record.amount_due,
+        status: record.proof_review_status === 'declined' ? 'proof_declined' : record.status,
+        uploadDate: record.payment_date,
+        hasImage: true,
+        proofVersion: record.proof_version,
+        declineReason: record.proof_decline_reason,
+        canDelete: record.proof_delete_eligible
+      })));
+    } catch (error: any) {
+      setProofsError(error.response?.data?.detail || 'Unable to load proofs. Please try again.');
+    } finally {
+      setProofsLoading(false);
+    }
+  }, [API_URL, user?.id, token]);
+
+  useFocusEffect(useCallback(() => { void fetchProofs(); }, [fetchProofs]));
+
+  const handleDeleteProof = (proof: Proof) => {
+    Alert.alert('Delete Pending Proof', 'Remove this proof? Your contribution will remain unpaid.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        if (deletingProof) return;
+        setDeletingProof(proof.contribution_id);
+        try {
+          await axios.delete(`${API_URL}/api/contributions/${proof.contribution_id}/proof`, {
+            data: { proof_version: proof.proofVersion },
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          await fetchProofs();
+        } catch (error: any) {
+          Alert.alert('Error', error.response?.data?.detail || 'Failed to delete pending proof');
+        } finally {
+          setDeletingProof(null);
+        }
+      } }
+    ]);
+  };
 
   const fetchClubs = async () => {
     setLoadingClubs(true);
@@ -77,9 +136,8 @@ export default function ProofOfPaymentsScreen() {
   };
 
   const uploadProofForClub = async (
-    club: Club,
-    contributionId?: string,
-    contributionAmount?: number
+    club: Pick<Club, 'id' | 'name' | 'amount_due'>,
+    contributionId?: string
   ) => {
     setShowClubModal(false);
 
@@ -130,7 +188,7 @@ export default function ProofOfPaymentsScreen() {
           proof_file_name: asset.name || null,
           reference_number: '',
           user_id: user?.id,
-        });
+        }, { headers: { Authorization: `Bearer ${token}` } });
 
         Alert.alert(
           'Success!',
@@ -138,21 +196,7 @@ export default function ProofOfPaymentsScreen() {
           [{ text: 'OK' }]
         );
 
-        const newProof: Proof = {
-          id: Date.now().toString(),
-          contribution_id: resolvedContributionId,
-          groupName: club.name,
-          month: new Date().toLocaleDateString('en-US', {
-            month: 'long',
-            year: 'numeric',
-          }),
-          amount: contributionAmount ?? club.amount_due,
-          status: 'proof_uploaded',
-          uploadDate: new Date().toISOString().split('T')[0],
-          hasImage: true,
-        };
-
-        setProofs(current => [newProof, ...current]);
+        await fetchProofs();
       } catch (error: any) {
         console.error('Upload error:', error);
         Alert.alert(
@@ -247,7 +291,7 @@ export default function ProofOfPaymentsScreen() {
         proof_file_name: asset.name || null,
         reference_number: '',
         user_id: user?.id,
-      });
+      }, { headers: { Authorization: `Bearer ${token}` } });
 
       setSelectedFlexibleClub(null);
       setFlexibleAmount('');
@@ -258,21 +302,7 @@ export default function ProofOfPaymentsScreen() {
         [{ text: 'OK' }]
       );
 
-      const newProof: Proof = {
-        id: Date.now().toString(),
-        contribution_id: contributionId,
-        groupName: club.name,
-        month: new Date().toLocaleDateString('en-US', {
-          month: 'long',
-          year: 'numeric',
-        }),
-        amount,
-        status: 'proof_uploaded',
-        uploadDate: new Date().toISOString().split('T')[0],
-        hasImage: true,
-      };
-
-      setProofs(current => [newProof, ...current]);
+      await fetchProofs();
     } catch (error: any) {
       console.error('Flexible contribution error:', error);
       Alert.alert(
@@ -391,7 +421,7 @@ export default function ProofOfPaymentsScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={proofsLoading} onRefresh={fetchProofs} />}>
         {/* Upload Button */}
         <TouchableOpacity 
           style={styles.uploadButton}
@@ -412,7 +442,7 @@ export default function ProofOfPaymentsScreen() {
         <View style={styles.summaryCard}>
           <View style={styles.summaryRow}>
             <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>This Session</Text>
+              <Text style={styles.summaryLabel}>Total Proofs</Text>
               <Text style={styles.summaryValue}>{proofs.length}</Text>
             </View>
             <View style={styles.summaryDivider} />
@@ -434,9 +464,18 @@ export default function ProofOfPaymentsScreen() {
 
         {/* Proofs List */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Uploads This Session</Text>
+          <Text style={styles.sectionTitle}>Proofs of Payment</Text>
 
-          {proofs.length === 0 ? (
+          {proofsError ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyStateText}>{proofsError}</Text>
+              <TouchableOpacity style={styles.viewProofButton} onPress={fetchProofs}>
+                <Text style={styles.viewProofText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : proofsLoading && proofs.length === 0 ? (
+            <ActivityIndicator color={Colors.mediumGreen} />
+          ) : proofs.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="document-text-outline" size={48} color={Colors.textMuted} />
               <Text style={styles.emptyStateText}>No proofs uploaded yet</Text>
@@ -461,10 +500,13 @@ export default function ProofOfPaymentsScreen() {
                   </View>
                   <View style={styles.proofDetailRow}>
                     <Text style={styles.proofDetailLabel}>Uploaded:</Text>
-                    <Text style={styles.proofDetailValue}>{new Date(proof.uploadDate).toLocaleDateString()}</Text>
+                    <Text style={styles.proofDetailValue}>{proof.uploadDate ? new Date(proof.uploadDate).toLocaleDateString() : 'Not recorded'}</Text>
                   </View>
                 </View>
 
+                {proof.status === 'proof_declined' && proof.declineReason && (
+                  <Text style={styles.proofDetailLabel}>{proof.declineReason}</Text>
+                )}
                 {proof.hasImage && (
                   <View style={styles.proofActions}>
                     <TouchableOpacity 
@@ -475,6 +517,18 @@ export default function ProofOfPaymentsScreen() {
                       <Text style={styles.viewProofText}>View Proof</Text>
                     </TouchableOpacity>
                   </View>
+                )}
+                {proof.canDelete && proof.status === 'proof_uploaded' && (
+                  <TouchableOpacity style={styles.viewProofButton} disabled={!!deletingProof || uploading}
+                    onPress={() => handleDeleteProof(proof)}>
+                    <Text style={styles.viewProofText}>Delete Pending Proof</Text>
+                  </TouchableOpacity>
+                )}
+                {proof.status === 'proof_declined' && (
+                  <TouchableOpacity style={styles.viewProofButton} disabled={uploading || !!deletingProof}
+                    onPress={() => uploadProofForClub({ id: proof.groupId, name: proof.groupName, amount_due: proof.amount }, proof.contribution_id)}>
+                    <Text style={styles.viewProofText}>Replace Proof</Text>
+                  </TouchableOpacity>
                 )}
               </View>
             ))

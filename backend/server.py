@@ -297,6 +297,7 @@ class ProofUpload(BaseModel):
 
 class ConfirmPayment(BaseModel):
     contribution_id: str
+    proof_version: Optional[str] = None
     notes: Optional[str] = None
     treasurer_id: str  # Requesting treasurer - for authorization
 
@@ -307,6 +308,11 @@ class RecordMonthlyContribution(BaseModel):
 class RecordFlexibleContribution(BaseModel):
     group_id: str
     amount: float = Field(gt=0)
+
+class ProofReviewRequest(BaseModel):
+    proof_version: str
+    reason: Optional[str] = Field(default=None, max_length=200)
+
 
 # ==================== HELPER FUNCTIONS ====================
 
@@ -629,8 +635,45 @@ def proof_is_eligible(contribution: dict) -> bool:
     outstanding = contribution_outstanding(contribution)
     return bool(contribution.get('id') and
                 contribution.get('contribution_status') in ('pending', 'due', 'late') and
-                not contribution.get('proof_of_payment') and
+                (not contribution.get('proof_of_payment') or contribution.get('proof_review_status') == 'declined') and
                 outstanding is not None and outstanding > 0)
+
+
+def proof_version(record: dict) -> Optional[str]:
+    if not record.get('proof_of_payment'):
+        return None
+    # Existing proofs need no backfill; new uploads always receive a unique version.
+    return record.get('proof_version') or f"legacy:{record['id']}:{record.get('payment_date')}"
+
+
+def proof_is_pending(record: dict) -> bool:
+    outstanding = contribution_outstanding(record)
+    return bool(record.get('proof_of_payment') and record.get('contribution_status') == 'proof_uploaded'
+                and record.get('proof_review_status') in (None, 'pending')
+                and outstanding is not None and outstanding > 0)
+
+
+def proof_review_details(record: dict) -> dict:
+    return {
+        'proof_version': proof_version(record),
+        'proof_review_status': record.get('proof_review_status'),
+        'proof_decline_reason': record.get('proof_decline_reason'),
+        'proof_declined_by': record.get('proof_declined_by'),
+        'proof_declined_at': record.get('proof_declined_at'),
+        'proof_delete_eligible': proof_is_pending(record) and not record.get('uploaded_by_admin'),
+    }
+
+
+def proof_update_filter(record: dict) -> dict:
+    return {key: record.get(key) for key in (
+        'id', 'contribution_status', 'amount_due', 'amount_paid', 'proof_of_payment',
+        'proof_version', 'proof_review_status', 'payment_date', 'uploaded_by_admin',
+        'proof_uploaded_by_user_id', 'proof_deleted_at')}
+
+
+def require_pending_proof(record: dict, expected_version: Optional[str]):
+    if not proof_is_pending(record) or not expected_version or expected_version != proof_version(record):
+        raise HTTPException(status_code=409, detail='This proof changed or is no longer awaiting review. Refresh before trying again.')
 
 
 async def get_person_contribution_records(user_id: str):
@@ -656,7 +699,7 @@ def personal_contribution_status(record: dict, group: dict) -> str:
         return raw
     if contribution_outstanding(record) == 0:
         return 'paid'
-    if record.get('proof_of_payment'):
+    if record.get('proof_of_payment') and record.get('proof_review_status') != 'declined':
         return 'proof_uploaded'
     if group.get('contribution_mode') == 'flexible_goal' or group.get('group_type') == 'travel':
         return raw
@@ -676,6 +719,8 @@ def personal_contribution_view(record: dict, membership: dict, group: dict) -> d
         'proof_uploaded': bool(record.get('proof_of_payment')) or record['contribution_status'] == 'proof_uploaded',
         'proof_eligible': proof_is_eligible(record), 'month': record['month'], 'year': record['year'],
         'payment_reference': membership.get('unique_reference_code'),
+        'payment_date': record.get('payment_date'),
+        **proof_review_details(record),
         'due_date': None if flexible else f"{record['year']}-{record['month']:02d}-{min(group['payment_due_date'], 28):02d}",
     }
 
@@ -2173,6 +2218,7 @@ async def get_member_club_details(group_id: str, user_id: str):
             "amount_paid": current_contribution.get('amount_paid'),
             "outstanding_amount": contribution_outstanding(current_contribution),
             "proof_eligible": proof_is_eligible(current_contribution),
+            **proof_review_details(current_contribution),
             "status": status,
             "due_date": None if flexible else f"{now.year}-{now.month:02d}-{min(group['payment_due_date'], 28):02d}",
             "proof_uploaded": current_contribution.get('proof_of_payment') is not None,
@@ -2197,7 +2243,10 @@ async def get_member_club_details(group_id: str, user_id: str):
     }
 
 @api_router.post("/contributions/upload-proof")
-async def upload_proof_of_payment(proof_data: ProofUpload):
+async def upload_proof_of_payment(proof_data: ProofUpload, authorization: Optional[str] = Header(None)):
+    actor_id = authenticated_user_id(authorization)
+    if actor_id != proof_data.user_id:
+        raise HTTPException(status_code=403, detail='You can only upload your own proof of payment')
     # DATA ACCESS CONTROL: Verify user can only upload proof for their own contribution
     contribution = await db.contributions.find_one({"id": proof_data.contribution_id})
     if not contribution:
@@ -2223,16 +2272,20 @@ async def upload_proof_of_payment(proof_data: ProofUpload):
     
     # Update contribution with proof
     updated = await db.contributions.update_one(
-        {"id": proof_data.contribution_id, 'contribution_status': contribution['contribution_status'],
-         'amount_due': contribution['amount_due'], 'amount_paid': contribution['amount_paid'],
-         'proof_of_payment': contribution.get('proof_of_payment')},
+        proof_update_filter(contribution),
         {"$set": {
             "proof_of_payment": proof_data.proof_image,
             "proof_mime_type": proof_data.proof_mime_type,
             "proof_file_name": proof_data.proof_file_name,
             "reference_number": proof_data.reference_number,
             "contribution_status": "proof_uploaded",
-            "payment_date": datetime.utcnow()
+            "payment_date": datetime.utcnow(),
+            "proof_version": str(uuid.uuid4()),
+            "proof_review_status": "pending",
+            "proof_uploaded_by_user_id": actor_id
+        }, "$unset": {
+            "proof_decline_reason": "", "proof_declined_by": "", "proof_declined_at": "",
+            "uploaded_by_admin": "", "proof_deleted_at": ""
         }}
     )
     if updated.modified_count != 1:
@@ -2293,6 +2346,7 @@ async def get_contribution_proof(contribution_id: str, user_id: str):
     return {
         "contribution_id": contribution_id,
         "proof_image": proof_image,
+        **proof_review_details(contribution),
         "proof_mime_type": contribution.get('proof_mime_type') or (
             'application/pdf' if proof_image.startswith('data:application/pdf')
             else 'image/jpeg'
@@ -2302,6 +2356,56 @@ async def get_contribution_proof(contribution_id: str, user_id: str):
         "upload_date": contribution.get('payment_date'),
         "status": contribution.get('contribution_status')
     }
+
+
+@api_router.post('/contributions/{contribution_id}/decline-proof')
+async def decline_contribution_proof(contribution_id: str, review: ProofReviewRequest,
+                                     authorization: Optional[str] = Header(None)):
+    actor_id = authenticated_user_id(authorization)
+    contribution = await db.contributions.find_one({'id': contribution_id})
+    if not contribution:
+        raise HTTPException(status_code=404, detail='Contribution not found')
+    group = await verify_user_is_group_treasurer(actor_id, contribution['group_id'])
+    if group.get('status') != 'active':
+        raise HTTPException(status_code=403, detail='An active group is required')
+    require_pending_proof(contribution, review.proof_version)
+    updated = await db.contributions.update_one(proof_update_filter(contribution), {'$set': {
+        'contribution_status': 'pending', 'proof_review_status': 'declined',
+        'proof_decline_reason': (review.reason or '').strip() or None,
+        'proof_declined_by': actor_id, 'proof_declined_at': datetime.utcnow(),
+    }})
+    if updated.modified_count != 1:
+        raise HTTPException(status_code=409, detail='This proof changed. Refresh before declining it.')
+    return {'message': 'Proof declined', 'contribution_id': contribution_id, 'proof_review_status': 'declined'}
+
+
+@api_router.delete('/contributions/{contribution_id}/proof')
+async def delete_contribution_proof(contribution_id: str, review: ProofReviewRequest,
+                                    authorization: Optional[str] = Header(None)):
+    actor_id = authenticated_user_id(authorization)
+    contribution = await db.contributions.find_one({'id': contribution_id})
+    if not contribution:
+        raise HTTPException(status_code=404, detail='Contribution not found')
+    member = await db.members.find_one({'id': contribution['member_id']})
+    group = await db.groups.find_one({'id': contribution['group_id'], 'status': 'active'})
+    if (not member or member.get('user_id') != actor_id or member.get('status') != 'active'
+            or member.get('group_id') != contribution['group_id'] or not group):
+        raise HTTPException(status_code=403, detail='You can only delete proof for your own active contribution')
+    # Old member uploads lack an uploader field; Admin uploads have their own marker.
+    if (contribution.get('uploaded_by_admin') or
+            contribution.get('proof_uploaded_by_user_id') not in (None, actor_id)):
+        raise HTTPException(status_code=403, detail='You can only delete a proof you uploaded')
+    require_pending_proof(contribution, review.proof_version)
+    updated = await db.contributions.update_one(proof_update_filter(contribution), {
+        '$set': {'contribution_status': 'pending', 'proof_deleted_at': datetime.utcnow()},
+        '$unset': {key: '' for key in (
+            'proof_of_payment', 'proof_mime_type', 'proof_file_name', 'reference_number',
+            'payment_date', 'proof_version', 'proof_review_status', 'proof_uploaded_by_user_id',
+            'proof_decline_reason', 'proof_declined_by', 'proof_declined_at')},
+    })
+    if updated.modified_count != 1:
+        raise HTTPException(status_code=409, detail='This proof changed. Refresh before deleting it.')
+    return {'message': 'Pending proof deleted', 'contribution_id': contribution_id}
 
 
 @api_router.post("/contributions/admin-upload-proof")
@@ -2328,7 +2432,12 @@ async def admin_upload_proof_of_payment(proof_data: ProofUpload):
             "reference_number": proof_data.reference_number,
             "contribution_status": "proof_uploaded",
             "payment_date": datetime.utcnow(),
-            "uploaded_by_admin": proof_data.user_id
+            "uploaded_by_admin": proof_data.user_id,
+            "proof_version": str(uuid.uuid4()),
+            "proof_review_status": "pending"
+        }, "$unset": {
+            "proof_decline_reason": "", "proof_declined_by": "", "proof_declined_at": "",
+            "proof_uploaded_by_user_id": "", "proof_deleted_at": ""
         }}
     )
     
@@ -2706,7 +2815,8 @@ async def get_club_detail(group_id: str, treasurer_id: str):
             "status": status,
             "amount_paid": amount_paid,
             "amount_due": amount_due,
-            "has_proof": has_proof
+            "has_proof": has_proof,
+            **(proof_review_details(contribution) if contribution else {})
         })
     
     return {
@@ -2743,12 +2853,18 @@ async def confirm_payment(confirm_data: ConfirmPayment):
             outstanding is None or outstanding <= 0):
         raise HTTPException(status_code=409, detail='This contribution is not awaiting payment confirmation. Refresh the group.')
     
+    # A versioned review cannot approve a deleted, declined, or replacement proof.
+    if confirm_data.proof_version is not None or contribution.get('proof_of_payment'):
+        require_pending_proof(contribution, confirm_data.proof_version)
+    if contribution.get('proof_review_status') == 'declined' or contribution.get('proof_deleted_at'):
+        raise HTTPException(status_code=409, detail='A declined or deleted proof must be replaced before approval')
+
     # Update contribution
     updated = await db.contributions.update_one(
-        {"id": confirm_data.contribution_id, 'contribution_status': contribution['contribution_status'],
-         'amount_due': contribution['amount_due'], 'amount_paid': contribution['amount_paid']},
+        proof_update_filter(contribution),
         {"$set": {
             "contribution_status": "confirmed",
+            "proof_review_status": "approved" if contribution.get('proof_of_payment') else None,
             "amount_paid": contribution['amount_due'],
             "confirmation_date": datetime.utcnow(),
             "confirmed_by_treasurer_id": confirm_data.treasurer_id,

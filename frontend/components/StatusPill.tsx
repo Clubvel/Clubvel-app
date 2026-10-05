@@ -15,6 +15,7 @@ export const StatusPill: React.FC<StatusPillProps> = ({ status, label }) => {
       case 'active':
         return Colors.statusPaid;
       case 'late':
+      case 'proof_declined':
         return Colors.statusLate;
       case 'due':
         return Colors.statusDue;
@@ -41,6 +42,8 @@ export const StatusPill: React.FC<StatusPillProps> = ({ status, label }) => {
         return 'Upcoming';
       case 'proof_uploaded':
         return 'Pending Confirmation';
+      case 'proof_declined':
+        return 'Proof Declined';
       default:
         return 'Pending';
     }

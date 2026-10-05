@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, Alert, Platform } from 'react-native';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../../contexts/AuthContext';
 import { StatusPill } from '../../../components/StatusPill';
 import { Colors } from '../../../constants/Colors';
@@ -27,6 +27,10 @@ interface ClubDetails {
     due_date: string;
     proof_uploaded: boolean;
     payment_date: string | null;
+    proof_version?: string | null;
+    proof_review_status?: 'pending' | 'declined' | 'approved' | null;
+    proof_decline_reason?: string | null;
+    proof_delete_eligible?: boolean;
   };
   payment_reference: {
     reference_code: string;
@@ -45,15 +49,16 @@ interface ClubDetails {
 
 export default function ClubDetailScreen() {
   const { id } = useLocalSearchParams();
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const router = useRouter();
   const [clubData, setClubData] = useState<ClubDetails | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [deletingProof, setDeletingProof] = useState(false);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
-  const fetchClubDetails = async () => {
+  const fetchClubDetails = useCallback(async () => {
     try {
       const response = await axios.get(`${API_URL}/api/member/club/${id}/user/${user?.id}`);
       setClubData(response.data);
@@ -62,13 +67,33 @@ export default function ClubDetailScreen() {
     } finally {
       setLoading(false);
     }
-  };
+  }, [API_URL, id, user?.id]);
 
-  useEffect(() => {
-    if (user && id) {
-      fetchClubDetails();
-    }
-  }, [user, id]);
+  useFocusEffect(useCallback(() => {
+    if (user?.id && id) void fetchClubDetails();
+  }, [fetchClubDetails, user?.id, id]));
+
+  const handleDeleteProof = () => {
+    const contribution = clubData?.current_contribution;
+    if (!contribution || !token || deletingProof) return;
+    Alert.alert('Delete Pending Proof', 'Remove this proof? Your contribution will remain unpaid.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        setDeletingProof(true);
+        try {
+          await axios.delete(`${API_URL}/api/contributions/${contribution.id}/proof`, {
+            data: { proof_version: contribution.proof_version },
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          await fetchClubDetails();
+        } catch (error: any) {
+          Alert.alert('Error', error.response?.data?.detail || 'Failed to delete pending proof');
+        } finally {
+          setDeletingProof(false);
+        }
+      } }
+    ]);
+  };
 
   const handleUploadProof = async () => {
     const result = await DocumentPicker.getDocumentAsync({
@@ -108,7 +133,7 @@ export default function ClubDetailScreen() {
         proof_file_name: asset.name || null,
         reference_number: clubData?.payment_reference.reference_code,
         user_id: user?.id,
-      });
+      }, { headers: { Authorization: `Bearer ${token}` } });
 
       Alert.alert(
         'Success',
@@ -163,7 +188,7 @@ export default function ClubDetailScreen() {
           <View style={styles.card}>
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>Current Month</Text>
-              <StatusPill status={clubData.current_contribution.status} />
+              <StatusPill status={clubData.current_contribution.proof_review_status === 'declined' ? 'proof_declined' : clubData.current_contribution.status} />
             </View>
 
             <View style={styles.amountRow}>
@@ -178,27 +203,35 @@ export default function ClubDetailScreen() {
               <Text style={styles.infoText}>Due date: {clubData.current_contribution.due_date}</Text>
             </View>
 
-            {clubData.current_contribution.status === 'confirmed' ? (
+            {['confirmed', 'paid'].includes(clubData.current_contribution.status) ? (
               <TouchableOpacity style={styles.buttonSecondary}>
                 <Ionicons name="checkmark-circle" size={20} color={Colors.mediumGreen} />
                 <Text style={styles.buttonSecondaryText}>Payment Confirmed</Text>
               </TouchableOpacity>
+            ) : clubData.current_contribution.proof_review_status === 'declined' ? (
+              <View>
+                <Text style={styles.waitingText}>Proof Declined</Text>
+                {!!clubData.current_contribution.proof_decline_reason && (
+                  <Text style={styles.infoText}>{clubData.current_contribution.proof_decline_reason}</Text>
+                )}
+                <TouchableOpacity style={[styles.buttonOutline, uploading && styles.buttonDisabled]}
+                  onPress={handleUploadProof} disabled={uploading}>
+                  <Text style={styles.buttonOutlineText}>{uploading ? 'Uploading...' : 'Replace Proof'}</Text>
+                </TouchableOpacity>
+              </View>
             ) : clubData.current_contribution.proof_uploaded ? (
               <View>
                 <View style={styles.waitingContainer}>
                   <Ionicons name="time" size={20} color={Colors.gold} />
                   <Text style={styles.waitingText}>Awaiting treasurer confirmation</Text>
                 </View>
-                <TouchableOpacity
-                  style={[styles.buttonOutline, uploading && styles.buttonDisabled]}
-                  onPress={handleUploadProof}
-                  disabled={uploading}
-                >
-                  <Ionicons name="refresh" size={18} color={Colors.mediumGreen} />
-                  <Text style={styles.buttonOutlineText}>
-                    {uploading ? 'Uploading...' : 'Re-upload Proof'}
-                  </Text>
-                </TouchableOpacity>
+                {clubData.current_contribution.proof_delete_eligible && (
+                  <TouchableOpacity style={[styles.buttonOutline, deletingProof && styles.buttonDisabled]}
+                    onPress={handleDeleteProof} disabled={deletingProof || uploading}>
+                    <Ionicons name="trash-outline" size={18} color={Colors.mediumGreen} />
+                    <Text style={styles.buttonOutlineText}>{deletingProof ? 'Deleting...' : 'Delete Pending Proof'}</Text>
+                  </TouchableOpacity>
+                )}
               </View>
             ) : (
               <TouchableOpacity

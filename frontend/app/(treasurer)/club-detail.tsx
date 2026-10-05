@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, TextInput, KeyboardAvoidingView, Platform, Image } from 'react-native';
-import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
+import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from 'expo-router';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
@@ -20,6 +20,9 @@ interface Member {
   amount_due: number | null;
   has_proof: boolean;
   contribution_id: string | null;
+  proof_version?: string | null;
+  proof_review_status?: 'pending' | 'declined' | 'approved' | null;
+  proof_decline_reason?: string | null;
 }
 
 interface GroupClaim {
@@ -71,6 +74,10 @@ export default function ClubDetailScreen() {
   const [activeTab, setActiveTab] = useState<'members' | 'payments' | 'claims' | 'settings'>('members');
   const [error, setError] = useState<string | null>(null);
   const [proofImage, setProofImage] = useState<string | null>(null);
+  const [decliningProof, setDecliningProof] = useState<Member | null>(null);
+  const [declineReason, setDeclineReason] = useState('');
+  const [reviewingProof, setReviewingProof] = useState(false);
+  const clubFetchInProgress = useRef<string | null>(null);
   
   const [claims, setClaims] = useState<GroupClaim[]>([]);
   const [claimsLoading, setClaimsLoading] = useState(false);
@@ -88,13 +95,17 @@ export default function ClubDetailScreen() {
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
 
-  const fetchClubData = async () => {
+  const fetchClubData = useCallback(async () => {
+    const requestKey = `${id}:${user?.id}`;
+    if (clubFetchInProgress.current === requestKey) return;
+    clubFetchInProgress.current = requestKey;
     setError(null);
     try {
       // Pass treasurer_id for authorization
       const response = await axios.get(`${API_URL}/api/treasurer/club/${id}?treasurer_id=${user?.id}`);
-      setClubData(response.data);
+      if (clubFetchInProgress.current === requestKey) setClubData(response.data);
     } catch (err: any) {
+      if (clubFetchInProgress.current !== requestKey) return;
       console.error('Error fetching club data:', err);
       if (err.response?.status === 403) {
         setError('Access denied: You are not the treasurer of this group');
@@ -102,16 +113,19 @@ export default function ClubDetailScreen() {
         setError('Failed to load club details');
       }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (clubFetchInProgress.current === requestKey) {
+        setLoading(false);
+        setRefreshing(false);
+        clubFetchInProgress.current = null;
+      }
     }
-  };
+  }, [API_URL, id, user?.id]);
 
-  useEffect(() => {
-    if (id) {
-      fetchClubData();
+  useFocusEffect(useCallback(() => {
+    if (id && user?.id) {
+      void fetchClubData();
     }
-  }, [id]);
+  }, [fetchClubData, id, user?.id]));
 
   const fetchClaims = async () => {
     if (!id || !token) return;
@@ -274,14 +288,33 @@ export default function ClubDetailScreen() {
     }
   };
 
-  const handleConfirmPayment = (contributionId: string | null, memberName: string) => {
+  const handleDeclineProof = async () => {
+    if (!decliningProof?.contribution_id || !token || reviewingProof) return;
+    setReviewingProof(true);
+    try {
+      await axios.post(`${API_URL}/api/contributions/${decliningProof.contribution_id}/decline-proof`, {
+        proof_version: decliningProof.proof_version,
+        reason: declineReason.trim() || null
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      setDecliningProof(null);
+      setDeclineReason('');
+      await fetchClubData();
+      Alert.alert('Proof Declined', 'The member can submit a replacement proof.');
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.detail || 'Failed to decline proof');
+    } finally {
+      setReviewingProof(false);
+    }
+  };
+
+  const handleConfirmPayment = (contributionId: string | null, memberName: string, proofVersion?: string | null) => {
     if (!contributionId) {
       Alert.alert('Error', 'No contribution available to confirm');
       return;
     }
     Alert.alert(
-      'Confirm Payment',
-      `Confirm payment from ${memberName}?`,
+      'Approve Payment',
+      `Approve payment from ${memberName}?`,
       [
         { text: 'Cancel', style: 'cancel' },
         {
@@ -290,6 +323,7 @@ export default function ClubDetailScreen() {
             try {
               await axios.post(`${API_URL}/api/treasurer/confirm-payment`, {
                 contribution_id: contributionId,
+                proof_version: proofVersion,
                 notes: null,
                 treasurer_id: user?.id  // Authorization: Pass treasurer ID for access control
               });
@@ -299,7 +333,8 @@ export default function ClubDetailScreen() {
               if (err.response?.status === 403) {
                 Alert.alert('Access Denied', 'You are not authorized to confirm payments for this group');
               } else {
-                Alert.alert('Error', 'Failed to confirm payment');
+                Alert.alert('Error', err.response?.data?.detail || 'Failed to confirm payment');
+                if (err.response?.status === 409) void fetchClubData();
               }
             }
           }
@@ -432,6 +467,7 @@ export default function ClubDetailScreen() {
     switch (status) {
       case 'confirmed': return Colors.statusPaid;
       case 'proof_uploaded': return Colors.gold;
+      case 'proof_declined': return Colors.statusLate;
       case 'late': return Colors.statusLate;
       case 'active': return Colors.accent;
       default: return Colors.textMuted;
@@ -442,6 +478,7 @@ export default function ClubDetailScreen() {
     switch (status) {
       case 'confirmed': return 'Paid';
       case 'proof_uploaded': return 'Pending Review';
+      case 'proof_declined': return 'Proof Declined';
       case 'late': return 'Late';
       case 'active': return 'Active';
       default: return 'Pending';
@@ -517,7 +554,12 @@ export default function ClubDetailScreen() {
         </TouchableOpacity>
         <TouchableOpacity 
           style={[styles.tab, activeTab === 'payments' && styles.activeTab]}
-          onPress={() => setActiveTab('payments')}
+          onPress={() => {
+            if (activeTab !== 'payments') {
+              setActiveTab('payments');
+              void fetchClubData();
+            }
+          }}
         >
           <Ionicons name="cash" size={20} color={activeTab === 'payments' ? Colors.accent : Colors.textMuted} />
           <Text style={[styles.tabText, activeTab === 'payments' && styles.activeTabText]}>Payments</Text>
@@ -583,9 +625,9 @@ export default function ClubDetailScreen() {
                       </Text>
                     </View>
                   </View>
-                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(member.status) + '20' }]}>
-                    <Text style={[styles.statusText, { color: getStatusColor(member.status) }]}>
-                      {getStatusLabel(member.status)}
+                  <View style={[styles.statusBadge, { backgroundColor: getStatusColor(member.proof_review_status === 'declined' ? 'proof_declined' : member.status) + '20' }]}>
+                    <Text style={[styles.statusText, { color: getStatusColor(member.proof_review_status === 'declined' ? 'proof_declined' : member.status) }]}>
+                      {getStatusLabel(member.proof_review_status === 'declined' ? 'proof_declined' : member.status)}
                     </Text>
                   </View>
                 </View>
@@ -601,13 +643,27 @@ export default function ClubDetailScreen() {
                           <Ionicons name="image-outline" size={18} color={Colors.gold} />
                           <Text style={styles.remindButtonText}>View Proof</Text>
                         </TouchableOpacity>
-                        <TouchableOpacity
-                          style={styles.confirmButton}
-                          onPress={() => handleConfirmPayment(member.contribution_id, member.name)}
-                        >
-                          <Ionicons name="checkmark-circle" size={18} color={Colors.white} />
-                          <Text style={styles.confirmButtonText}>Confirm Payment</Text>
-                        </TouchableOpacity>
+                        {member.status === 'proof_uploaded' && member.proof_review_status !== 'declined' && (
+                          <>
+                            <TouchableOpacity
+                              style={styles.confirmButton}
+                              onPress={() => handleConfirmPayment(member.contribution_id, member.name, member.proof_version)}
+                            >
+                              <Ionicons name="checkmark-circle" size={18} color={Colors.white} />
+                              <Text style={styles.confirmButtonText}>Approve Payment</Text>
+                            </TouchableOpacity>
+                            <TouchableOpacity
+                              style={[styles.remindButton, { marginTop: 8 }]}
+                              onPress={() => { setDecliningProof(member); setDeclineReason(''); }}
+                            >
+                              <Ionicons name="close-circle-outline" size={18} color={Colors.statusLate} />
+                              <Text style={[styles.remindButtonText, { color: Colors.statusLate }]}>Decline Proof</Text>
+                            </TouchableOpacity>
+                          </>
+                        )}
+                        {member.proof_review_status === 'declined' && member.proof_decline_reason && (
+                          <Text style={styles.paymentAmount}>{member.proof_decline_reason}</Text>
+                        )}
                       </>
                     ) : (
                       <TouchableOpacity 
@@ -816,6 +872,27 @@ export default function ClubDetailScreen() {
             </TouchableOpacity>
           </View>
         </View>
+      </Modal>
+
+      <Modal visible={decliningProof !== null} transparent animationType="fade" onRequestClose={() => {
+        if (!reviewingProof) setDecliningProof(null);
+      }}>
+        <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Decline Proof</Text>
+            <Text style={styles.modalSubtitle}>Decline proof from {decliningProof?.name}?</Text>
+            <TextInput style={styles.modalInput} placeholder="Reason (optional)" value={declineReason}
+              onChangeText={setDeclineReason} maxLength={200} editable={!reviewingProof} />
+            <View style={styles.modalButtons}>
+              <TouchableOpacity style={styles.modalCancelBtn} disabled={reviewingProof} onPress={() => setDecliningProof(null)}>
+                <Text style={styles.modalCancelText}>Cancel</Text>
+              </TouchableOpacity>
+              <TouchableOpacity style={styles.modalConfirmBtn} disabled={reviewingProof} onPress={handleDeclineProof}>
+                <Text style={styles.modalConfirmText}>{reviewingProof ? 'Declining...' : 'Decline'}</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* Edit Club Name Modal */}
