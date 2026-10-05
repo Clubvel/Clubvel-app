@@ -1,11 +1,13 @@
 import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, TextInput, KeyboardAvoidingView, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, TextInput, KeyboardAvoidingView, Platform, Image } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack } from 'expo-router';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import axios from 'axios';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 
 interface Member {
   id: string;
@@ -17,6 +19,7 @@ interface Member {
   amount_paid: number;
   amount_due: number | null;
   has_proof: boolean;
+  contribution_id: string | null;
 }
 
 interface GroupClaim {
@@ -67,6 +70,7 @@ export default function ClubDetailScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'members' | 'payments' | 'claims' | 'settings'>('members');
   const [error, setError] = useState<string | null>(null);
+  const [proofImage, setProofImage] = useState<string | null>(null);
   
   const [claims, setClaims] = useState<GroupClaim[]>([]);
   const [claimsLoading, setClaimsLoading] = useState(false);
@@ -246,7 +250,35 @@ export default function ClubDetailScreen() {
     }
   };
 
-  const handleConfirmPayment = (memberId: string, memberName: string) => {
+  const handleViewProof = async (contributionId: string) => {
+    try {
+      const response = await axios.get(`${API_URL}/api/contributions/${contributionId}/proof`, {
+        params: { user_id: user?.id }
+      });
+      const proof = response.data.proof_image;
+      if (response.data.proof_mime_type === 'application/pdf' || proof.startsWith('data:application/pdf')) {
+        if (!await Sharing.isAvailableAsync()) {
+          Alert.alert('Error', 'Opening PDF files is not available on this device.');
+          return;
+        }
+        const fileUri = FileSystem.documentDirectory + `proof_${Date.now()}.pdf`;
+        await FileSystem.writeAsStringAsync(fileUri, proof.replace(/^data:[^;]+;base64,/, ''), {
+          encoding: FileSystem.EncodingType.Base64
+        });
+        await Sharing.shareAsync(fileUri, { mimeType: 'application/pdf', dialogTitle: 'Open Proof of Payment' });
+        return;
+      }
+      setProofImage(proof);
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.detail || 'Failed to load proof of payment');
+    }
+  };
+
+  const handleConfirmPayment = (contributionId: string | null, memberName: string) => {
+    if (!contributionId) {
+      Alert.alert('Error', 'No contribution available to confirm');
+      return;
+    }
     Alert.alert(
       'Confirm Payment',
       `Confirm payment from ${memberName}?`,
@@ -257,9 +289,8 @@ export default function ClubDetailScreen() {
           onPress: async () => {
             try {
               await axios.post(`${API_URL}/api/treasurer/confirm-payment`, {
-                member_id: memberId,
-                group_id: id,
-                confirmed_by: user?.id,
+                contribution_id: contributionId,
+                notes: null,
                 treasurer_id: user?.id  // Authorization: Pass treasurer ID for access control
               });
               Alert.alert('Success', 'Payment confirmed!');
@@ -561,14 +592,23 @@ export default function ClubDetailScreen() {
                 
                 {member.status !== 'confirmed' && (
                   <View style={styles.paymentActions}>
-                    {member.has_proof || member.status === 'proof_uploaded' ? (
-                      <TouchableOpacity 
-                        style={styles.confirmButton}
-                        onPress={() => handleConfirmPayment(member.id, member.name)}
-                      >
-                        <Ionicons name="checkmark-circle" size={18} color={Colors.white} />
-                        <Text style={styles.confirmButtonText}>Confirm Payment</Text>
-                      </TouchableOpacity>
+                    {(member.has_proof || member.status === 'proof_uploaded') && member.contribution_id ? (
+                      <>
+                        <TouchableOpacity
+                          style={[styles.remindButton, { marginBottom: 8 }]}
+                          onPress={() => handleViewProof(member.contribution_id!)}
+                        >
+                          <Ionicons name="image-outline" size={18} color={Colors.gold} />
+                          <Text style={styles.remindButtonText}>View Proof</Text>
+                        </TouchableOpacity>
+                        <TouchableOpacity
+                          style={styles.confirmButton}
+                          onPress={() => handleConfirmPayment(member.contribution_id, member.name)}
+                        >
+                          <Ionicons name="checkmark-circle" size={18} color={Colors.white} />
+                          <Text style={styles.confirmButtonText}>Confirm Payment</Text>
+                        </TouchableOpacity>
+                      </>
                     ) : (
                       <TouchableOpacity 
                         style={styles.remindButton}
@@ -765,6 +805,18 @@ export default function ClubDetailScreen() {
 
         <View style={{ height: 32 }} />
       </ScrollView>
+
+      <Modal visible={proofImage !== null} transparent animationType="fade" onRequestClose={() => setProofImage(null)}>
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>Proof of Payment</Text>
+            {proofImage && <Image source={{ uri: proofImage }} style={{ width: '100%', height: 400 }} resizeMode="contain" />}
+            <TouchableOpacity style={[styles.modalCancelBtn, { flex: 0 }]} onPress={() => setProofImage(null)}>
+              <Text style={styles.modalCancelText}>Close</Text>
+            </TouchableOpacity>
+          </View>
+        </View>
+      </Modal>
 
       {/* Edit Club Name Modal */}
       <Modal visible={showEditNameModal} transparent animationType="fade">
