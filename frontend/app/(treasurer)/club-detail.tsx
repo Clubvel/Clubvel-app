@@ -51,6 +51,7 @@ interface ClubData {
   collected: number;
   expected: number;
   members: Member[];
+  contributions?: Member[];
 }
 
 export default function ClubDetailScreen() {
@@ -78,6 +79,7 @@ export default function ClubDetailScreen() {
   const [declineReason, setDeclineReason] = useState('');
   const [reviewingProof, setReviewingProof] = useState(false);
   const clubFetchInProgress = useRef<string | null>(null);
+  const clubFetchSequence = useRef(0);
   
   const [claims, setClaims] = useState<GroupClaim[]>([]);
   const [claimsLoading, setClaimsLoading] = useState(false);
@@ -95,17 +97,18 @@ export default function ClubDetailScreen() {
   const [deleteConfirmation, setDeleteConfirmation] = useState('');
   const [actionLoading, setActionLoading] = useState(false);
 
-  const fetchClubData = useCallback(async () => {
+  const fetchClubData = useCallback(async (force = false) => {
     const requestKey = `${id}:${user?.id}`;
-    if (clubFetchInProgress.current === requestKey) return;
+    if (!force && clubFetchInProgress.current === requestKey) return;
     clubFetchInProgress.current = requestKey;
+    const sequence = ++clubFetchSequence.current;
     setError(null);
     try {
       // Pass treasurer_id for authorization
       const response = await axios.get(`${API_URL}/api/treasurer/club/${id}?treasurer_id=${user?.id}`);
-      if (clubFetchInProgress.current === requestKey) setClubData(response.data);
+      if (sequence === clubFetchSequence.current && clubFetchInProgress.current === requestKey) setClubData(response.data);
     } catch (err: any) {
-      if (clubFetchInProgress.current !== requestKey) return;
+      if (sequence !== clubFetchSequence.current || clubFetchInProgress.current !== requestKey) return;
       console.error('Error fetching club data:', err);
       if (err.response?.status === 403) {
         setError('Access denied: You are not the treasurer of this group');
@@ -113,7 +116,7 @@ export default function ClubDetailScreen() {
         setError('Failed to load club details');
       }
     } finally {
-      if (clubFetchInProgress.current === requestKey) {
+      if (sequence === clubFetchSequence.current && clubFetchInProgress.current === requestKey) {
         setLoading(false);
         setRefreshing(false);
         clubFetchInProgress.current = null;
@@ -298,7 +301,7 @@ export default function ClubDetailScreen() {
       }, { headers: { Authorization: `Bearer ${token}` } });
       setDecliningProof(null);
       setDeclineReason('');
-      await fetchClubData();
+      await fetchClubData(true);
       Alert.alert('Proof Declined', 'The member can submit a replacement proof.');
     } catch (err: any) {
       Alert.alert('Error', err.response?.data?.detail || 'Failed to decline proof');
@@ -328,13 +331,13 @@ export default function ClubDetailScreen() {
                 treasurer_id: user?.id  // Authorization: Pass treasurer ID for access control
               });
               Alert.alert('Success', 'Payment confirmed!');
-              fetchClubData();
+              fetchClubData(true);
             } catch (err: any) {
               if (err.response?.status === 403) {
                 Alert.alert('Access Denied', 'You are not authorized to confirm payments for this group');
               } else {
                 Alert.alert('Error', err.response?.data?.detail || 'Failed to confirm payment');
-                if (err.response?.status === 409) void fetchClubData();
+                if (err.response?.status === 409) void fetchClubData(true);
               }
             }
           }
@@ -485,26 +488,27 @@ export default function ClubDetailScreen() {
     }
   };
 
-  if (loading) {
+  if (!clubData) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={Colors.mediumGreen} />
-        <Text style={styles.loadingText}>Loading club details...</Text>
-      </View>
-    );
-  }
-
-  if (error || !clubData) {
-    return (
-      <View style={styles.errorContainer}>
-        <Ionicons name="alert-circle-outline" size={64} color={Colors.statusLate} />
-        <Text style={styles.errorText}>{error || 'Club not found'}</Text>
-        <TouchableOpacity style={styles.retryButton} onPress={fetchClubData}>
-          <Text style={styles.retryButtonText}>Retry</Text>
-        </TouchableOpacity>
-        <TouchableOpacity style={styles.backButton} onPress={handleBack}>
-          <Text style={styles.backButtonText}>Go Back</Text>
-        </TouchableOpacity>
+      <View style={styles.container}>
+        <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
+          <TouchableOpacity onPress={handleBack} style={styles.headerBackButton}>
+            <Ionicons name="arrow-back" size={24} color={Colors.white} />
+          </TouchableOpacity>
+          <View style={styles.headerContent}>
+            <Text style={styles.headerTitle}>{name || 'Club'}</Text>
+          </View>
+        </View>
+        <View style={styles.loadingContainer}>
+          {loading ? <ActivityIndicator size="large" color={Colors.mediumGreen} /> : (
+            <>
+              <Text style={styles.errorText}>{error || 'Club not found'}</Text>
+              <TouchableOpacity style={styles.retryButton} onPress={() => void fetchClubData()}>
+                <Text style={styles.retryButtonText}>Retry</Text>
+              </TouchableOpacity>
+            </>
+          )}
+        </View>
       </View>
     );
   }
@@ -523,6 +527,12 @@ export default function ClubDetailScreen() {
         <View style={{ width: 40 }} />
       </View>
 
+      {error && <View style={styles.summaryCard}>
+        <Text style={styles.errorText}>{error}</Text>
+        <TouchableOpacity style={styles.retryButton} onPress={() => void fetchClubData()}>
+          <Text style={styles.retryButtonText}>Retry</Text>
+        </TouchableOpacity>
+      </View>}
       {/* Summary Card */}
       <View style={styles.summaryCard}>
         <View style={styles.summaryItem}>
@@ -609,8 +619,8 @@ export default function ClubDetailScreen() {
 
         {activeTab === 'payments' && (
           <View style={styles.section}>
-            {clubData.members.map((member) => (
-              <View key={member.id} style={styles.paymentCard}>
+            {(clubData.contributions ?? clubData.members).map((member) => (
+              <View key={member.contribution_id ?? member.id} style={styles.paymentCard}>
                 <View style={styles.paymentHeader}>
                   <View style={styles.memberInfo}>
                     <View style={[styles.memberAvatar, { width: 36, height: 36 }]}>

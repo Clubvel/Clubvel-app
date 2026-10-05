@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, Alert, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../../contexts/AuthContext';
@@ -58,14 +58,29 @@ export default function ClubDetailScreen() {
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
-  const fetchClubDetails = useCallback(async () => {
+  const clubRequest = useRef<{ key: string; sequence: number } | null>(null);
+  const clubSequence = useRef(0);
+  const requestContext = `${id}:${user?.id}`;
+  const latestContext = useRef(requestContext);
+  latestContext.current = requestContext;
+
+  const fetchClubDetails = useCallback(async (force = false) => {
+    const key = `${id}:${user?.id}`;
+    if (!force && clubRequest.current?.key === key) return;
+    const sequence = ++clubSequence.current;
+    clubRequest.current = { key, sequence };
+
     try {
       const response = await axios.get(`${API_URL}/api/member/club/${id}/user/${user?.id}`);
-      setClubData(response.data);
+      if (sequence === clubSequence.current && latestContext.current === key) setClubData(response.data);
     } catch (error) {
+      if (sequence !== clubSequence.current || latestContext.current !== key) return;
       console.error('Error fetching club details:', error);
     } finally {
-      setLoading(false);
+      if (clubRequest.current?.sequence === sequence) {
+        clubRequest.current = null;
+        setLoading(false);
+      }
     }
   }, [API_URL, id, user?.id]);
 
@@ -85,7 +100,7 @@ export default function ClubDetailScreen() {
             data: { proof_version: contribution.proof_version },
             headers: { Authorization: `Bearer ${token}` }
           });
-          await fetchClubDetails();
+          await fetchClubDetails(true);
         } catch (error: any) {
           Alert.alert('Error', error.response?.data?.detail || 'Failed to delete pending proof');
         } finally {
@@ -139,7 +154,7 @@ export default function ClubDetailScreen() {
         'Success',
         'Proof of payment uploaded successfully! Your treasurer will confirm shortly.'
       );
-      fetchClubDetails();
+      fetchClubDetails(true);
     } catch (error: any) {
       Alert.alert(
         'Error',
@@ -150,18 +165,20 @@ export default function ClubDetailScreen() {
     }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={Colors.mediumGreen} />
-      </View>
-    );
-  }
-
   if (!clubData) {
     return (
-      <View style={styles.errorContainer}>
-        <Text style={styles.errorText}>Failed to load club details</Text>
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+            <Ionicons name="arrow-back" size={24} color={Colors.white} />
+          </TouchableOpacity>
+          <Text style={styles.headerTitle}>Club</Text>
+          <View style={styles.headerSpacer} />
+        </View>
+        <View style={styles.loadingContainer}>
+          {loading ? <ActivityIndicator size="large" color={Colors.mediumGreen} /> :
+            <Text style={styles.errorText}>Failed to load club details</Text>}
+        </View>
       </View>
     );
   }

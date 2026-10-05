@@ -295,8 +295,13 @@ export default function MemberHomeScreen() {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={Colors.mediumGreen} />
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.brandName}>Clubvel</Text>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.mediumGreen} />
+        </View>
       </View>
     );
   }

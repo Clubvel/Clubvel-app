@@ -182,3 +182,43 @@ test('overlapping lifecycle requests for different groups cannot show the previo
   assert.ok(text(c.render()).includes('New Club'));
   assert.equal(text(c.render()).includes('Previous Club'), false);
 });
+
+test('club Payments shows every contribution without duplicating the Members roster', async () => {
+  const c = await setup();
+  c.club.contributions = [{ ...c.member, status: 'confirmed', has_proof: true, contribution_id: 'confirmed-first' },
+    { ...c.member, contribution_id: 'pending-legacy', proof_version: 'legacy:pending-legacy:date' },
+    { ...c.member, contribution_id: 'pending-new', proof_version: 'version-new' }];
+  c.ui.blur(); c.ui.focus(); await tick();
+  const tree = c.render();
+  assert.equal(nodes(tree).filter(n => n.type === 'TouchableOpacity' && text(n) === 'Approve Payment').length, 2);
+  const views = nodes(tree).filter(n => n.type === 'TouchableOpacity' && text(n) === 'View Proof');
+  await views.at(-1).props.onPress();
+  assert.match(c.requests.at(-1).url, /pending-new\/proof$/);
+  button(c.render(), 'Members').props.onPress();
+  assert.equal(nodes(c.render()).filter(n => n.type === 'TouchableOpacity' && text(n) === 'Approve Payment').length, 0);
+});
+
+test('admin club ignores an old response when navigating away and back to the same club', async () => {
+  const c = await setup(); const pending = [];
+  c.state.clubGet = url => new Promise(resolve => pending.push({ url, resolve }));
+  c.ui.blur(); c.ui.focus(); c.render();
+  c.params.id = 'club-2'; c.render();
+  c.params.id = 'club-1'; c.render();
+  pending[2].resolve({ data: { ...c.club, name: 'Newest Club' } }); await tick(); c.render();
+  pending[0].resolve({ data: { ...c.club, name: 'Stale Club' } }); await tick();
+  pending[1].resolve({ data: { ...c.club, name: 'Other Club' } }); await tick();
+  assert.match(text(c.render()), /Newest Club/); assert.doesNotMatch(text(c.render()), /Stale Club|Other Club/);
+});
+
+test('approval refresh supersedes an older focus response for the same club', async () => {
+  const c = await setup(); const pending = [];
+  c.state.clubGet = () => new Promise(resolve => pending.push(resolve));
+  c.ui.blur(); c.ui.focus(); c.render();
+  const old = JSON.parse(JSON.stringify(c.club));
+  button(c.render(), 'Approve Payment').props.onPress();
+  await c.alerts.at(-1)[2].find(action => action.text === 'Confirm').onPress(); await tick();
+  assert.equal(pending.length, 2);
+  pending[1]({ data: JSON.parse(JSON.stringify(c.club)) }); await tick(); c.render();
+  pending[0]({ data: old }); await tick();
+  assert.equal(button(c.render(), 'Approve Payment'), undefined);
+});

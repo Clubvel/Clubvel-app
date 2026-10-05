@@ -1,4 +1,4 @@
-import React, { useCallback, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform, RefreshControl } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
@@ -48,7 +48,7 @@ export default function ProofOfPaymentsScreen() {
   const [uploading, setUploading] = useState(false);
   const [loadingClubs, setLoadingClubs] = useState(false);
   const [proofs, setProofs] = useState<Proof[]>([]);
-  const [proofsLoading, setProofsLoading] = useState(false);
+  const [proofsLoading, setProofsLoading] = useState(true);
   const [proofsError, setProofsError] = useState<string | null>(null);
   const [deletingProof, setDeletingProof] = useState<string | null>(null);
   const [viewingProof, setViewingProof] = useState<string | null>(null);
@@ -57,14 +57,25 @@ export default function ProofOfPaymentsScreen() {
   const [proofFileName, setProofFileName] = useState<string | null>(null);
   const [loadingProof, setLoadingProof] = useState(false);
 
-  const fetchProofs = useCallback(async () => {
+  const proofRequest = useRef<{ key: string; sequence: number } | null>(null);
+  const proofSequence = useRef(0);
+  const requestContext = `${user?.id}:${token}`;
+  const latestContext = useRef(requestContext);
+  latestContext.current = requestContext;
+
+  const fetchProofs = useCallback(async (force = false) => {
     if (!user?.id || !token) return;
+    const key = `${user?.id}:${token}`;
+    if (!force && proofRequest.current?.key === key) return;
+    const sequence = ++proofSequence.current;
+    proofRequest.current = { key, sequence };
     setProofsLoading(true);
     setProofsError(null);
     try {
       const response = await axios.get(`${API_URL}/api/member/contributions/${user.id}`, {
         headers: { Authorization: `Bearer ${token}` }
       });
+      if (sequence !== proofSequence.current || latestContext.current !== key) return;
       setProofs(response.data.contributions.filter((record: any) => record.proof_uploaded).map((record: any) => ({
         id: record.contribution_id,
         contribution_id: record.contribution_id,
@@ -80,9 +91,13 @@ export default function ProofOfPaymentsScreen() {
         canDelete: record.proof_delete_eligible
       })));
     } catch (error: any) {
+      if (sequence !== proofSequence.current || latestContext.current !== key) return;
       setProofsError(error.response?.data?.detail || 'Unable to load proofs. Please try again.');
     } finally {
-      setProofsLoading(false);
+      if (proofRequest.current?.sequence === sequence) {
+        proofRequest.current = null;
+        setProofsLoading(false);
+      }
     }
   }, [API_URL, user?.id, token]);
 
@@ -99,7 +114,7 @@ export default function ProofOfPaymentsScreen() {
             data: { proof_version: proof.proofVersion },
             headers: { Authorization: `Bearer ${token}` }
           });
-          await fetchProofs();
+          await fetchProofs(true);
         } catch (error: any) {
           Alert.alert('Error', error.response?.data?.detail || 'Failed to delete pending proof');
         } finally {
@@ -196,7 +211,7 @@ export default function ProofOfPaymentsScreen() {
           [{ text: 'OK' }]
         );
 
-        await fetchProofs();
+        await fetchProofs(true);
       } catch (error: any) {
         console.error('Upload error:', error);
         Alert.alert(
@@ -302,7 +317,7 @@ export default function ProofOfPaymentsScreen() {
         [{ text: 'OK' }]
       );
 
-      await fetchProofs();
+      await fetchProofs(true);
     } catch (error: any) {
       console.error('Flexible contribution error:', error);
       Alert.alert(
@@ -421,7 +436,7 @@ export default function ProofOfPaymentsScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={proofsLoading} onRefresh={fetchProofs} />}>
+      <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={proofsLoading} onRefresh={() => void fetchProofs()} />}>
         {/* Upload Button */}
         <TouchableOpacity 
           style={styles.uploadButton}
@@ -469,7 +484,7 @@ export default function ProofOfPaymentsScreen() {
           {proofsError ? (
             <View style={styles.emptyState}>
               <Text style={styles.emptyStateText}>{proofsError}</Text>
-              <TouchableOpacity style={styles.viewProofButton} onPress={fetchProofs}>
+              <TouchableOpacity style={styles.viewProofButton} onPress={() => void fetchProofs()}>
                 <Text style={styles.viewProofText}>Retry</Text>
               </TouchableOpacity>
             </View>

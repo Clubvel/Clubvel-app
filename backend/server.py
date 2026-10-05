@@ -620,6 +620,32 @@ def calculate_contribution_status(contribution: dict, due_day: int) -> str:
         return 'pending'
 
 
+def contribution_metadata_projection():
+    """Return proof presence, never the proof file, for payment list reads."""
+    fields = ('id', 'member_id', 'group_id', 'month', 'year', 'amount_due', 'amount_paid',
+              'contribution_status', 'payment_date', 'reference_number', 'due_date',
+              'proof_version', 'proof_review_status', 'proof_decline_reason',
+              'proof_declined_by', 'proof_declined_at', 'uploaded_by_admin',
+              'proof_uploaded_by_user_id',
+              'proof_deleted_at', 'confirmation_date')
+    return {**{field: 1 for field in fields}, '_id': 0,
+            'proof_of_payment': {'$ne': [{'$ifNull': ['$proof_of_payment', '']}, '']}}
+
+
+async def get_group_payment_records(group_id, month, year, members):
+    records = await db.contributions.aggregate([
+        {'$match': {'group_id': group_id, 'month': month, 'year': year,
+                    'member_id': {'$in': [member['id'] for member in members]}}},
+        {'$project': contribution_metadata_projection()},
+    ]).to_list(None)
+    users = await db.users.find({'id': {'$in': [member['user_id'] for member in members]}},
+                               {'id': 1, 'full_name': 1, 'phone_number': 1, '_id': 0}).to_list(None)
+    by_member = {}
+    for record in records:
+        by_member.setdefault(record['member_id'], []).append(record)
+    return by_member, {user['id']: user for user in users}
+
+
 def contribution_outstanding(contribution: dict) -> Optional[float]:
     """Unknown/malformed amounts must never become an invented payment obligation."""
     due, paid = contribution.get('amount_due'), contribution.get('amount_paid')
@@ -683,7 +709,10 @@ async def get_person_contribution_records(user_id: str):
     groups = await db.groups.find({'id': {'$in': [m['group_id'] for m in memberships]}, 'status': 'active'}).to_list(None)
     groups_by_id = {g['id']: g for g in groups}
     members_by_id = {m['id']: m for m in memberships if m['group_id'] in groups_by_id}
-    records = await db.contributions.find({'member_id': {'$in': list(members_by_id)}}).to_list(None)
+    records = await db.contributions.aggregate([
+        {'$match': {'member_id': {'$in': list(members_by_id)}}},
+        {'$project': contribution_metadata_projection()},
+    ]).to_list(None)
     personal = []
     for record in records:
         membership = members_by_id.get(record['member_id'])
@@ -2188,7 +2217,7 @@ async def get_member_club_details(group_id: str, user_id: str):
         "group_id": group_id,
         "month": now.month,
         "year": now.year
-    })
+    }, contribution_metadata_projection())
     
     # Absence is explicit. Reading a screen never creates a contribution.
     flexible = group.get('contribution_mode') == 'flexible_goal' or group.get('group_type') == 'travel'
@@ -2198,7 +2227,7 @@ async def get_member_club_details(group_id: str, user_id: str):
     payment_history = await db.contributions.find({
         "member_id": membership['id'],
         "group_id": group_id
-    }).sort("year", -1).sort("month", -1).limit(6).to_list(6)
+    }, contribution_metadata_projection()).sort("year", -1).sort("month", -1).limit(6).to_list(6)
     
     return {
         "group": {
@@ -2221,7 +2250,7 @@ async def get_member_club_details(group_id: str, user_id: str):
             **proof_review_details(current_contribution),
             "status": status,
             "due_date": None if flexible else f"{now.year}-{now.month:02d}-{min(group['payment_due_date'], 28):02d}",
-            "proof_uploaded": current_contribution.get('proof_of_payment') is not None,
+            "proof_uploaded": bool(current_contribution.get('proof_of_payment')),
             "payment_date": current_contribution.get('payment_date')
         } if current_contribution else None,
         "payment_reference": {
@@ -2672,65 +2701,56 @@ async def get_group_contributions(group_id: str, month: int, year: int, treasure
     await verify_user_is_group_treasurer(treasurer_id, group_id)
     
     # Get all members
-    members = await db.members.find({"group_id": group_id, "status": "active"}).to_list(1000)
+    members = await db.members.find({"group_id": group_id, "status": "active"}).to_list(None)
     
     contributions_list = []
     collected = 0.0
     outstanding = 0.0
     expected = 0.0
     
+    by_member, users = await get_group_payment_records(group_id, month, year, members)
     for member in members:
-        # Get contribution for this month
-        contribution = await db.contributions.find_one({
-            "member_id": member['id'],
-            "group_id": group_id,
-            "month": month,
-            "year": year
-        })
-        
-        # Get user info
-        user = await db.users.find_one({"id": member['user_id']})
-        
-        if contribution:
-            status = (contribution['contribution_status'] if group.get('contribution_mode') == 'flexible_goal' or group.get('group_type') == 'travel'
-                      else calculate_contribution_status(contribution, group['payment_due_date']))
+        user = users.get(member['user_id'], {'full_name': 'Unknown member'})
+        for contribution in by_member.get(member['id'], [None]):
+            if contribution:
+                status = (contribution['contribution_status'] if group.get('contribution_mode') == 'flexible_goal' or group.get('group_type') == 'travel'
+                          else calculate_contribution_status(contribution, group['payment_due_date']))
 
-            remaining = contribution_outstanding(contribution)
-            if remaining is not None and status != 'excused':
-                expected += contribution['amount_due']
-                collected += contribution['amount_paid']
-                outstanding += remaining
-            
-            contributions_list.append({
-                "id": contribution['id'],
-                "member_id": member['id'],
-                "member_name": user['full_name'],
-                "reference_code": member['unique_reference_code'],
-                "amount_due": contribution['amount_due'],
-                "amount_paid": contribution['amount_paid'],
-                "status": status,
-                "contribution_status": contribution['contribution_status'],
-                "proof_uploaded": contribution.get('proof_of_payment') is not None,
-                "proof_of_payment": contribution.get('proof_of_payment'),
-                "payment_date": contribution.get('payment_date'),
-                "reference_number": contribution.get('reference_number')
-            })
-        else:
-            contributions_list.append({
-                "id": None,
-                "member_id": member['id'],
-                "member_name": user['full_name'],
-                "reference_code": member['unique_reference_code'],
-                "amount_due": None,
-                "amount_paid": 0.0,
-                "status": "unrecorded",
-                "contribution_status": None,
-                "proof_uploaded": False,
-                "proof_of_payment": None,
-                "payment_date": None,
-                "reference_number": None
-            })
-    
+                remaining = contribution_outstanding(contribution)
+                if remaining is not None and status != 'excused':
+                    expected += contribution['amount_due']
+                    collected += contribution['amount_paid']
+                    outstanding += remaining
+
+                contributions_list.append({
+                    "id": contribution['id'],
+                    "member_id": member['id'],
+                    "member_name": user['full_name'],
+                    "reference_code": member['unique_reference_code'],
+                    "amount_due": contribution['amount_due'],
+                    "amount_paid": contribution['amount_paid'],
+                    "status": status,
+                    "contribution_status": contribution['contribution_status'],
+                    "proof_uploaded": bool(contribution.get('proof_of_payment')),
+                    **proof_review_details(contribution),
+                    "payment_date": contribution.get('payment_date'),
+                    "reference_number": contribution.get('reference_number')
+                })
+            else:
+                contributions_list.append({
+                    "id": None,
+                    "member_id": member['id'],
+                    "member_name": user['full_name'],
+                    "reference_code": member['unique_reference_code'],
+                    "amount_due": None,
+                    "amount_paid": 0.0,
+                    "status": "unrecorded",
+                    "contribution_status": None,
+                    "proof_uploaded": False,
+                    "payment_date": None,
+                    "reference_number": None
+                })
+
     # Sort: confirmed last, proof_uploaded first, then late, then pending
     status_order = {"late": 0, "proof_uploaded": 1, "due": 2, "pending": 3, "confirmed": 4}
     contributions_list.sort(key=lambda x: status_order.get(x['status'], 99))
@@ -2766,7 +2786,7 @@ async def get_club_detail(group_id: str, treasurer_id: str):
     members = await db.members.find({
         "group_id": group_id,
         "status": "active"
-    }).to_list(100)
+    }).to_list(None)
     
     now = datetime.now()
     month = now.month
@@ -2775,34 +2795,23 @@ async def get_club_detail(group_id: str, treasurer_id: str):
     collected = 0.0
     expected = 0.0
     
+    by_member, users = await get_group_payment_records(group_id, month, year, members)
     members_list = []
-    for member in members:
-        user = await db.users.find_one({"id": member['user_id']})
-        
-        # Get contribution for this month
-        contribution = await db.contributions.find_one({
-            "member_id": member['id'],
-            "group_id": group_id,
-            "month": month,
-            "year": year
-        })
-        
+    payment_rows = []
+
+    def payment_row(member, contribution):
+        user = users.get(member['user_id'], {'full_name': 'Unknown member', 'phone_number': ''})
         status = "unrecorded"
         amount_due = None
         amount_paid = 0.0
         has_proof = False
-        
         if contribution:
             status = (contribution['contribution_status'] if group.get('contribution_mode') == 'flexible_goal' or group.get('group_type') == 'travel'
                       else calculate_contribution_status(contribution, group['payment_due_date']))
             amount_due = contribution.get('amount_due')
-            if contribution_outstanding(contribution) is not None and contribution.get('contribution_status') != 'excused':
-                expected += amount_due
-                collected += contribution['amount_paid']
             amount_paid = contribution.get('amount_paid', 0)
-            has_proof = contribution.get('proof_of_payment') is not None
-        
-        members_list.append({
+            has_proof = bool(contribution.get('proof_of_payment'))
+        return {
             "id": member['id'],
             "contribution_id": contribution['id'] if contribution else None,
             "name": user['full_name'],
@@ -2817,8 +2826,18 @@ async def get_club_detail(group_id: str, treasurer_id: str):
             "amount_due": amount_due,
             "has_proof": has_proof,
             **(proof_review_details(contribution) if contribution else {})
-        })
-    
+        }
+
+    for member in members:
+        records = by_member.get(member['id'], [])
+        # Preserve the membership roster; Payments has one row per financial record.
+        members_list.append(payment_row(member, records[0] if records else None))
+        for contribution in records:
+            payment_rows.append(payment_row(member, contribution))
+            if contribution_outstanding(contribution) is not None and contribution.get('contribution_status') != 'excused':
+                expected += contribution['amount_due']
+                collected += contribution['amount_paid']
+
     return {
         "id": group['id'],
         "name": group['group_name'],
@@ -2831,7 +2850,8 @@ async def get_club_detail(group_id: str, treasurer_id: str):
         "member_count": len(members),
         "collected": collected,
         "expected": expected,
-        "members": members_list
+        "members": members_list,
+        "contributions": payment_rows
     }
 
 @api_router.post("/treasurer/confirm-payment")

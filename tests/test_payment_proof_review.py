@@ -20,23 +20,53 @@ class HTTPError(Exception):
 class Cursor:
     def __init__(self, records): self.records = records
     async def to_list(self, limit): return copy.deepcopy(self.records[:limit] if limit else self.records)
+    def sort(self, field, order):
+        self.records = sorted(self.records, key=lambda r: r.get(field, 0), reverse=order < 0)
+        return self
+    def limit(self, limit):
+        self.records = self.records[:limit]
+        return self
 
 
 class Collection:
     def __init__(self, records=()):
         self.records = copy.deepcopy(list(records))
         self.before_update = None
+        self.reads = []
 
     @staticmethod
     def matches(record, query):
         return all(record.get(k) in v['$in'] if isinstance(v, dict) and '$in' in v
                    else record.get(k) == v for k, v in query.items())
 
-    async def find_one(self, query):
-        return copy.deepcopy(next((r for r in self.records if self.matches(r, query)), None))
+    @staticmethod
+    def project(record, projection):
+        if not projection:
+            return copy.deepcopy(record)
+        result = {k: v for k, v in record.items() if projection.get(k) == 1}
+        if isinstance(projection.get('proof_of_payment'), dict):
+            result['proof_of_payment'] = bool(record.get('proof_of_payment'))
+        return result
 
-    def find(self, query):
-        return Cursor([r for r in self.records if self.matches(r, query)])
+    async def find_one(self, query, projection=None):
+        self.reads.append(('find_one', copy.deepcopy(query), projection))
+        record = next((r for r in self.records if self.matches(r, query)), None)
+        return self.project(record, projection) if record else None
+
+    def find(self, query, projection=None):
+        self.reads.append(('find', query, projection))
+        records = [r for r in self.records if self.matches(r, query)]
+        if projection:
+            records = [self.project(r, projection) for r in records]
+        return Cursor(records)
+
+    def aggregate(self, pipeline):
+        self.reads.append(('aggregate', copy.deepcopy(pipeline)))
+        records = [r for r in self.records if self.matches(r, pipeline[0]['$match'])]
+        projection = pipeline[1]['$project']
+        assert projection['proof_of_payment'] == {'$ne': [{'$ifNull': ['$proof_of_payment', '']}, '']}
+        return Cursor([{**{k: v for k, v in r.items() if projection.get(k) == 1},
+                        'proof_of_payment': bool(r.get('proof_of_payment'))} for r in records])
 
     async def update_one(self, query, update):
         if self.before_update:
@@ -71,12 +101,13 @@ def verify_token(token):
 
 def environment():
     names = {'authenticated_user_id', 'verify_user_is_group_treasurer', 'calculate_contribution_status',
+             'contribution_metadata_projection', 'get_group_payment_records', 'get_group_contributions',
              'contribution_outstanding', 'proof_is_eligible', 'proof_version', 'proof_is_pending',
              'proof_review_details', 'proof_update_filter', 'require_pending_proof',
              'personal_contribution_status', 'personal_contribution_view', 'get_person_contribution_records',
              'get_personal_contributions', 'get_proof_eligible_contributions', 'upload_proof_of_payment',
              'get_contribution_proof', 'decline_contribution_proof', 'delete_contribution_proof',
-             'confirm_payment', 'get_club_detail', 'admin_upload_proof_of_payment'}
+             'confirm_payment', 'get_club_detail', 'get_member_club_details', 'admin_upload_proof_of_payment'}
     tree = ast.parse(SOURCE.read_text())
     functions = [n for n in tree.body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in names]
     assert {n.name for n in functions} == names
@@ -335,6 +366,84 @@ class PaymentProofTests(unittest.IsolatedAsyncioTestCase):
         await ns['admin_upload_proof_of_payment'](data)
         with self.assertRaises(HTTPError) as e: await ns['confirm_payment'](stale)
         self.assertEqual(e.exception.status_code, 409)
+
+
+class PaymentListTests(unittest.IsolatedAsyncioTestCase):
+    async def test_all_same_member_records_and_period_isolation_with_metadata_only(self):
+        ns = environment(); db = ns['db']; first = db.contributions.records[0]
+        db.groups.records[0]['group_type'] = 'travel'
+        first.update(amount_due=200, amount_paid=200, contribution_status='confirmed', proof_review_status='approved')
+        pending = {**first, 'amount_paid': 0, 'contribution_status': 'proof_uploaded', 'proof_review_status': None}
+        amounts = [300, 600, 5000, 300, 300]
+        db.contributions.records = [first] + [{**pending, 'id': f'payment-{i}', 'amount_due': amount,
+                                              **({'proof_version': 'v-new'} if i == 1 else {}),
+                                              **({'contribution_status': 'pending', 'proof_of_payment': None} if i == 4 else {})}
+                                             for i, amount in enumerate(amounts)]
+        valid_ids = {r['id'] for r in db.contributions.records}
+        for i, changes in enumerate([{'month': first['month'] % 12 + 1}, {'year': first['year'] - 1},
+                                     {'group_id': 'group-b'}, {'member_id': 'membership-b'}]):
+            db.contributions.records.append({**pending, 'id': f'excluded-{i}', **changes})
+        before = copy.deepcopy(db.contributions.records)
+        result = await ns['get_group_contributions']('group-a', first['month'], first['year'], 'admin-user')
+        rows = [r for r in result['contributions'] if r['id']]
+        self.assertEqual({r['id'] for r in rows}, valid_ids)
+        self.assertEqual(len(rows), 6)
+        self.assertEqual(result['summary'], {'collected': 200, 'outstanding': 6500, 'total_expected': 6700, 'collection_rate': 3.0})
+        self.assertEqual(sum(r['status'] == 'proof_uploaded' for r in rows), 4)
+        self.assertTrue(all('proof_of_payment' not in r for r in result['contributions']))
+        legacy = next(r for r in rows if r['id'] == 'payment-0')
+        self.assertTrue(legacy['proof_version'].startswith('legacy:payment-0:'))
+        self.assertEqual(next(r for r in rows if r['id'] == 'payment-1')['proof_version'], 'v-new')
+        club = await ns['get_club_detail']('group-a', 'admin-user')
+        self.assertEqual({r['contribution_id'] for r in club['contributions']}, valid_ids)
+        self.assertEqual(len(club['members']), 2)
+        self.assertEqual((club['collected'], club['expected']), (200, 6700))
+        proof = await ns['get_contribution_proof']('payment-0', 'admin-user')
+        self.assertEqual(proof['proof_image'], pending['proof_of_payment'])
+        self.assertEqual(db.contributions.records, before)
+
+    async def test_batched_metadata_queries_have_constant_count_and_keep_versions(self):
+        ns = environment(); db = ns['db']; sample = db.contributions.records[0]
+        for i in range(20):
+            db.members.records.append({**db.members.records[0], 'id': f'm-{i}', 'user_id': f'u-{i}'})
+            db.users.records.append({'id': f'u-{i}', 'full_name': f'U {i}', 'phone_number': '000'})
+            db.contributions.records.append({**sample, 'id': f'c-{i}', 'member_id': f'm-{i}', 'proof_version': f'v-{i}'})
+        await ns['get_group_contributions']('group-a', sample['month'], sample['year'], 'admin-user')
+        self.assertEqual(len(db.users.reads), 1)
+        self.assertEqual(len(db.contributions.reads), 1)
+        projection = db.contributions.reads[0][1][1]['$project']
+        self.assertIsInstance(projection['proof_of_payment'], dict)
+        self.assertEqual(projection['proof_version'], 1)
+        db.contributions.reads.clear()
+        personal = await ns['get_personal_contributions']('member-user', 'Bearer member-user')
+        self.assertTrue(all('proof_of_payment' not in r for r in personal['contributions']))
+        self.assertEqual(db.contributions.reads[0][0], 'aggregate')
+
+    async def test_projected_admin_uploaded_proof_is_not_member_deletable(self):
+        ns = environment(); ns['db'].contributions.records[0]['uploaded_by_admin'] = True
+        result = await ns['get_personal_contributions']('member-user', 'Bearer member-user')
+        record = next(r for r in result['contributions'] if r['contribution_id'] == 'contribution-a')
+        self.assertTrue(record['proof_uploaded'])
+        self.assertFalse(record['proof_delete_eligible'])
+        self.assertEqual(record['proof_version'], ns['proof_version'](ns['db'].contributions.records[0]))
+
+    async def test_member_club_current_and_history_reads_return_presence_not_proof_files(self):
+        ns = environment(); db = ns['db']
+        db.groups.records[0].update(bank_name='Bank', bank_account_number='000', bank_account_holder='Club')
+        db.contributions.records[0]['uploaded_by_admin'] = True
+        result = await ns['get_member_club_details']('group-a', 'member-user')
+        self.assertTrue(result['current_contribution']['proof_uploaded'])
+        self.assertFalse(result['current_contribution']['proof_delete_eligible'])
+        self.assertNotIn('proof_of_payment', result['current_contribution'])
+        self.assertEqual(len(result['payment_history']), 2)
+        self.assertTrue(all(isinstance(query[2]['proof_of_payment'], dict) for query in db.contributions.reads))
+        self.assertEqual(result['current_contribution']['proof_version'], ns['proof_version'](db.contributions.records[0]))
+
+    async def test_monthly_list_rejects_another_groups_admin(self):
+        ns = environment(); sample = ns['db'].contributions.records[0]
+        with self.assertRaises(HTTPError) as error:
+            await ns['get_group_contributions']('group-a', sample['month'], sample['year'], 'outsider')
+        self.assertEqual(error.exception.status_code, 403)
 
 
 if __name__ == '__main__': unittest.main()

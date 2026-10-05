@@ -2,13 +2,14 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { load, engine, tick, nodes, text, button, native, colors } = require('./ui-harness.cjs');
 
-function setup() {
+function setup(screen = 'member') {
   const ui = engine(), requests = [], routes = [];
   const auth = { user: { id: 'member', full_name: 'Test Member', first_name: 'Test' }, token: 'session' };
-  const Screen = load('app/(member)/home.tsx', {
+  const Screen = load(screen === 'member' ? 'app/(member)/home.tsx' : 'app/(treasurer)/dashboard.tsx', {
     react: ui.react,
     'react-native': { ...native, RefreshControl: 'RefreshControl', TextInput: 'TextInput',
-      KeyboardAvoidingView: 'KeyboardAvoidingView', Platform: { OS: 'android' } },
+      KeyboardAvoidingView: 'KeyboardAvoidingView', Platform: { OS: 'android' },
+      Keyboard: { dismiss() {} }, TouchableWithoutFeedback: 'TouchableWithoutFeedback' },
     'expo-router': { useFocusEffect: ui.useFocusEffect, useRouter: () => ({ push: r => routes.push(r) }) },
     '../../contexts/AuthContext': { useAuth: () => auth },
     '../../components/StatusPill': { StatusPill: 'StatusPill' },
@@ -77,4 +78,23 @@ test('member and administrator club navigation remains unchanged', async () => {
   button(c.render(), 'WeTraveling').props.onPress();
   assert.deepEqual(c.routes[1], { pathname: '/(treasurer)/club-detail',
     params: { id: 'group-a', name: 'WeTraveling', from: 'member' } });
+});
+
+test('Home displays its existing header while the first dashboard response is unresolved', async () => {
+  const c = setup();
+  assert.match(text(c.render()), /Clubvel/);
+  assert.ok(nodes(c.render()).some(n => n.type === 'ActivityIndicator'));
+  await c.respond(0, 'WeTraveling');
+  assert.match(text(c.render()), /WeTraveling/);
+});
+
+test('Admin Home displays its existing header before dashboard data arrives', async () => {
+  const c = setup('admin');
+  assert.match(text(c.render()), /Clubvel/);
+  assert.ok(nodes(c.render()).some(n => n.type === 'ActivityIndicator'));
+  assert.equal(c.requests.length, 1);
+  assert.match(c.requests[0].url, /\/api\/admin\/dashboard\/member$/);
+  c.requests[0].resolve({ data: { summary: { total_clubs: 0, total_members: 0 }, clubs: [], urgent_alerts: [], next_claim: null } });
+  await tick();
+  assert.match(text(c.render()), /Create a Group/);
 });
