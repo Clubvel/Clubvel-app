@@ -1,6 +1,6 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image, TextInput, Platform, KeyboardAvoidingView } from 'react-native';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { StatusPill } from '../../components/StatusPill';
 import { AdBanner } from '../../components/AdBanner';
@@ -66,6 +66,8 @@ export default function MemberHomeScreen() {
   const [invitationsError, setInvitationsError] = useState<string | null>(null);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+  const dashboardRequest = useRef(0);
+  const dashboardInFlight = useRef<{ key: string; promise: Promise<void> } | null>(null);
 
   const handleLogout = async () => {
     setShowProfileMenu(false);
@@ -136,35 +138,48 @@ export default function MemberHomeScreen() {
     }
   };
 
-  const fetchDashboard = async () => {
-    try {
-      const [dashboardResponse, invitationsResponse] = await Promise.all([
-        axios.get(`${API_URL}/api/member/dashboard/${user?.id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-        axios.get(`${API_URL}/api/invitations/pending/${user?.id}`, {
-          headers: { Authorization: `Bearer ${token}` },
-        }),
-      ]);
-      setDashboardData(dashboardResponse.data);
-      setPendingInvitations(invitationsResponse.data.invitations || []);
-    } catch (error) {
-      console.error('Error fetching dashboard:', error);
-    } finally {
-      setLoading(false);
-      setRefreshing(false);
+  const fetchDashboard = useCallback((force = false) => {
+    if (!user?.id || !token) return Promise.resolve();
+    const key = JSON.stringify([API_URL, user.id, token]);
+    if (!force && dashboardInFlight.current?.key === key) {
+      return dashboardInFlight.current.promise;
     }
-  };
+    const request = ++dashboardRequest.current;
+    const promise = (async () => {
+      try {
+        const [dashboardResponse, invitationsResponse] = await Promise.all([
+          axios.get(`${API_URL}/api/member/dashboard/${user.id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+          axios.get(`${API_URL}/api/invitations/pending/${user.id}`, {
+            headers: { Authorization: `Bearer ${token}` },
+          }),
+        ]);
+        if (request === dashboardRequest.current) {
+          setDashboardData(dashboardResponse.data);
+          setPendingInvitations(invitationsResponse.data.invitations || []);
+        }
+      } catch (error) {
+        console.error('Error fetching dashboard:', error);
+      } finally {
+        if (request === dashboardRequest.current) {
+          setLoading(false);
+          setRefreshing(false);
+          dashboardInFlight.current = null;
+        }
+      }
+    })();
+    dashboardInFlight.current = { key, promise };
+    return promise;
+  }, [API_URL, user?.id, token]);
 
-  useEffect(() => {
-    if (user) {
-      fetchDashboard();
-    }
-  }, [user, token]);
+  useFocusEffect(useCallback(() => {
+    void fetchDashboard();
+  }, [fetchDashboard]));
 
   const onRefresh = () => {
     setRefreshing(true);
-    fetchDashboard();
+    void fetchDashboard(true);
   };
 
   const navigateToProfile = () => {
