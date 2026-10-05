@@ -12,7 +12,7 @@ import logging
 import math
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import Literal, List, Optional
 import uuid
 from datetime import datetime, timedelta
 from passlib.context import CryptContext
@@ -2942,79 +2942,69 @@ class InviteMemberRequest(BaseModel):
     phone_number: str
     name: Optional[str] = None
     group_id: str
-    group_name: str
-    invited_by: str
-    treasurer_name: str
+    # Retained for request compatibility; display names and identity come from records/session.
+    group_name: Optional[str] = None
+    invited_by: Optional[str] = None
+    treasurer_name: Optional[str] = None
+    channel: Literal["whatsapp", "sms"] = "sms"
 
 
 @api_router.post("/treasurer/invite-member")
-async def invite_member(request: InviteMemberRequest):
-    """Invite a new member to join a club via SMS"""
-    
-    # DATA ACCESS CONTROL: Verify treasurer owns this group
-    group = await db.groups.find_one({"id": request.group_id})
-    if not group:
-        raise HTTPException(status_code=404, detail="Group not found")
-    
-    await verify_user_is_group_treasurer(request.invited_by, request.group_id)
-    
-    invited_phone = format_phone_number(request.phone_number)
-
-    # Check if user already exists, including accounts stored in legacy local format.
-    existing_user = await db.users.find_one({"phone_number": {"$in": phone_variants(request.phone_number)}})
-    if existing_user:
-        # Check if already a member of this group
-        existing_member = await db.members.find_one({
-            "user_id": existing_user['id'],
-            "group_id": request.group_id
-        })
-        if existing_member:
-            raise HTTPException(status_code=400, detail="This person is already a member of this club")
-
-    existing_invitation = await db.invitations.find_one({
-        "phone_number": {"$in": phone_variants(request.phone_number)},
-        "group_id": request.group_id,
-        "status": "pending",
-        "expires_at": {"$gt": datetime.utcnow()}
-    })
-    if existing_invitation:
-        raise HTTPException(status_code=400, detail="This person already has a pending invitation")
-    
-    # Store the invitation
-    invitation = {
-        "id": f"inv_{uuid.uuid4().hex}",
-        "phone_number": invited_phone,
-        "name": request.name,
-        "group_id": request.group_id,
-        "group_name": request.group_name,
-        "invited_by": request.invited_by,
-        "treasurer_name": request.treasurer_name,
-        "status": "pending",
-        "created_at": datetime.utcnow(),
-        "expires_at": datetime.utcnow() + timedelta(days=7)
-    }
-    
-    await db.invitations.insert_one(invitation)
-
-    # Send SMS invitation
-    invite_message = f"Hi{' ' + request.name if request.name else ''}! You've been invited by {request.treasurer_name} to join {request.group_name} on Clubvel. Sign in or register with this number ({request.phone_number}), then accept the invitation in My Clubvel. https://clubvel.co.za/download"
-    
-    # Use the notification service to send SMS
+async def invite_member(request: InviteMemberRequest, authorization: Optional[str] = Header(None)):
+    """Create/reuse one pending invitation; delivery never creates membership."""
+    inviter_id = authenticated_user_id(authorization)
+    group = await verify_user_is_group_treasurer(inviter_id, request.group_id)
+    inviter = await verify_user_exists(inviter_id)
     try:
-        from services.notification_service import send_sms_otp
-        sms_result = await send_sms_otp(invited_phone, "0000")  # We're just using the SMS functionality
-        print(f"[INVITE SMS] To: {invited_phone}")
-        print(f"[INVITE SMS] Message: {invite_message}")
-    except Exception as e:
-        print(f"[INVITE SMS MOCK] To: {invited_phone}")
-        print(f"[INVITE SMS MOCK] Message: {invite_message}")
-    
+        invited_phone = format_phone_number(request.phone_number)
+        aliases = phone_variants(request.phone_number)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error))
+
+    existing_user = await db.users.find_one({"phone_number": {"$in": aliases}})
+    if existing_user and await db.members.find_one({
+        "user_id": existing_user['id'], "group_id": request.group_id
+    }):
+        raise HTTPException(status_code=400, detail="This person is already a member of this club")
+
+    invitation = await db.invitations.find_one({
+        "phone_number": {"$in": aliases}, "group_id": request.group_id,
+        "status": "pending", "expires_at": {"$gt": datetime.utcnow()}
+    })
+    reused = invitation is not None
+    if invitation is None:
+        invitation = {
+            "id": f"inv_{uuid.uuid4().hex}", "phone_number": invited_phone,
+            "name": request.name, "group_id": request.group_id,
+            "group_name": group['group_name'], "invited_by": inviter_id,
+            "treasurer_name": inviter['full_name'], "status": "pending",
+            "created_at": datetime.utcnow(), "expires_at": datetime.utcnow() + timedelta(days=7)
+        }
+        await db.invitations.insert_one(invitation)
+
+    # A retry retains the original expiry; do not promise a fresh seven days.
+    validity = ("Your invitation is valid for 7 days." if not reused else
+                f"Your invitation expires on {invitation['expires_at'].strftime('%d %b %Y')} (UTC).")
+    invite_message = (
+        f"Hi! {inviter['full_name']} has invited you to join {group['group_name']} on Clubvel. "
+        "Sign in or register using this phone number, then open My Clubvel → Join Group and accept. "
+        + validity
+    )
+    delivery_status = "ready"
+    if request.channel == "sms":
+        from services.notification_service import send_invitation_sms
+        try:
+            result = await send_invitation_sms(invited_phone, invite_message)
+            delivery_status = "mock" if result.get('mock') else "submitted" if result.get('success') else "failed"
+        except Exception:
+            delivery_status = "failed"
+
     return {
-        "message": "Invitation sent successfully",
-        "invitation_id": invitation['id'],
-        "phone_number": invited_phone,
-        "group_name": request.group_name,
-        "expires_at": invitation['expires_at'].isoformat()
+        "message": "Pending invitation ready",
+        "invitation_id": invitation['id'], "phone_number": invited_phone,
+        "group_name": group['group_name'], "invitation_message": invite_message,
+        "expires_at": invitation['expires_at'].isoformat(), "reused": reused,
+        "channel": request.channel, "delivery_status": delivery_status
     }
 
 

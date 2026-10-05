@@ -122,6 +122,24 @@ async def send_sms_otp(phone: str, otp: str) -> Dict[str, Any]:
         }
 
 
+async def send_invitation_sms(phone: str, message: str) -> dict[str, Any]:
+    """Submit invitation text without changing authentication OTP delivery."""
+    if not ENABLE_REAL_NOTIFICATIONS:
+        return {'success': False, 'channel': 'sms', 'mock': True}
+    if not is_twilio_configured():
+        return {'success': False, 'channel': 'sms', 'mock': False}
+    try:
+        from twilio.rest import Client
+        client = Client(TWILIO_ACCOUNT_SID, TWILIO_AUTH_TOKEN)
+        client.messages.create(
+            from_=TWILIO_PHONE_NUMBER, to=format_phone_number(phone), body=message
+        )
+        return {'success': True, 'channel': 'sms', 'mock': False}
+    except Exception:  # noqa: BLE001 - Preserve pending invitation on any provider failure.
+        logger.warning("Invitation SMS submission failed")
+        return {'success': False, 'channel': 'sms', 'mock': False}
+
+
 async def send_otp(phone: str, preferred_channel: str = 'whatsapp', *, otp: str) -> Dict[str, Any]:
     """
     Send OTP via preferred channel with fallback

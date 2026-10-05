@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, Alert, ActivityIndicator, Image, KeyboardAvoidingView, Platform } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, Alert, ActivityIndicator, Image, KeyboardAvoidingView, Platform, Linking } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
@@ -25,7 +25,7 @@ interface Club {
 }
 
 export default function MembersScreen() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const router = useRouter();
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
   
@@ -37,6 +37,7 @@ export default function MembersScreen() {
   const [clubs, setClubs] = useState<Club[]>([]);
   const [showClubPicker, setShowClubPicker] = useState(false);
   const [sending, setSending] = useState(false);
+  const invitationInFlight = useRef(false);
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -122,50 +123,58 @@ export default function MembersScreen() {
     return cleaned;
   };
 
-  const handleSendInvite = async () => {
+  const handleSendInvite = async (channel: 'whatsapp' | 'sms') => {
+    if (invitationInFlight.current) return;
     if (!invitePhone.trim()) {
       Alert.alert('Error', 'Please enter a phone number');
       return;
     }
-
     if (!selectedClub) {
       Alert.alert('Error', 'Please select a club');
       return;
     }
-
+    if (!user?.id || !token) {
+      Alert.alert('Error', 'Please sign in before inviting a member');
+      return;
+    }
     const formattedPhone = formatPhoneNumber(invitePhone);
     if (formattedPhone.length !== 10) {
       Alert.alert('Error', 'Please enter a valid 10-digit phone number');
       return;
     }
 
+    invitationInFlight.current = true;
     setSending(true);
     try {
-      await axios.post(`${API_URL}/api/treasurer/invite-member`, {
+      const { data } = await axios.post(`${API_URL}/api/treasurer/invite-member`, {
         phone_number: formattedPhone,
         name: inviteName.trim() || undefined,
         group_id: selectedClub.id,
-        group_name: selectedClub.name,
-        invited_by: user?.id,
-        treasurer_name: user?.full_name
-      });
+        channel,
+      }, { headers: { Authorization: `Bearer ${token}` } });
 
-      Alert.alert(
-        'Invitation Sent!',
-        `An SMS invitation has been sent to ${formattedPhone}. They must accept it in My Clubvel before joining ${selectedClub.name}.`,
-        [{ text: 'OK', onPress: () => {
-          setShowInviteModal(false);
-          setInvitePhone('');
-          setInviteName('');
-        }}]
-      );
+      if (channel === 'whatsapp') {
+        try {
+          const digits = data.phone_number.replace(/^\+/, '');
+          await Linking.openURL(`https://wa.me/${digits}?text=${encodeURIComponent(data.invitation_message)}`);
+          Alert.alert('WhatsApp opened', 'Press Send in WhatsApp to share the invitation. It remains pending in Clubvel until they accept.');
+        } catch {
+          Alert.alert('WhatsApp could not be opened', 'The Clubvel invitation is still pending. You can use SMS instead.', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Use SMS', onPress: () => handleSendInvite('sms') },
+          ]);
+        }
+      } else if (data.delivery_status === 'submitted') {
+        Alert.alert('SMS submitted', 'The invitation was submitted to the SMS provider. They must accept it in My Clubvel before joining.');
+      } else if (data.delivery_status === 'mock') {
+        Alert.alert('Invitation saved', 'No SMS was sent in test mode. The invitation is pending in Clubvel.');
+      } else {
+        Alert.alert('SMS could not be sent', 'The Clubvel invitation is still pending. Try SMS again or use WhatsApp.');
+      }
     } catch (error: any) {
-      console.error('Error sending invite:', error);
-      Alert.alert(
-        'Could not send invitation',
-        error.response?.data?.detail || 'Please try again.',
-      );
+      Alert.alert('Could not prepare invitation', error.response?.data?.detail || 'Please try again.');
     } finally {
+      invitationInFlight.current = false;
       setSending(false);
     }
   };
@@ -284,7 +293,7 @@ export default function MembersScreen() {
             </View>
 
             <Text style={styles.modalDescription}>
-              Enter the phone number of the person you want to invite. They will receive an SMS with instructions to join your club.
+              Enter the phone number of the person you want to invite. Choose WhatsApp or SMS to share instructions to join your club.
             </Text>
 
             {/* Club Selector */}
@@ -348,20 +357,20 @@ export default function MembersScreen() {
               maxLength={12}
             />
 
-            <TouchableOpacity 
-              style={[styles.sendButton, sending && styles.sendButtonDisabled]}
-              onPress={handleSendInvite}
-              disabled={sending}
-            >
-              {sending ? (
-                <ActivityIndicator color={Colors.white} />
-              ) : (
-                <>
-                  <Ionicons name="send" size={20} color={Colors.white} />
-                  <Text style={styles.sendButtonText}>Send Invitation</Text>
-                </>
-              )}
-            </TouchableOpacity>
+            <View style={styles.deliveryButtons}>
+              {(['whatsapp', 'sms'] as const).map((channel) => (
+                <TouchableOpacity
+                  key={channel}
+                  style={[styles.sendButton, styles.deliveryButton, sending && styles.sendButtonDisabled]}
+                  onPress={() => handleSendInvite(channel)}
+                  disabled={sending}
+                >
+                  <Ionicons name={channel === 'whatsapp' ? 'logo-whatsapp' : 'chatbubble-outline'} size={20} color={Colors.white} />
+                  <Text style={styles.sendButtonText}>{channel === 'whatsapp' ? 'WhatsApp' : 'SMS'}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {sending && <ActivityIndicator color={Colors.accent} />}
 
             <Text style={styles.infoText}>
               <Ionicons name="information-circle" size={14} color={Colors.textMuted} />
@@ -629,6 +638,8 @@ const styles = StyleSheet.create({
     color: Colors.mediumGreen,
     fontWeight: '600',
   },
+  deliveryButtons: { flexDirection: 'row', gap: 12 },
+  deliveryButton: { flex: 1 },
   sendButton: {
     flexDirection: 'row',
     alignItems: 'center',
