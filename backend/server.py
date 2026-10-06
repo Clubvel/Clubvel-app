@@ -14,7 +14,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import Literal, List, Optional
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 import random
@@ -32,6 +32,10 @@ from services.notification_service import (
 
 from services.phone_numbers import normalize_phone, phone_aliases, phone_identity_query
 from services.auth_otp import AuthOTP, OTPError, runtime_mock_otp_allowed
+from services.admin_invitations import (
+    reserve_invitation, accepting_slot, release_slot, grant_decision,
+    cancel_admin_grant, commit_admin_grant,
+)
 
 # Import bank feed service
 from services.bank_feed_service import (
@@ -457,6 +461,8 @@ async def verify_user_is_group_treasurer(user_id: str, group_id: str) -> dict:
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
 
+    if group.get('status') != 'active':
+        raise HTTPException(403, 'An active group is required')
     membership = await db.members.find_one({
         "user_id": user_id,
         "group_id": group_id,
@@ -1673,8 +1679,24 @@ async def delete_club(data: DeleteClubRequest):
     if data.confirmation != "DELETE":
         raise HTTPException(status_code=400, detail="Confirmation required")
     
-    # Delete all members of this group
-    await db.members.delete_many({"group_id": data.group_id})
+    # Close new reservations first. Every eligible issuer is now an existing
+    # row; revoke those issuers before the separate prepared-recipient sweep.
+    await db.groups.update_one({"id": data.group_id}, {"$set": {"admin_invitations_closed": True}})
+    await db.members.update_many(
+        {"group_id": data.group_id, "role_in_group": {"$in": ["admin", "treasurer"]}},
+        {"$set": {"status": "removed"}})
+    # Any receipt that won before issuer revocation already has its recipient
+    # row. This sweep fences projection before the Club becomes inactive.
+    await db.members.update_many({"group_id": data.group_id}, {"$set": {"status": "removed"}})
+    await db.groups.update_one({"id": data.group_id}, {"$set": {"status": "deleting"}})
+    # Keep Admin/grant and explicit legacy-owner tombstones. Historical owner
+    # metadata must not recreate a demoted membership during Club deletion.
+    await db.members.delete_many({
+        "group_id": data.group_id, "role_in_group": {"$nin": ["admin", "treasurer"]},
+        "user_id": {"$nin": list(set(group.get('admin_user_ids', [])) | {group.get('treasurer_user_id')})},
+        "admin_invitation_decisions": {"$exists": False},
+        "admin_invitation_id": {"$exists": False}, "admin_grant_applied": {"$exists": False}
+    })
     
     # Delete all contributions for this group
     await db.contributions.delete_many({"group_id": data.group_id})
@@ -1719,17 +1741,23 @@ async def delete_member(data: DeleteMemberRequest):
     if not member:
         raise HTTPException(status_code=404, detail="Member not found in this club")
     
-    await db.members.delete_one({
-        "group_id": data.group_id,
-        "user_id": data.member_user_id
+    # Ordinary Member removal retains its old behavior; any possible Admin
+    # grant keeps the exact membership as a revocation/receipt tombstone.
+    deleted = await db.members.delete_one({
+        "id": member['id'], "role_in_group": {"$nin": ["admin", "treasurer"]},
+        "admin_invitation_id": {"$exists": False},
+        "admin_invitation_decisions": {"$exists": False}
     })
+    if not deleted.deleted_count:
+        await db.members.update_one(
+            {"id": member['id']},
+            {"$set": {"status": "removed", "removed_at": datetime.now(UTC).replace(tzinfo=None)}})
     
     # Remove from admin list if they were an admin
     if data.member_user_id in admin_user_ids:
-        admin_user_ids.remove(data.member_user_id)
         await db.groups.update_one(
             {"id": data.group_id},
-            {"$set": {"admin_user_ids": admin_user_ids}}
+            {"$pull": {"admin_user_ids": data.member_user_id}}
         )
     
     # Get member details for notification
@@ -1749,91 +1777,63 @@ async def delete_member(data: DeleteMemberRequest):
 
 class InviteAdminRequest(BaseModel):
     group_id: str
-    admin_user_id: str  # Current admin making the invitation
+    admin_user_id: str | None = None  # Compatibility only; never authorization.
     new_admin_phone: str
+    channel: Literal["whatsapp", "sms"] = "whatsapp"
+
 
 @api_router.post("/groups/admin/invite")
-async def invite_admin(data: InviteAdminRequest):
-    """Invite a new admin to the club (max 5 admins)"""
-    # Find the group
-    group = await db.groups.find_one({"id": data.group_id})
-    if not group:
-        raise HTTPException(status_code=404, detail="Club not found")
-    
-    await verify_user_is_group_treasurer(data.admin_user_id, data.group_id)
-    admin_user_ids = group.get('admin_user_ids', [])
-    
-    # Check max admins limit (5)
-    max_admins = group.get('max_admins', 5)
-    if len(admin_user_ids) >= max_admins:
-        raise HTTPException(status_code=400, detail=f"Maximum {max_admins} admins allowed per club")
-    
-    # Find the user by phone number
-    new_admin = await db.users.find_one({"phone_number": data.new_admin_phone})
-    if not new_admin:
-        raise HTTPException(status_code=404, detail="User not found. They must register first.")
-    
-    new_admin_id = new_admin['id']
-    
-    # Check if already an admin
-    if new_admin_id in admin_user_ids:
-        raise HTTPException(status_code=400, detail="This user is already an admin")
-    
-    # Check if already a member
-    existing_member = await db.members.find_one({
-        "group_id": data.group_id,
-        "user_id": new_admin_id
-    })
-    
-    if not existing_member:
-        # Add as member first
-        member = {
-            "id": str(uuid.uuid4()),
-            "user_id": new_admin_id,
-            "group_id": data.group_id,
-            "unique_reference_code": f"{group.get('payment_reference_prefix', 'CLB')}{str(len(admin_user_ids) + 1).zfill(3)}",
-            "date_joined_group": datetime.utcnow(),
-            "status": "active",
-            "role_in_group": "admin",
-            "payout_position": await db.members.count_documents({"group_id": data.group_id}) + 1
-        }
-        await db.members.insert_one(member)
-    else:
-        # Update existing member to admin role
-        await db.members.update_one(
-            {"group_id": data.group_id, "user_id": new_admin_id},
-            {"$set": {"role_in_group": "admin", "status": "active"}}
-        )
-    
-    # Add to admin list
-    admin_user_ids.append(new_admin_id)
-    await db.groups.update_one(
-        {"id": data.group_id},
-        {"$set": {"admin_user_ids": admin_user_ids}}
-    )
-    
-    # Update new admin's stokvel_memberships array
-    await db.users.update_one(
-        {"id": new_admin_id},
-        {
-            "$push": {
-                "stokvel_memberships": {
-                    "stokvel_id": data.group_id,
-                    "role": "admin",
-                    "joined_at": datetime.utcnow(),
-                    "status": "active"
-                }
-            }
-        }
-    )
-    
-    logging.info(f"New admin {new_admin_id} added to club {data.group_id} by admin {data.admin_user_id}")
-    
-    return {
-        "message": "Admin added successfully",
-        "new_admin_name": new_admin.get('full_name', 'Unknown'),
-        "total_admins": len(admin_user_ids)
-    }
+async def invite_admin(data: InviteAdminRequest, authorization: str | None = Header(None)):
+    """Invite an addressed person; no role or membership is granted here."""
+    actor = authenticated_user_id(authorization)
+    inviter = await verify_user_exists(actor)
+    group = await verify_user_is_group_treasurer(actor, data.group_id)
+    if group.get('status') != 'active':
+        raise HTTPException(403, 'An active group is required')
+    try:
+        phone = format_phone_number(data.new_admin_phone)
+        aliases = phone_variants(data.new_admin_phone)
+    except ValueError as error:
+        raise HTTPException(422, str(error))
+    recipient = await db.users.find_one({'phone_number': {'$in': aliases}})
+    if recipient:
+        membership = await db.members.find_one({'group_id': data.group_id, 'user_id': recipient['id']})
+        if membership and membership.get('status') == 'invitation_accepting':
+            previous = await db.invitations.find_one({'id': membership.get('admin_invitation_id')})
+            if previous and previous.get('intended_role') == 'admin' and previous.get('status') in ('declined', 'expired'):
+                decision = await grant_decision(db, previous)
+                if decision and decision['decision'] == 'cancelled':
+                    await cancel_admin_grant(db, previous, previous['status'])
+                    membership = await db.members.find_one({'group_id': data.group_id, 'user_id': recipient['id']})
+        if membership and membership.get('status') != 'active':
+            raise HTTPException(400, 'This person has an inactive or removed membership; it cannot be reactivated by an invitation')
+        if ((membership and membership.get('role_in_group') in ('admin', 'treasurer')) or
+                (not membership and recipient['id'] in set(group.get('admin_user_ids', [])) | {group.get('treasurer_user_id')})):
+            raise HTTPException(400, 'This person is already an Admin of this club')
+    invitation, group, reused = await reserve_invitation(
+        db, data.group_id, phone, aliases, 'admin', inviter)
+    if recipient:
+        alert_id = str(uuid.uuid5(uuid.NAMESPACE_URL, 'clubvel:admin-invitation:' + invitation['id']))
+        alert = Alert(id=alert_id, user_id=recipient['id'], group_id=group['id'],
+                      alert_type='admin_invitation',
+                      alert_message=f"{invitation['treasurer_name']} invited you to become an Admin of {group['group_name']}. Open My Clubvel → Join Group to review and accept or decline.")
+        await db.alerts.update_one({'_id': alert_id}, {'$setOnInsert': alert.dict()}, upsert=True)
+    validity = f"Your invitation expires on {invitation['expires_at'].strftime('%d %b %Y')} (UTC)."
+    message = (f"{invitation['treasurer_name']} invited you to become an Admin of {group['group_name']} on Clubvel. "
+               "Sign in or register with this mobile number, then open My Clubvel → Join Group to review and accept. " + validity)
+    delivery_status = 'ready'
+    if data.channel == 'sms':
+        from services.notification_service import send_invitation_sms
+        try:
+            result = await send_invitation_sms(phone, message)
+            delivery_status = 'mock' if result.get('mock') else 'submitted' if result.get('success') else 'failed'
+        except Exception:  # noqa: BLE001 - Delivery failure must preserve the invitation.
+            delivery_status = 'failed'
+    return {'message': 'Admin invitation created', 'invitation_id': invitation['id'],
+            'phone_number': phone, 'invitation_message': message,
+            'intended_role': 'admin', 'reused': reused,
+            'expires_at': invitation['expires_at'].isoformat(), 'delivery_status': delivery_status}
+
 
 @api_router.get("/groups/{group_id}")
 async def get_group_details(group_id: str, user_id: str):
@@ -2043,8 +2043,10 @@ async def delete_user_account(data: DeleteAccountRequest, authorization: Optiona
     }
     await db.deletion_logs.insert_one(deletion_log)
     
-    # 2. Get all memberships for this user
-    memberships = await db.members.find({"user_id": data.user_id}).to_list(100)
+    # Fence new Admin preparation before enumerating every membership.
+    await db.users.update_one({"id": data.user_id}, {"$set": {"account_deletion_started": True}})
+    # 2. Get all memberships for this user (including Admins beyond the first 100).
+    memberships = await db.members.find({"user_id": data.user_id}).to_list(None)
     member_ids = [m["id"] for m in memberships]
     
     # 3. Update contribution records - replace with "Deleted Member" identifier
@@ -2997,20 +2999,8 @@ async def invite_member(request: InviteMemberRequest, authorization: Optional[st
     }):
         raise HTTPException(status_code=400, detail="This person is already a member of this club")
 
-    invitation = await db.invitations.find_one({
-        "phone_number": {"$in": aliases}, "group_id": request.group_id,
-        "status": "pending", "expires_at": {"$gt": datetime.utcnow()}
-    })
-    reused = invitation is not None
-    if invitation is None:
-        invitation = {
-            "id": f"inv_{uuid.uuid4().hex}", "phone_number": invited_phone,
-            "name": request.name, "group_id": request.group_id,
-            "group_name": group['group_name'], "invited_by": inviter_id,
-            "treasurer_name": inviter['full_name'], "status": "pending",
-            "created_at": datetime.utcnow(), "expires_at": datetime.utcnow() + timedelta(days=7)
-        }
-        await db.invitations.insert_one(invitation)
+    invitation, group, reused = await reserve_invitation(
+        db, request.group_id, invited_phone, aliases, 'member', inviter, request.name)
 
     # A retry retains the original expiry; do not promise a fresh seven days.
     validity = ("Your invitation is valid for 7 days." if not reused else
@@ -3054,13 +3044,24 @@ async def get_pending_invitations(user_id: str, authorization: Optional[str] = H
         "status": "pending",
         "expires_at": {"$gt": datetime.utcnow()}
     }).to_list(100)
-    return {"invitations": [{
-        "id": invitation['id'],
-        "group_id": invitation['group_id'],
-        "group_name": invitation['group_name'],
-        "invited_by_name": invitation.get('treasurer_name'),
-        "expires_at": invitation['expires_at'].isoformat()
-    } for invitation in invitations]}
+    # Interrupted Admin acceptance stays discoverable for the same recipient;
+    # ordinary Member discovery remains pending and unexpired only.
+    accepting = await db.invitations.find({
+        'phone_number': {'$in': phone_variants(user['phone_number'])},
+        'status': 'accepting', 'intended_role': 'admin', 'accepting_by': user_id,
+    }).to_list(100)
+    invitations.extend(accepting)
+    result = []
+    for invitation in invitations:
+        group = await db.groups.find_one({'id': invitation['group_id'], 'status': 'active'})
+        if group:
+            result.append({'id': invitation['id'], 'group_id': group['id'],
+                           'group_name': group['group_name'],
+                           'intended_role': invitation.get('intended_role', 'member'),
+                           'status': invitation['status'],
+                           'invited_by_name': invitation.get('treasurer_name'),
+                           'expires_at': invitation['expires_at'].isoformat()})
+    return {'invitations': result}
 
 
 @api_router.post("/invitations/accept")
@@ -3070,13 +3071,26 @@ async def accept_invitation(request: AcceptInvitationRequest, authorization: Opt
         raise HTTPException(status_code=403, detail="You can only accept your own invitations")
     user = await verify_user_exists(request.user_id)
     invitation = await db.invitations.find_one({
-        "id": request.invitation_id,
-        "phone_number": {"$in": phone_variants(user['phone_number'])},
-        "status": "pending",
-        "expires_at": {"$gt": datetime.utcnow()}
+        'id': request.invitation_id,
+        'phone_number': {'$in': phone_variants(user['phone_number'])},
     })
-    if not invitation:
-        raise HTTPException(status_code=404, detail="Pending invitation not found or expired")
+    resumable = (invitation and invitation.get('intended_role') == 'admin' and
+                 invitation.get('status') in ('accepting', 'accepted') and
+                 invitation.get('accepting_by', invitation.get('accepted_by')) == user['id'])
+    if not invitation or (not resumable and
+                          (invitation['status'] != 'pending' or invitation['expires_at'] <= datetime.now(UTC).replace(tzinfo=None))):
+        raise HTTPException(404, 'Pending invitation not found or expired')
+    if invitation.get('intended_role') == 'admin' and user.get('otp_verified') is False:
+        raise HTTPException(403, 'Verify your mobile number before accepting an Admin invitation')
+    if resumable and invitation['status'] == 'accepted':
+        await release_slot(db, invitation)
+        return {'message': 'Admin invitation accepted', 'group_id': invitation['group_id'], 'intended_role': 'admin'}
+
+    role = invitation.get('intended_role', 'member')
+    if role not in ('member', 'admin'):
+        raise HTTPException(409, 'Invalid invitation role')
+    if role == 'admin':
+        return await accept_admin_invitation(invitation, user)
 
     existing_member = await db.members.find_one({
         "user_id": request.user_id,
@@ -3138,7 +3152,10 @@ async def accept_invitation(request: AcceptInvitationRequest, authorization: Opt
         )
         if isinstance(error, DuplicateKeyError):
             raise HTTPException(status_code=400, detail="You already belong to this group")
-        await db.members.delete_one({"id": member.id})
+        await db.members.delete_one({"id": member.id,
+                                     "role_in_group": "member",
+                                     "admin_invitation_id": {"$exists": False},
+                                     "admin_grant_applied": {"$exists": False}})
         await db.users.update_one(
             {"id": request.user_id},
             {"$pull": {"stokvel_memberships": {
@@ -3147,7 +3164,134 @@ async def accept_invitation(request: AcceptInvitationRequest, authorization: Opt
             }}}
         )
         raise
+    await release_slot(db, invitation)
     return {"message": "Invitation accepted", "group_id": invitation['group_id']}
+
+
+async def accept_admin_invitation(invitation, user):
+    """An immutable issuer decision precedes resumable membership projection."""
+    group = await db.groups.find_one({'id': invitation['group_id'], 'status': 'active'})
+    if not group:
+        raise HTTPException(404, 'Active group not found')
+    decision = await grant_decision(db, invitation)
+    if decision and decision['decision'] == 'cancelled':
+        await cancel_admin_grant(db, invitation, 'declined')
+        raise HTTPException(409, 'Invitation was cancelled')
+    if not decision:
+        if invitation['expires_at'] <= datetime.now(UTC).replace(tzinfo=None):
+            await cancel_admin_grant(db, invitation, 'expired')
+            raise HTTPException(404, 'Invitation expired before grant')
+        try:
+            await verify_user_is_group_treasurer(invitation['invited_by'], group['id'])
+            await verify_user_exists(invitation['invited_by'])
+        except HTTPException:
+            await cancel_admin_grant(db, invitation, 'declined')
+            raise
+        membership = await db.members.find_one({'user_id': user['id'], 'group_id': group['id']})
+        if membership and (membership.get('status') not in ('active', 'invitation_accepting') or
+                           (membership.get('status') == 'invitation_accepting' and membership.get('admin_invitation_id') != invitation['id'])):
+            raise HTTPException(400, 'Inactive or removed memberships cannot accept this invitation')
+        if membership and membership.get('role_in_group') in ('admin', 'treasurer'):
+            # Another device may have committed and projected since our first read.
+            decision = await grant_decision(db, invitation)
+            if not decision or decision['decision'] != 'granted':
+                raise HTTPException(400, 'You are already an Admin of this club')
+        if not decision:
+            claimed = await db.invitations.update_one(
+                {'id': invitation['id'], 'status': 'pending', 'expires_at': {'$gt': datetime.now(UTC).replace(tzinfo=None)}},
+                {'$set': {'status': 'accepting', 'accepting_by': user['id']}})
+            if not claimed.modified_count:
+                current = await db.invitations.find_one({'id': invitation['id']})
+                if current.get('status') != 'accepting' or current.get('accepting_by') != user['id']:
+                    raise HTTPException(409, 'Invitation changed. Please refresh')
+            await accepting_slot(db, invitation, user['id'])
+            if not membership:
+                count = await db.members.count_documents({'group_id': group['id']})
+                member = Member(user_id=user['id'], group_id=group['id'], status='invitation_accepting',
+                                role_in_group='member', payout_position=count + 1,
+                                unique_reference_code=generate_reference_code(group.get('payment_reference_prefix', 'CLB'), count + 1))
+                document = member.dict()
+                document.update(_id=f"membership:{user['id']}:{group['id']}", admin_invitation_id=invitation['id'])
+                await db.members.update_one({'_id': document['_id']}, {'$setOnInsert': document}, upsert=True)
+                membership = await db.members.find_one({'user_id': user['id'], 'group_id': group['id']})
+            else:
+                await db.members.update_one(
+                    {'id': membership['id'], 'status': 'active', 'role_in_group': 'member'},
+                    {'$set': {'admin_invitation_id': invitation['id']}})
+            # Account deletion fences new preparation before enumerating memberships.
+            try:
+                current_user = await verify_user_exists(user['id'])
+            except HTTPException:
+                await cancel_admin_grant(db, invitation, 'declined')
+                raise
+            if current_user.get('account_deletion_started'):
+                await cancel_admin_grant(db, invitation, 'declined')
+                raise HTTPException(403, 'Account deletion prevents acceptance')
+            decision = await commit_admin_grant(db, invitation, user['id'], membership['id'])
+    if decision['recipient_user_id'] != user['id']:
+        raise HTTPException(403, 'Invitation grant belongs to another recipient')
+    # Never upsert on recovery. Removal or deletion of this exact row must win.
+    await db.members.update_one(
+        {'id': decision['recipient_membership_id'], 'user_id': user['id'], 'group_id': group['id'],
+         'status': {'$in': ['active', 'invitation_accepting']}, 'role_in_group': 'member',
+         'admin_invitation_id': invitation['id'], 'admin_grant_applied': {'$ne': invitation['id']}},
+        {'$set': {'status': 'active', 'role_in_group': 'admin', 'admin_grant_applied': invitation['id']}})
+    membership = await db.members.find_one({'id': decision['recipient_membership_id']})
+    active = bool(membership and membership.get('status') == 'active' and
+                  membership.get('role_in_group') == 'admin' and membership.get('admin_grant_applied') == invitation['id'])
+    if active:
+        await db.groups.update_one({'id': group['id'], 'status': 'active'}, {'$addToSet': {'admin_user_ids': user['id']}})
+        for _ in range(20):
+            current = await db.users.find_one({'id': user['id']})
+            if not current or current.get('account_deletion_started'):
+                break
+            previous = current.get('stokvel_memberships', [])
+            entries = [dict(entry) for entry in previous]
+            if not any(item.get('stokvel_id') == group['id'] for item in entries):
+                entries.append({'stokvel_id': group['id'], 'role': 'admin', 'status': 'active'})
+            else:
+                for item in entries:
+                    if item.get('stokvel_id') == group['id']:
+                        item.update(role='admin', status='active')
+            result = await db.users.update_one(
+                {'id': user['id'], 'account_deletion_started': {'$ne': True},
+                 'stokvel_memberships': current.get('stokvel_memberships')},
+                {'$set': {'stokvel_memberships': entries}})
+            if result.modified_count or previous == entries:
+                break
+        else:
+            raise HTTPException(409, 'Account changed. Retry accepting this invitation')
+    elif membership and membership.get('status') in ('active', 'invitation_accepting') and not membership.get('admin_grant_applied'):
+        raise HTTPException(409, 'Membership changed before projection')
+    await db.invitations.update_one(
+        {'id': invitation['id'], 'status': 'accepting', 'accepting_by': user['id']},
+        {'$set': {'status': 'accepted', 'accepted_by': user['id'], 'accepted_at': datetime.now(UTC).replace(tzinfo=None)},
+         '$unset': {'accepting_by': ''}})
+    await release_slot(db, invitation)
+    return {'message': 'Admin invitation accepted', 'group_id': group['id'], 'intended_role': 'admin'}
+
+@api_router.post('/invitations/decline')
+async def decline_invitation(request: AcceptInvitationRequest, authorization: str | None = Header(None)):
+    if authenticated_user_id(authorization) != request.user_id:
+        raise HTTPException(403, 'You can only decline your own invitations')
+    user = await verify_user_exists(request.user_id)
+    invitation = await db.invitations.find_one({'id': request.invitation_id,
+                                               'phone_number': {'$in': phone_variants(user['phone_number'])}})
+    if not invitation:
+        raise HTTPException(404, 'Invitation not found')
+    if invitation.get('intended_role') == 'admin':
+        if not await cancel_admin_grant(db, invitation, 'declined'):
+            raise HTTPException(409, 'The Admin grant is already committed')
+        return {'message': 'Invitation declined'}
+    if invitation['status'] != 'declined':
+        result = await db.invitations.update_one({'id': invitation['id'], 'status': 'pending'},
+                                                {'$set': {'status': 'declined', 'declined_by': user['id'], 'declined_at': datetime.now(UTC).replace(tzinfo=None)}})
+        if result.modified_count != 1:
+            current = await db.invitations.find_one({'id': invitation['id']})
+            if current.get('status') != 'declined' or current.get('declined_by') != user['id']:
+                raise HTTPException(409, 'Invitation can no longer be declined')
+    await release_slot(db, invitation)
+    return {'message': 'Invitation declined'}
 
 
 class SendReminderRequest(BaseModel):

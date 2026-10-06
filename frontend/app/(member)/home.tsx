@@ -41,6 +41,8 @@ interface PendingInvitation {
   group_id: string;
   group_name: string;
   invited_by_name?: string;
+  intended_role?: 'member' | 'admin';
+  status?: 'pending' | 'accepting';
   expires_at: string;
 }
 
@@ -290,12 +292,26 @@ export default function MemberHomeScreen() {
         headers: { Authorization: `Bearer ${token}` },
       });
       await fetchDashboard();
-      Alert.alert('Group joined', `You are now a member of ${invitation.group_name}.`);
+      Alert.alert(invitation.intended_role === 'admin' ? 'Admin invitation accepted' : 'Group joined',
+        `You are now ${invitation.intended_role === 'admin' ? 'an Admin' : 'a member'} of ${invitation.group_name}.`);
     } catch (error: any) {
       Alert.alert('Could not accept invitation', error.response?.data?.detail || 'Please try again.');
     } finally {
       setAcceptingInvitation(null);
     }
+  };
+
+  const declineInvitation = async (invitation: PendingInvitation) => {
+    setAcceptingInvitation(invitation.id);
+    try {
+      await axios.post(`${API_URL}/api/invitations/decline`, {
+        invitation_id: invitation.id, user_id: user?.id,
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      await fetchDashboard();
+      Alert.alert('Invitation declined', 'No membership or Admin access was granted.');
+    } catch (error: any) {
+      Alert.alert('Could not decline invitation', error.response?.data?.detail || 'Please try again.');
+    } finally { setAcceptingInvitation(null); }
   };
 
   if (loading) {
@@ -373,13 +389,22 @@ export default function MemberHomeScreen() {
             {pendingInvitations.map((invitation) => (
               <View key={invitation.id} style={styles.invitationCard}>
                 <View style={styles.invitationInfo}>
-                  <Text style={styles.invitationGroup}>{invitation.group_name}</Text>
+                  <Text style={styles.invitationGroup}>
+                    {invitation.intended_role === 'admin' ? 'Invitation to become an Admin of ' : 'Invitation to join '}{invitation.group_name}
+                  </Text>
                   <Text style={styles.invitationFrom}>
                     {invitation.invited_by_name
                       ? `Invited by ${invitation.invited_by_name}`
                       : 'Group invitation'}
                   </Text>
                 </View>
+                <TouchableOpacity
+                  style={styles.acceptButton}
+                  onPress={() => declineInvitation(invitation)}
+                  disabled={acceptingInvitation === invitation.id || invitation.status === 'accepting'}
+                >
+                  <Text style={styles.acceptButtonText}>Decline</Text>
+                </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.acceptButton}
                   onPress={() => acceptInvitation(invitation)}
@@ -663,11 +688,20 @@ export default function MemberHomeScreen() {
             pendingInvitations.map((invitation) => (
               <View key={invitation.id} style={styles.invitationCard}>
                 <View style={styles.invitationInfo}>
-                  <Text style={styles.invitationGroup}>{invitation.group_name}</Text>
+                  <Text style={styles.invitationGroup}>
+                    {invitation.intended_role === 'admin' ? 'Invitation to become an Admin of ' : 'Invitation to join '}{invitation.group_name}
+                  </Text>
                   <Text style={styles.invitationFrom}>
                     {invitation.invited_by_name ? `Invited by ${invitation.invited_by_name}` : 'Group invitation'}
                   </Text>
                 </View>
+                <TouchableOpacity
+                  style={styles.acceptButton}
+                  onPress={() => declineInvitation(invitation)}
+                  disabled={acceptingInvitation === invitation.id || invitation.status === 'accepting'}
+                >
+                  <Text style={styles.acceptButtonText}>Decline</Text>
+                </TouchableOpacity>
                 <TouchableOpacity
                   style={styles.acceptButton}
                   onPress={() => acceptInvitation(invitation)}

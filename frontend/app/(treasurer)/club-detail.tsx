@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, TextInput, KeyboardAvoidingView, Platform, Image } from 'react-native';
+import { Linking, View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, TextInput, KeyboardAvoidingView, Platform, Image } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from 'expo-router';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
@@ -83,6 +83,7 @@ export default function ClubDetailScreen() {
   const clubFetchInProgress = useRef<string | null>(null);
   const clubFetchSequence = useRef(0);
   const reminderInFlight = useRef(false);
+  const adminInvitationInFlight = useRef(false);
   
   const [claims, setClaims] = useState<GroupClaim[]>([]);
   const [claimsLoading, setClaimsLoading] = useState(false);
@@ -444,25 +445,45 @@ export default function ClubDetailScreen() {
   };
 
   const handleInviteAdmin = async () => {
-    if (!inviteAdminPhone.trim()) {
-      Alert.alert('Error', 'Please enter a phone number');
+    if (adminInvitationInFlight.current) return;
+    if (!inviteAdminPhone.trim() || !token) {
+      Alert.alert('Error', 'Enter a phone number and sign in before inviting an Admin.');
       return;
     }
-    
+    adminInvitationInFlight.current = true;
     setActionLoading(true);
+    const payload = { group_id: id, new_admin_phone: inviteAdminPhone.trim() };
+    const options = { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 };
     try {
-      const response = await axios.post(`${API_URL}/api/groups/admin/invite`, {
-        group_id: id,
-        admin_user_id: user?.id,
-        new_admin_phone: inviteAdminPhone.trim()
-      });
-      Alert.alert('Success', `${response.data.new_admin_name} has been added as an admin!`);
+      const { data } = await axios.post(`${API_URL}/api/groups/admin/invite`, payload, options);
+      const sendSMS = async () => {
+        try {
+          const response = await axios.post(`${API_URL}/api/groups/admin/invite`, { ...payload, channel: 'sms' }, options);
+          const status = response.data.delivery_status;
+          Alert.alert(status === 'submitted' ? 'SMS submitted' : 'Invitation saved',
+            status === 'submitted' ? 'The invitation was submitted to the SMS provider. The recipient must accept in Clubvel.' :
+            status === 'mock' ? 'No SMS was sent in test mode. The invitation remains pending.' : 'SMS could not be sent. The invitation remains pending.');
+        } catch {
+          Alert.alert('SMS could not be sent', 'The Clubvel invitation remains pending.');
+        }
+      };
+      Alert.alert('Admin invitation created', 'The recipient must accept in My Clubvel → Join Group before becoming an Admin.', [
+        { text: 'Done', style: 'cancel' },
+        { text: 'WhatsApp', onPress: async () => {
+          try {
+            const digits = data.phone_number.replace(/^\+/, '');
+            await Linking.openURL(`https://wa.me/${digits}?text=${encodeURIComponent(data.invitation_message)}`);
+            Alert.alert('WhatsApp opened', 'Press Send in WhatsApp. The invitation remains pending until accepted in Clubvel.');
+          } catch { Alert.alert('WhatsApp could not be opened', 'The invitation remains pending. You can use SMS instead.'); }
+        } },
+        { text: 'SMS', onPress: sendSMS },
+      ]);
       setShowInviteAdminModal(false);
       setInviteAdminPhone('');
-      fetchClubData();
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to invite admin');
+      Alert.alert('Could not create Admin invitation', error.response?.data?.detail || 'Please try again.');
     } finally {
+      adminInvitationInFlight.current = false;
       setActionLoading(false);
     }
   };
@@ -1018,7 +1039,7 @@ export default function ClubDetailScreen() {
         <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : 'height'} style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <Text style={styles.modalTitle}>Invite New Admin</Text>
-            <Text style={styles.modalSubtitle}>Enter the phone number of the person you want to invite as an admin. They must be a registered user.</Text>
+            <Text style={styles.modalSubtitle}>Enter the phone number of the person you want to invite as an admin. They can register with this number and must accept the invitation before becoming an Admin.</Text>
             <TextInput
               style={styles.modalInput}
               placeholder="Phone number (e.g. 0712345678)"
