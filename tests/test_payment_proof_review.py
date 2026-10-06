@@ -103,7 +103,7 @@ def verify_token(token):
 
 
 def environment():
-    names = {'authenticated_user_id', 'verify_user_is_group_treasurer', 'calculate_contribution_status',
+    names = {'require_account_owner', 'authenticated_user_id', 'verify_user_is_group_treasurer', 'calculate_contribution_status',
              'contribution_metadata_projection', 'get_group_payment_records', 'get_group_contributions',
              'contribution_outstanding', 'proof_is_eligible', 'proof_version', 'proof_is_pending',
              'proof_review_details', 'proof_update_filter', 'require_pending_proof',
@@ -168,7 +168,7 @@ class PaymentProofTests(unittest.IsolatedAsyncioTestCase):
     async def test_decline_targets_only_selected_record_preserves_amounts_and_retains_proof(self):
         ns = environment(); records = ns['db'].contributions.records
         before, other, same_member_other = map(copy.deepcopy, records)
-        club_before = await ns['get_club_detail']('group-a', 'admin-user')
+        club_before = await ns['get_club_detail']('group-a', 'admin-user', authorization='Bearer admin-user')
         await ns['decline_contribution_proof']('contribution-a', review(ns, reason='Wrong reference'), 'Bearer admin-user')
         record = records[0]
         self.assertEqual(record['proof_review_status'], 'declined')
@@ -181,10 +181,10 @@ class PaymentProofTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(records[1], other)
         self.assertEqual(records[2], same_member_other)
         self.assertEqual(len(records), 3)
-        club_after = await ns['get_club_detail']('group-a', 'admin-user')
+        club_after = await ns['get_club_detail']('group-a', 'admin-user', authorization='Bearer admin-user')
         self.assertEqual(club_before['collected'], club_after['collected'])
         self.assertEqual(club_before['expected'], club_after['expected'])
-        proof = await ns['get_contribution_proof']('contribution-a', 'member-user')
+        proof = await ns['get_contribution_proof']('contribution-a', 'member-user', authorization='Bearer member-user')
         self.assertEqual(proof['proof_image'], before['proof_of_payment'])
         rows = await ns['get_personal_contributions']('member-user', 'Bearer member-user')
         self.assertEqual(rows['contributions'][0]['proof_review_status'], 'declined')
@@ -244,11 +244,11 @@ class PaymentProofTests(unittest.IsolatedAsyncioTestCase):
             self.assertNotIn(key, record)
         self.assertTrue(ns['proof_is_eligible'](record))
         with self.assertRaises(HTTPError) as e:
-            await ns['confirm_payment'](confirmation(ns, version=False))
+            await ns['confirm_payment'](confirmation(ns, version=False), authorization='Bearer admin-user')
         self.assertEqual(e.exception.status_code, 409)
         await ns['upload_proof_of_payment'](upload(), 'Bearer member-user')
         self.assertNotIn('proof_deleted_at', record)
-        await ns['confirm_payment'](confirmation(ns))
+        await ns['confirm_payment'](confirmation(ns), authorization='Bearer admin-user')
         self.assertEqual(record['contribution_status'], 'confirmed')
 
     async def test_member_cannot_delete_other_member_approved_admin_or_declined_proof(self):
@@ -273,7 +273,7 @@ class PaymentProofTests(unittest.IsolatedAsyncioTestCase):
 
     async def test_existing_approval_sets_specific_contribution_paid_and_preserves_other_record(self):
         ns = environment(); before = copy.deepcopy(ns['db'].contributions.records[1])
-        await ns['confirm_payment'](confirmation(ns))
+        await ns['confirm_payment'](confirmation(ns), authorization='Bearer admin-user')
         record = ns['db'].contributions.records[0]
         self.assertEqual(record['contribution_status'], 'confirmed')
         self.assertEqual(record['amount_due'], 175)
@@ -293,7 +293,7 @@ class PaymentProofTests(unittest.IsolatedAsyncioTestCase):
                     await ns['decline_contribution_proof']('contribution-a', review(ns), 'Bearer admin-user')
                     if action == 'replace': await ns['upload_proof_of_payment'](upload(), 'Bearer member-user')
                 before = copy.deepcopy(ns['db'].contributions.records)
-                with self.assertRaises(HTTPError) as e: await ns['confirm_payment'](stale)
+                with self.assertRaises(HTTPError) as e: await ns['confirm_payment'](stale, authorization='Bearer admin-user')
                 self.assertEqual(e.exception.status_code, 409)
                 self.assertEqual(ns['db'].contributions.records, before)
 
@@ -308,7 +308,7 @@ class PaymentProofTests(unittest.IsolatedAsyncioTestCase):
                                       proof_review_status='pending', contribution_status='proof_uploaded')
                 db.contributions.before_update = replace
                 with self.assertRaises(HTTPError) as e:
-                    if action == 'approve': await ns['confirm_payment'](confirmation(ns))
+                    if action == 'approve': await ns['confirm_payment'](confirmation(ns), authorization='Bearer admin-user')
                     elif action == 'decline': await ns['decline_contribution_proof']('contribution-a', initial_review, 'Bearer admin-user')
                     elif action == 'delete': await ns['delete_contribution_proof']('contribution-a', initial_review, 'Bearer member-user')
                     else: await ns['upload_proof_of_payment'](upload(), 'Bearer member-user')
@@ -354,20 +354,20 @@ class PaymentProofTests(unittest.IsolatedAsyncioTestCase):
         await ns['decline_contribution_proof']('contribution-a', review(ns), 'Bearer admin-user')
         data = upload(); data.proof_image = ns['db'].contributions.records[0]['proof_of_payment']
         await ns['upload_proof_of_payment'](data, 'Bearer member-user')
-        with self.assertRaises(HTTPError) as e: await ns['confirm_payment'](stale)
+        with self.assertRaises(HTTPError) as e: await ns['confirm_payment'](stale, authorization='Bearer admin-user')
         self.assertEqual(e.exception.status_code, 409)
 
     async def test_existing_confirmation_without_any_proof_keeps_its_original_semantics(self):
         ns = environment(); record = ns['db'].contributions.records[0]
         record.pop('proof_of_payment'); record['contribution_status'] = 'pending'
-        await ns['confirm_payment'](confirmation(ns, version=False))
+        await ns['confirm_payment'](confirmation(ns, version=False), authorization='Bearer admin-user')
         self.assertEqual(record['amount_paid'], record['amount_due'])
         self.assertEqual(record['contribution_status'], 'confirmed')
 
     async def test_admin_upload_invalidates_previous_review_version(self):
         ns = environment(); stale = confirmation(ns); data = upload(); data.user_id = 'admin-user'
-        await ns['admin_upload_proof_of_payment'](data)
-        with self.assertRaises(HTTPError) as e: await ns['confirm_payment'](stale)
+        await ns['admin_upload_proof_of_payment'](data, authorization='Bearer admin-user')
+        with self.assertRaises(HTTPError) as e: await ns['confirm_payment'](stale, authorization='Bearer admin-user')
         self.assertEqual(e.exception.status_code, 409)
 
 
@@ -387,7 +387,7 @@ class PaymentListTests(unittest.IsolatedAsyncioTestCase):
                                      {'group_id': 'group-b'}, {'member_id': 'membership-b'}]):
             db.contributions.records.append({**pending, 'id': f'excluded-{i}', **changes})
         before = copy.deepcopy(db.contributions.records)
-        result = await ns['get_group_contributions']('group-a', first['month'], first['year'], 'admin-user')
+        result = await ns['get_group_contributions']('group-a', first['month'], first['year'], 'admin-user', authorization='Bearer admin-user')
         rows = [r for r in result['contributions'] if r['id']]
         self.assertEqual({r['id'] for r in rows}, valid_ids)
         self.assertEqual(len(rows), 6)
@@ -397,11 +397,11 @@ class PaymentListTests(unittest.IsolatedAsyncioTestCase):
         legacy = next(r for r in rows if r['id'] == 'payment-0')
         self.assertTrue(legacy['proof_version'].startswith('legacy:payment-0:'))
         self.assertEqual(next(r for r in rows if r['id'] == 'payment-1')['proof_version'], 'v-new')
-        club = await ns['get_club_detail']('group-a', 'admin-user')
+        club = await ns['get_club_detail']('group-a', 'admin-user', authorization='Bearer admin-user')
         self.assertEqual({r['contribution_id'] for r in club['contributions']}, valid_ids)
         self.assertEqual(len(club['members']), 2)
         self.assertEqual((club['collected'], club['expected']), (200, 6700))
-        proof = await ns['get_contribution_proof']('payment-0', 'admin-user')
+        proof = await ns['get_contribution_proof']('payment-0', 'admin-user', authorization='Bearer admin-user')
         self.assertEqual(proof['proof_image'], pending['proof_of_payment'])
         self.assertEqual(db.contributions.records, before)
 
@@ -411,7 +411,7 @@ class PaymentListTests(unittest.IsolatedAsyncioTestCase):
             db.members.records.append({**db.members.records[0], 'id': f'm-{i}', 'user_id': f'u-{i}'})
             db.users.records.append({'id': f'u-{i}', 'full_name': f'U {i}', 'phone_number': '000'})
             db.contributions.records.append({**sample, 'id': f'c-{i}', 'member_id': f'm-{i}', 'proof_version': f'v-{i}'})
-        await ns['get_group_contributions']('group-a', sample['month'], sample['year'], 'admin-user')
+        await ns['get_group_contributions']('group-a', sample['month'], sample['year'], 'admin-user', authorization='Bearer admin-user')
         self.assertEqual(len(db.users.reads), 1)
         self.assertEqual(len(db.contributions.reads), 1)
         projection = db.contributions.reads[0][1][1]['$project']
@@ -434,7 +434,7 @@ class PaymentListTests(unittest.IsolatedAsyncioTestCase):
         ns = environment(); db = ns['db']
         db.groups.records[0].update(bank_name='Bank', bank_account_number='000', bank_account_holder='Club')
         db.contributions.records[0]['uploaded_by_admin'] = True
-        result = await ns['get_member_club_details']('group-a', 'member-user')
+        result = await ns['get_member_club_details']('group-a', 'member-user', authorization='Bearer member-user')
         self.assertTrue(result['current_contribution']['proof_uploaded'])
         self.assertFalse(result['current_contribution']['proof_delete_eligible'])
         self.assertNotIn('proof_of_payment', result['current_contribution'])
@@ -445,7 +445,7 @@ class PaymentListTests(unittest.IsolatedAsyncioTestCase):
     async def test_monthly_list_rejects_another_groups_admin(self):
         ns = environment(); sample = ns['db'].contributions.records[0]
         with self.assertRaises(HTTPError) as error:
-            await ns['get_group_contributions']('group-a', sample['month'], sample['year'], 'outsider')
+            await ns['get_group_contributions']('group-a', sample['month'], sample['year'], 'outsider', authorization='Bearer outsider')
         self.assertEqual(error.exception.status_code, 403)
 
 

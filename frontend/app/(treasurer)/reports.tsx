@@ -28,7 +28,7 @@ export default function ReportsScreen() {
     if (!user?.id) return;
 
     try {
-      const response = await axios.get(`${API_URL}/api/admin/dashboard/${user.id}`);
+      const response = await axios.get(`${API_URL}/api/admin/dashboard/${user.id}`, { headers: { Authorization: `Bearer ${token}` } });
       setDashboardData(response.data);
     } catch (error) {
       console.error('Error fetching report data:', error);

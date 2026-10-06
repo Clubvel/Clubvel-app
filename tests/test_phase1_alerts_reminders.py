@@ -175,7 +175,7 @@ class Phase1Tests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(ns['db'].groups.records), 2)
 
     async def test_payment_rows_expose_person_identity_separately_from_membership(self):
-        ns = setup(); result = await ns['get_club_detail']('group-a', 'admin-user')
+        ns = setup(); result = await ns['get_club_detail']('group-a', 'admin-user', authorization='Bearer admin-user')
         rows = result['contributions']
         self.assertEqual(len(rows), 2)
         self.assertTrue(all(r['user_id'] == 'member-user' and r['id'] == 'membership-a' for r in rows))

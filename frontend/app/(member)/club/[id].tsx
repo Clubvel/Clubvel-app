@@ -71,7 +71,9 @@ export default function ClubDetailScreen() {
     clubRequest.current = { key, sequence };
 
     try {
-      const response = await axios.get(`${API_URL}/api/member/club/${id}/user/${user?.id}`);
+      const response = await axios.get(`${API_URL}/api/member/club/${id}/user/${user?.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
       if (sequence === clubSequence.current && latestContext.current === key) setClubData(response.data);
     } catch (error) {
       if (sequence !== clubSequence.current || latestContext.current !== key) return;
@@ -82,7 +84,7 @@ export default function ClubDetailScreen() {
         setLoading(false);
       }
     }
-  }, [API_URL, id, user?.id]);
+  }, [API_URL, id, user?.id, token]);
 
   useFocusEffect(useCallback(() => {
     if (user?.id && id) void fetchClubDetails();

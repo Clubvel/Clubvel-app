@@ -189,3 +189,14 @@ test('missing decline reason does not display a blank reason line', async () => 
   assert.doesNotMatch(text(c.render()), /Decline reason:/);
   assert.ok(button(c.render(), 'View Proof')); assert.ok(button(c.render(), 'Replace Proof'));
 });
+
+test('member club initial and focus reads send the current bearer token', async () => {
+  const c = await setup('club');
+  const reads = () => c.requests.filter(r => r.url.includes('/api/member/club/'));
+  assert.equal(reads().length, 1);
+  assert.deepEqual(reads()[0].options.headers, { Authorization: 'Bearer member-session' });
+  c.ui.blur(); c.ui.focus(); await tick();
+  assert.equal(reads().length, 2);
+  assert.deepEqual(reads()[1].options.headers, { Authorization: 'Bearer member-session' });
+  assert.deepEqual(c.routes, []);
+});

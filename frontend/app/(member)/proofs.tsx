@@ -341,7 +341,8 @@ export default function ProofOfPaymentsScreen() {
     
     try {
       const response = await axios.get(
-        `${API_URL}/api/contributions/${proof.contribution_id}/proof?user_id=${user?.id}`
+        `${API_URL}/api/contributions/${proof.contribution_id}/proof?user_id=${user?.id}`,
+        { headers: { Authorization: `Bearer ${token}` } }
       );
       const proofData = response.data.proof_image;
       const mimeType =

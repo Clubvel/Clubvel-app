@@ -1335,8 +1335,9 @@ async def review_group_claim(
 # ==================== ADMIN ENDPOINTS ====================
 
 @api_router.get("/admin/stats/{user_id}")
-async def get_admin_stats(user_id: str):
+async def get_admin_stats(user_id: str, authorization: str | None = Header(None)):
     """Get admin statistics for profile display"""
+    require_account_owner(user_id, authorization)
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1369,8 +1370,9 @@ async def get_admin_stats(user_id: str):
     }
 
 @api_router.get("/admin/clubs/{user_id}")
-async def get_admin_clubs(user_id: str):
+async def get_admin_clubs(user_id: str, authorization: str | None = Header(None)):
     """Get all clubs managed by an admin"""
+    require_account_owner(user_id, authorization)
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1390,8 +1392,9 @@ async def get_admin_clubs(user_id: str):
     return {"clubs": clubs}
 
 @api_router.get("/admin/payout-schedules/{user_id}")
-async def get_admin_payout_schedules(user_id: str):
+async def get_admin_payout_schedules(user_id: str, authorization: str | None = Header(None)):
     """Get payout schedules for all clubs managed by an admin"""
+    require_account_owner(user_id, authorization)
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1417,8 +1420,9 @@ async def get_admin_payout_schedules(user_id: str):
     return {"schedules": schedules}
 
 @api_router.get("/admin/dashboard/{user_id}")
-async def get_admin_dashboard(user_id: str):
+async def get_admin_dashboard(user_id: str, authorization: str | None = Header(None)):
     """Get admin/treasurer dashboard data"""
+    require_account_owner(user_id, authorization)
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1614,8 +1618,9 @@ class UpdateGroupRequest(BaseModel):
     description: Optional[str] = None
 
 @api_router.put("/groups/update")
-async def update_group(data: UpdateGroupRequest):
+async def update_group(data: UpdateGroupRequest, authorization: str | None = Header(None)):
     """Update an existing club/group"""
+    require_account_owner(data.admin_user_id, authorization)
     # Find the group
     group = await db.groups.find_one({"id": data.group_id})
     if not group:
@@ -1667,8 +1672,9 @@ class DeleteClubRequest(BaseModel):
     confirmation: str = "DELETE"
 
 @api_router.delete("/groups/delete")
-async def delete_club(data: DeleteClubRequest):
+async def delete_club(data: DeleteClubRequest, authorization: str | None = Header(None)):
     """Delete a club/group (admin only)"""
+    require_account_owner(data.admin_user_id, authorization)
     # Find the group
     group = await db.groups.find_one({"id": data.group_id})
     if not group:
@@ -1717,8 +1723,9 @@ class DeleteMemberRequest(BaseModel):
     reason: Optional[str] = None
 
 @api_router.delete("/groups/member/delete")
-async def delete_member(data: DeleteMemberRequest):
+async def delete_member(data: DeleteMemberRequest, authorization: str | None = Header(None)):
     """Remove a member from a club (admin only, notifies the member)"""
+    require_account_owner(data.admin_user_id, authorization)
     # Find the group
     group = await db.groups.find_one({"id": data.group_id})
     if not group:
@@ -1836,8 +1843,9 @@ async def invite_admin(data: InviteAdminRequest, authorization: str | None = Hea
 
 
 @api_router.get("/groups/{group_id}")
-async def get_group_details(group_id: str, user_id: str):
+async def get_group_details(group_id: str, user_id: str, authorization: str | None = Header(None)):
     """Get details of a specific group"""
+    require_account_owner(user_id, authorization)
     group = await db.groups.find_one({"id": group_id})
     if not group:
         raise HTTPException(status_code=404, detail="Club not found")
@@ -2093,7 +2101,8 @@ async def delete_user_account(data: DeleteAccountRequest, authorization: Optiona
 
 
 @api_router.get("/member/dashboard/{user_id}")
-async def get_member_dashboard(user_id: str):
+async def get_member_dashboard(user_id: str, authorization: str | None = Header(None)):
+    require_account_owner(user_id, authorization)
     # Get user
     user = await db.users.find_one({"id": user_id})
     if not user:
@@ -2205,7 +2214,8 @@ async def get_member_dashboard(user_id: str):
     }
 
 @api_router.get("/member/club/{group_id}/user/{user_id}")
-async def get_member_club_details(group_id: str, user_id: str):
+async def get_member_club_details(group_id: str, user_id: str, authorization: str | None = Header(None)):
+    require_account_owner(user_id, authorization)
     # Get group
     group = await db.groups.find_one({"id": group_id, "status": "active"})
     if not group:
@@ -2347,8 +2357,9 @@ async def upload_proof_of_payment(proof_data: ProofUpload, authorization: Option
 
 
 @api_router.get("/contributions/{contribution_id}/proof")
-async def get_contribution_proof(contribution_id: str, user_id: str):
+async def get_contribution_proof(contribution_id: str, user_id: str, authorization: str | None = Header(None)):
     """Get proof of payment image for a contribution"""
+    require_account_owner(user_id, authorization)
     contribution = await db.contributions.find_one({"id": contribution_id})
     if not contribution:
         raise HTTPException(status_code=404, detail="Contribution not found")
@@ -2361,7 +2372,11 @@ async def get_contribution_proof(contribution_id: str, user_id: str):
     # AUTHORIZATION CHECK: User must be either:
     # 1. The member who made this contribution
     # 2. An admin/treasurer of this group
-    is_owner = member['user_id'] == user_id
+    group = await db.groups.find_one({"id": contribution['group_id'], "status": "active"})
+    if not group:
+        raise HTTPException(status_code=403, detail="Access denied: Club is not active")
+    is_owner = (member['user_id'] == user_id and member.get('status') == 'active'
+                and member.get('group_id') == contribution['group_id'])
     admin_membership = await db.members.find_one({
         "user_id": user_id, "group_id": contribution['group_id'], "status": "active",
         "role_in_group": {"$in": ["admin", "treasurer"]}
@@ -2469,8 +2484,9 @@ async def delete_contribution_proof(contribution_id: str, review: ProofReviewReq
 
 
 @api_router.post("/contributions/admin-upload-proof")
-async def admin_upload_proof_of_payment(proof_data: ProofUpload):
+async def admin_upload_proof_of_payment(proof_data: ProofUpload, authorization: str | None = Header(None)):
     """Allow admin/treasurer to upload proof for any contribution in their managed groups"""
+    require_account_owner(proof_data.user_id, authorization)
     contribution = await db.contributions.find_one({"id": proof_data.contribution_id})
     if not contribution:
         raise HTTPException(status_code=404, detail="Contribution not found")
@@ -2622,7 +2638,8 @@ async def get_contribution_reminder(contribution_id: str, group_id: str,
 # ==================== TREASURER ROUTES ====================
 
 @api_router.get("/treasurer/dashboard/{user_id}")
-async def get_treasurer_dashboard(user_id: str):
+async def get_treasurer_dashboard(user_id: str, authorization: str | None = Header(None)):
+    require_account_owner(user_id, authorization)
     # Get all groups where user is treasurer
     groups = await verify_treasurer_owns_groups(user_id)
     
@@ -2723,7 +2740,8 @@ async def get_treasurer_dashboard(user_id: str):
     }
 
 @api_router.get("/treasurer/contributions/{group_id}/month/{month}/year/{year}")
-async def get_group_contributions(group_id: str, month: int, year: int, treasurer_id: str):
+async def get_group_contributions(group_id: str, month: int, year: int, treasurer_id: str, authorization: str | None = Header(None)):
+    require_account_owner(treasurer_id, authorization)
     # DATA ACCESS CONTROL: Verify treasurer owns this group
     group = await db.groups.find_one({"id": group_id})
     if not group:
@@ -2803,8 +2821,9 @@ async def get_group_contributions(group_id: str, month: int, year: int, treasure
     }
 
 @api_router.get("/treasurer/club/{group_id}")
-async def get_club_detail(group_id: str, treasurer_id: str):
+async def get_club_detail(group_id: str, treasurer_id: str, authorization: str | None = Header(None)):
     """Get detailed information about a specific club for the treasurer"""
+    require_account_owner(treasurer_id, authorization)
     # DATA ACCESS CONTROL: Verify treasurer owns this group
     group = await db.groups.find_one({"id": group_id})
     if not group:
@@ -2887,7 +2906,8 @@ async def get_club_detail(group_id: str, treasurer_id: str):
     }
 
 @api_router.post("/treasurer/confirm-payment")
-async def confirm_payment(confirm_data: ConfirmPayment):
+async def confirm_payment(confirm_data: ConfirmPayment, authorization: str | None = Header(None)):
+    require_account_owner(confirm_data.treasurer_id, authorization)
     # DATA ACCESS CONTROL: Verify treasurer owns the group for this contribution
     contribution = await db.contributions.find_one({"id": confirm_data.contribution_id})
     if not contribution:
@@ -3084,7 +3104,7 @@ async def accept_invitation(request: AcceptInvitationRequest, authorization: Opt
         raise HTTPException(403, 'Verify your mobile number before accepting an Admin invitation')
     if resumable and invitation['status'] == 'accepted':
         await release_slot(db, invitation)
-        return {'message': 'Admin invitation accepted', 'group_id': invitation['group_id'], 'intended_role': 'admin'}
+        return await admin_invitation_result(invitation, user, 'already_granted')
 
     role = invitation.get('intended_role', 'member')
     if role not in ('member', 'admin'):
@@ -3168,12 +3188,30 @@ async def accept_invitation(request: AcceptInvitationRequest, authorization: Opt
     return {"message": "Invitation accepted", "group_id": invitation['group_id']}
 
 
+async def admin_invitation_result(invitation, user, outcome):
+    """Report current access separately from the immutable invitation receipt."""
+    decision = await grant_decision(db, invitation)
+    membership = None
+    if decision and decision['decision'] == 'granted' and decision['recipient_user_id'] == user['id']:
+        membership = await db.members.find_one({
+            'id': decision['recipient_membership_id'], 'user_id': user['id'],
+            'group_id': invitation['group_id'], 'status': 'active',
+            'role_in_group': {'$in': ['admin', 'treasurer']},
+        })
+    group = await db.groups.find_one({'id': invitation['group_id'], 'status': 'active'})
+    active = bool(membership and group)
+    return {'message': 'Admin invitation accepted' if active else 'Invitation processed; Admin access is no longer active',
+            'group_id': invitation['group_id'], 'intended_role': 'admin',
+            'admin_access': active, 'acceptance_outcome': outcome if active else 'access_revoked'}
+
+
 async def accept_admin_invitation(invitation, user):
     """An immutable issuer decision precedes resumable membership projection."""
     group = await db.groups.find_one({'id': invitation['group_id'], 'status': 'active'})
     if not group:
         raise HTTPException(404, 'Active group not found')
     decision = await grant_decision(db, invitation)
+    outcome = 'recovered' if decision else 'newly_granted'
     if decision and decision['decision'] == 'cancelled':
         await cancel_admin_grant(db, invitation, 'declined')
         raise HTTPException(409, 'Invitation was cancelled')
@@ -3268,7 +3306,7 @@ async def accept_admin_invitation(invitation, user):
         {'$set': {'status': 'accepted', 'accepted_by': user['id'], 'accepted_at': datetime.now(UTC).replace(tzinfo=None)},
          '$unset': {'accepting_by': ''}})
     await release_slot(db, invitation)
-    return {'message': 'Admin invitation accepted', 'group_id': group['id'], 'intended_role': 'admin'}
+    return await admin_invitation_result(invitation, user, outcome)
 
 @api_router.post('/invitations/decline')
 async def decline_invitation(request: AcceptInvitationRequest, authorization: str | None = Header(None)):
@@ -3338,13 +3376,15 @@ async def send_payment_reminder_endpoint(request: SendReminderRequest,
 
 
 @api_router.post("/treasurer/send-late-alert/{member_id}")
-async def send_late_payment_alert_endpoint(member_id: str):
+async def send_late_payment_alert_endpoint(member_id: str, authorization: str | None = Header(None)):
     """Send late payment alert to a member via WhatsApp"""
+    actor_id = authenticated_user_id(authorization)
     # Get member and user info
     member = await db.members.find_one({"id": member_id})
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
     
+    await verify_user_is_group_treasurer(actor_id, member['group_id'])
     user = await db.users.find_one({"id": member['user_id']})
     group = await db.groups.find_one({"id": member['group_id']})
     

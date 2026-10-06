@@ -61,7 +61,8 @@ export default function TreasurerClaimsScreen() {
 
     try {
       const response = await axios.get(
-        `${API_URL}/api/treasurer/dashboard/${user.id}`
+        `${API_URL}/api/treasurer/dashboard/${user.id}`,
+        { headers: { Authorization: `Bearer ${token}` } }
       );
 
       const groupList: Group[] = (response.data.clubs || []).map((group: any) => ({

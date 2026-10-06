@@ -4,13 +4,13 @@ const { load, engine, tick, nodes, text, button, native, colors } = require('./u
 
 async function setup(from = 'member', uploaded = true) {
   const ui = engine(), requests = [], alerts = [], files = [], opened = [], routes = [];
-  const member = { id: 'member-1', contribution_id: 'contribution-1', name: 'Member One',
+  const member = { id: 'member-1', user_id: 'member-user-1', contribution_id: 'contribution-1', name: 'Member One',
     phone: '123', membership_status: 'active', status: 'proof_uploaded',
     amount_paid: 0, amount_due: 175, has_proof: uploaded, proof_version: 'proof-v1',
     proof_review_status: 'pending' };
   if (!uploaded) member.status = 'pending';
   const club = { id: 'club-1', name: 'Club', collected: 0, expected: 350, member_count: 2,
-    members: [member, { ...member, id: 'member-2', contribution_id: null }] };
+    members: [member, { ...member, id: 'member-2', user_id: 'member-user-2', contribution_id: null }] };
   const proof = { proof_image: 'data:image/jpeg;base64,image' };
   const state = { available: true, failProof: false, failConfirm: false, clubGet: null };
   const params = { id: 'club-1', from };
@@ -33,6 +33,7 @@ async function setup(from = 'member', uploaded = true) {
     'expo-sharing': { isAvailableAsync: async () => state.available,
       shareAsync: async (...args) => opened.push(args) },
     axios: {
+      delete: async (url, options) => { requests.push({ url, options }); },
       get: async (url, options) => {
         requests.push({ url, options });
         if (url.endsWith('/proof')) {
@@ -244,4 +245,28 @@ test('club Payments hides self-reminders without removing contributions or total
   await c.alerts.at(-1)[2].find(a => a.text === 'Add Reminder').onPress();
   assert.equal(c.requests.at(-1).data.contribution_id, 'other');
   assert.equal(c.requests.at(-1).token, 'session');
+});
+
+
+test('Remove Member sends the roster user ID, not membership ID, with bearer authorization', async () => {
+  const c = await setup();
+  button(c.render(), 'Settings').props.onPress();
+  const remove = nodes(c.render()).find(n => n.type === 'TouchableOpacity' &&
+    nodes(n).some(child => child.props?.name === 'trash-outline'));
+  assert.ok(remove); remove.props.onPress();
+  await c.alerts.at(-1)[2].find(action => action.text === 'Remove').onPress();
+  const request = c.requests.find(r => r.url.endsWith('/groups/member/delete'));
+  assert.equal(request.options.data.member_user_id, 'member-user-1');
+  assert.notEqual(request.options.data.member_user_id, c.member.id);
+  assert.equal(request.options.headers.Authorization, 'Bearer session');
+});
+
+test('club data, proof viewing and approval all use bearer authorization', async () => {
+  const c = await setup();
+  await button(c.render(), 'View Proof').props.onPress();
+  button(c.render(), 'Approve Payment').props.onPress();
+  await c.alerts.at(-1)[2].find(action => action.text === 'Confirm').onPress();
+  for (const request of c.requests) {
+    assert.equal(request.options.headers.Authorization, 'Bearer session', request.url);
+  }
 });

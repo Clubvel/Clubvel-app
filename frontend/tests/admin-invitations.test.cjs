@@ -104,8 +104,9 @@ test('Member Home clearly identifies Admin privilege, retains Member wording and
 test('Home Accept/Decline post selected invitation with bearer token; Admin acceptance success is explicit', async () => {
   const calls = [], alerts = [];
   const bindings = { API_URL: 'https://staging.invalid', token: 'session', user: { id: 'recipient' },
+    dashboardRequest: { current: 0 }, dashboardInFlight: { current: null },
     setAcceptingInvitation() {}, fetchDashboard: async () => {},
-    axios: { post: async (...args) => calls.push(args) }, Alert: { alert: (...args) => alerts.push(args) } };
+    axios: { post: async (...args) => { calls.push(args); return { data: { admin_access: true } }; } }, Alert: { alert: (...args) => alerts.push(args) } };
   const invite = { id: 'admin-invite', group_name: 'WeTraveling', intended_role: 'admin' };
   await callback('app/(member)/home.tsx', 'acceptInvitation', bindings)(invite);
   assert.equal(calls[0][2].headers.Authorization, 'Bearer session');

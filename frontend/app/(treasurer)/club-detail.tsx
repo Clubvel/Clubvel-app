@@ -108,8 +108,10 @@ export default function ClubDetailScreen() {
     const sequence = ++clubFetchSequence.current;
     setError(null);
     try {
-      // Pass treasurer_id for authorization
-      const response = await axios.get(`${API_URL}/api/treasurer/club/${id}?treasurer_id=${user?.id}`);
+      // The bearer session authenticates the supplied treasurer ID.
+      const response = await axios.get(`${API_URL}/api/treasurer/club/${id}?treasurer_id=${user?.id}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
       if (sequence === clubFetchSequence.current && clubFetchInProgress.current === requestKey) setClubData(response.data);
     } catch (err: any) {
       if (sequence !== clubFetchSequence.current || clubFetchInProgress.current !== requestKey) return;
@@ -126,7 +128,7 @@ export default function ClubDetailScreen() {
         clubFetchInProgress.current = null;
       }
     }
-  }, [API_URL, id, user?.id]);
+  }, [API_URL, id, user?.id, token]);
 
   useFocusEffect(useCallback(() => {
     if (id && user?.id) {
@@ -274,7 +276,7 @@ export default function ClubDetailScreen() {
   const handleViewProof = async (contributionId: string) => {
     try {
       const response = await axios.get(`${API_URL}/api/contributions/${contributionId}/proof`, {
-        params: { user_id: user?.id }
+        params: { user_id: user?.id }, headers: { Authorization: `Bearer ${token}` }
       });
       const proof = response.data.proof_image;
       if (response.data.proof_mime_type === 'application/pdf' || proof.startsWith('data:application/pdf')) {
@@ -332,8 +334,8 @@ export default function ClubDetailScreen() {
                 contribution_id: contributionId,
                 proof_version: proofVersion,
                 notes: null,
-                treasurer_id: user?.id  // Authorization: Pass treasurer ID for access control
-              });
+                treasurer_id: user?.id
+              }, { headers: { Authorization: `Bearer ${token}` } });
               Alert.alert('Success', 'Payment confirmed!');
               fetchClubData(true);
             } catch (err: any) {
@@ -377,7 +379,7 @@ export default function ClubDetailScreen() {
         group_id: id,
         admin_user_id: user?.id,
         group_name: newClubName.trim()
-      });
+      }, { headers: { Authorization: `Bearer ${token}` } });
       Alert.alert('Success', 'Club name updated successfully!');
       setShowEditNameModal(false);
       setNewClubName('');
@@ -398,6 +400,7 @@ export default function ClubDetailScreen() {
     setActionLoading(true);
     try {
       await axios.delete(`${API_URL}/api/groups/delete`, {
+        headers: { Authorization: `Bearer ${token}` },
         data: {
           group_id: id,
           admin_user_id: user?.id,
@@ -414,7 +417,7 @@ export default function ClubDetailScreen() {
     }
   };
 
-  const handleDeleteMember = (memberId: string, memberName: string) => {
+  const handleDeleteMember = (memberUserId: string, memberName: string) => {
     Alert.alert(
       'Remove Member',
       `Are you sure you want to remove ${memberName} from this club? They will be notified.`,
@@ -426,9 +429,10 @@ export default function ClubDetailScreen() {
           onPress: async () => {
             try {
               await axios.delete(`${API_URL}/api/groups/member/delete`, {
+                headers: { Authorization: `Bearer ${token}` },
                 data: {
                   group_id: id,
-                  member_user_id: memberId,
+                  member_user_id: memberUserId,
                   admin_user_id: user?.id,
                   reason: 'Removed by admin'
                 }
@@ -872,7 +876,7 @@ export default function ClubDetailScreen() {
                 </View>
                 <TouchableOpacity 
                   style={styles.deleteMemberBtn}
-                  onPress={() => handleDeleteMember(member.id, member.name)}
+                  onPress={() => handleDeleteMember(member.user_id, member.name)}
                 >
                   <Ionicons name="trash-outline" size={20} color={Colors.statusLate} />
                 </TouchableOpacity>

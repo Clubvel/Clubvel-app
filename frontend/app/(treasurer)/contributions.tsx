@@ -146,7 +146,7 @@ export default function ContributionsScreen() {
       await axios.post(`${API_URL}/api/treasurer/confirm-payment`, {
         contribution_id: contribution.id, proof_version: contribution.proof_version,
         notes: 'Payment confirmed by treasurer', treasurer_id: user?.id,
-      });
+      }, { headers: { Authorization: `Bearer ${token}` } });
       Alert.alert('Success', 'Payment confirmed! Member has been notified.');
       await fetchContributions(true);
     } catch (err: any) {

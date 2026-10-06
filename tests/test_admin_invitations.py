@@ -271,7 +271,7 @@ class ReceiptRaceTests(unittest.IsolatedAsyncioTestCase):
 
     async def remove(self, ns, person):
         await ns['delete_member'](Obj(group_id='group', admin_user_id='treasurer',
-                                      member_user_id=person, reason='offline race'))
+                                      member_user_id=person, reason='offline race'), authorization='Bearer treasurer')
 
     def receipts(self, ns):
         return [value for row in ns['db'].members.records
@@ -450,7 +450,7 @@ class ReceiptRaceTests(unittest.IsolatedAsyncioTestCase):
                 ns, identity = await self.setup_invitation()
                 ns['db'].contributions = Collection()
                 async def delete(ns=ns):
-                    await ns['delete_club'](Obj(group_id='group', admin_user_id='treasurer', confirmation='DELETE'))
+                    await ns['delete_club'](Obj(group_id='group', admin_user_id='treasurer', confirmation='DELETE'), authorization='Bearer treasurer')
                 if after_receipt:
                     original = self.fail_projection(ns, delete)
                     with self.assertRaises(RuntimeError): await accept(ns, identity)
@@ -610,7 +610,7 @@ class ReceiptRaceTests(unittest.IsolatedAsyncioTestCase):
                 await self.assert_no_access(ns)
             return await original_group_update(query, change, **kwargs)
         ns['db'].groups.update_one = update
-        await ns['delete_club'](Obj(group_id='group', admin_user_id='treasurer', confirmation='DELETE'))
+        await ns['delete_club'](Obj(group_id='group', admin_user_id='treasurer', confirmation='DELETE'), authorization='Bearer treasurer')
         await self.assert_no_access(ns)
         self.assertEqual(len(self.receipts(ns)), 1)
 
@@ -620,7 +620,7 @@ class ReceiptRaceTests(unittest.IsolatedAsyncioTestCase):
         ns['db'].groups.records[0]['admin_user_ids'] = ['admin', 'treasurer', 'recipient']
         recipient_member(ns)
         ns['db'].contributions = Collection()
-        await ns['delete_club'](Obj(group_id='group', admin_user_id='treasurer', confirmation='DELETE'))
+        await ns['delete_club'](Obj(group_id='group', admin_user_id='treasurer', confirmation='DELETE'), authorization='Bearer treasurer')
         row = next(row for row in ns['db'].members.records if row['user_id'] == 'recipient')
         self.assertEqual(row['status'], 'removed')
         self.assertEqual(row['role_in_group'], 'member')
@@ -645,3 +645,74 @@ class ReceiptRaceTests(unittest.IsolatedAsyncioTestCase):
         row = next(row for row in ns['db'].members.records if row['user_id'] == 'recipient')
         self.assertEqual(row['admin_grant_applied'], identity)
         self.assertEqual(len(ns['db'].users.records[2]['stokvel_memberships']), 1)
+
+
+class AdminAcceptanceResultTests(unittest.IsolatedAsyncioTestCase):
+    async def test_new_and_already_granted_report_authoritative_access(self):
+        ns = environment(); row = recipient_member(ns); previous = copy.deepcopy(row)
+        identity = (await invite(ns))['invitation_id']
+        first = await accept(ns, identity)
+        self.assertEqual((first['admin_access'], first['acceptance_outcome']), (True, 'newly_granted'))
+        retry = await accept(ns, identity)
+        self.assertEqual((retry['admin_access'], retry['acceptance_outcome']), (True, 'already_granted'))
+        for key in ('id', 'unique_reference_code', 'date_joined_group', 'payout_position'):
+            self.assertEqual(row[key], previous[key])
+
+    async def test_receipt_recovery_reports_valid_access(self):
+        ns = environment(); identity = (await invite(ns))['invitation_id']
+        original = ns['db'].invitations.update_one
+        async def fail(query, change, original=original, **kwargs):
+            if change.get('$set', {}).get('status') == 'accepted': raise RuntimeError('offline interruption')
+            return await original(query, change, **kwargs)
+        ns['db'].invitations.update_one = fail
+        with self.assertRaises(RuntimeError): await accept(ns, identity)
+        ns['db'].invitations.update_one = original
+        result = await accept(ns, identity)
+        self.assertEqual((result['admin_access'], result['acceptance_outcome']), (True, 'recovered'))
+
+    async def test_removed_or_demoted_recovery_and_accepted_retries_never_claim_access(self):
+        for finalized in (False, True):
+            for revoked in ('removed', 'demoted'):
+                with self.subTest(finalized=finalized, revoked=revoked):
+                    ns = environment(); identity = (await invite(ns))['invitation_id']
+                    original = ns['db'].invitations.update_one
+                    if not finalized:
+                        async def fail(query, change, original=original, **kwargs):
+                            if change.get('$set', {}).get('status') == 'accepted': raise RuntimeError('offline interruption')
+                            return await original(query, change, **kwargs)
+                        ns['db'].invitations.update_one = fail
+                        with self.assertRaises(RuntimeError): await accept(ns, identity)
+                        ns['db'].invitations.update_one = original
+                    else: await accept(ns, identity)
+                    row = next(row for row in ns['db'].members.records if row['user_id'] == 'recipient')
+                    if revoked == 'removed':
+                        await ns['delete_member'](Obj(group_id='group', admin_user_id='treasurer',
+                            member_user_id='recipient', reason=None), authorization='Bearer treasurer')
+                    else: row['role_in_group'] = 'member'
+                    before = copy.deepcopy(row)
+                    result = await accept(ns, identity)
+                    self.assertEqual((result['admin_access'], result['acceptance_outcome']), (False, 'access_revoked'))
+                    self.assertEqual(row, before)
+                    with self.assertRaises(HTTPError): await ns['verify_user_is_group_treasurer']('recipient', 'group')
+
+
+class RemovalContractTests(unittest.IsolatedAsyncioTestCase):
+    async def test_ordinary_member_removal_uses_user_id_and_does_not_touch_financial_history(self):
+        ns = environment(); row = recipient_member(ns)
+        ns['db'].contributions = Collection([{'id': 'historical-payment', 'member_id': row['id'], 'amount_paid': 75}])
+        before = copy.deepcopy(ns['db'].contributions.records)
+        with self.assertRaises(HTTPError) as caught:
+            await ns['delete_member'](Obj(group_id='group', admin_user_id='treasurer', member_user_id=row['id'], reason=None), authorization='Bearer treasurer')
+        self.assertEqual(caught.exception.status_code, 404)
+        await ns['delete_member'](Obj(group_id='group', admin_user_id='treasurer', member_user_id='recipient', reason=None), authorization='Bearer treasurer')
+        self.assertFalse(any(member['user_id'] == 'recipient' for member in ns['db'].members.records))
+        self.assertEqual(ns['db'].contributions.records, before)
+
+    async def test_member_promotion_preserves_contribution_and_claim_links(self):
+        ns = environment(); row = recipient_member(ns)
+        ns['db'].contributions = Collection([{'id': 'historical-payment', 'member_id': row['id'], 'amount_paid': 75}])
+        ns['db'].claims = Collection([{'id': 'historical-claim', 'member_id': row['id'], 'claim_amount': 40}])
+        before = copy.deepcopy((ns['db'].contributions.records, ns['db'].claims.records))
+        identity = (await invite(ns))['invitation_id']; await accept(ns, identity); await accept(ns, identity)
+        self.assertEqual((ns['db'].contributions.records, ns['db'].claims.records), before)
+        self.assertEqual(sum(member['id'] == row['id'] for member in ns['db'].members.records), 1)

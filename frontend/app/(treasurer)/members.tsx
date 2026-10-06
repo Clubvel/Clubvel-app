@@ -55,6 +55,7 @@ export default function MembersScreen() {
     try {
       const response = await axios.get(
         `${API_URL}/api/treasurer/club/${groupId}?treasurer_id=${user?.id}`,
+        { headers: { Authorization: `Bearer ${token}` } },
       );
       setMembers((response.data.members || []).map((member: any) => ({
         id: member.id,
@@ -80,7 +81,7 @@ export default function MembersScreen() {
   const fetchData = async () => {
     try {
       // Fetch treasurer's clubs
-      const dashboardRes = await axios.get(`${API_URL}/api/treasurer/dashboard/${user?.id}`);
+      const dashboardRes = await axios.get(`${API_URL}/api/treasurer/dashboard/${user?.id}`, { headers: { Authorization: `Bearer ${token}` } });
       if (dashboardRes.data.clubs) {
         const clubList = dashboardRes.data.clubs.map((c: any) => ({
           id: c.id,

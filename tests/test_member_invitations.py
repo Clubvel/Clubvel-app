@@ -98,7 +98,7 @@ class Member(Obj):
 
 
 def environment():
-    names = {'authenticated_user_id', 'verify_user_is_group_treasurer', 'invite_member',
+    names = {'require_account_owner', 'admin_invitation_result', 'authenticated_user_id', 'verify_user_is_group_treasurer', 'invite_member',
              'get_pending_invitations', 'accept_invitation', 'invite_admin', 'accept_admin_invitation', 'decline_invitation', 'delete_member', 'delete_user_account', 'delete_club'}
     nodes = [n for n in ast.parse(SOURCE.read_text()).body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in names]
     for n in nodes: n.decorator_list = []
@@ -269,19 +269,52 @@ class InvitationTests(unittest.IsolatedAsyncioTestCase):
 
     def test_otp_acceptance_reports_and_payment_handlers_unchanged(self):
         def base(path): return subprocess.check_output(['git', 'show', 'HEAD:' + path], cwd=ROOT, text=True)
-        def functions(source): return {n.name: ast.dump(n) for n in ast.parse(source).body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        def functions(source):
+            result = {}
+            guarded = {'update_group', 'delete_club', 'delete_member', 'get_club_detail', 'confirm_payment',
+                       'admin_upload_proof_of_payment', 'get_group_contributions', 'get_admin_stats',
+                       'get_admin_clubs', 'get_admin_payout_schedules', 'get_admin_dashboard',
+                       'get_treasurer_dashboard', 'get_group_details', 'get_contribution_proof', 'send_late_payment_alert_endpoint',
+                       'get_member_dashboard', 'get_member_club_details'}
+            for node in ast.parse(source).body:
+                if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)): continue
+                if node.name in guarded and node.args.args[-1].arg == 'authorization':
+                    node.args.args.pop(); node.args.defaults.pop()
+                    node.body = [item for item in node.body if not (
+                        isinstance(item, ast.Expr) and isinstance(item.value, ast.Call) and
+                        isinstance(item.value.func, ast.Name) and item.value.func.id == 'require_account_owner')]
+                if node.name == 'send_late_payment_alert_endpoint':
+                    node.body = [item for item in node.body if not (
+                        isinstance(item, ast.Assign) and isinstance(item.targets[0], ast.Name) and item.targets[0].id == 'actor_id')
+                        and not (isinstance(item, ast.Expr) and isinstance(item.value, ast.Await) and
+                                 isinstance(item.value.value, ast.Call) and item.value.value.func.id == 'verify_user_is_group_treasurer')]
+                if node.name == 'get_contribution_proof':
+                    # Normalize only the approved active-club/owner read-policy envelope.
+                    node.body = [item for item in node.body if not (
+                        isinstance(item, ast.Assign) and isinstance(item.targets[0], ast.Name)
+                        and item.targets[0].id == 'group') and not (
+                        isinstance(item, ast.If) and ast.unparse(item.test) == 'not group')]
+                    for index, item in enumerate(node.body):
+                        if isinstance(item, ast.Assign) and isinstance(item.targets[0], ast.Name) and item.targets[0].id == 'is_owner':
+                            node.body[index] = ast.parse("is_owner = member['user_id'] == user_id").body[0]
+                result[node.name] = ast.dump(node)
+            return result
         old, new = functions(base('backend/services/notification_service.py')), functions(NOTIFICATIONS.read_text())
         for name, body in old.items(): self.assertEqual(new[name], body, name)
         old, new = functions(base('backend/server.py')), functions(SOURCE.read_text())
         for name, body in old.items():
-            # Phase 2A changes only invitation handlers; Phase 1 stays protected.
-            if name not in {'invite_admin', 'invite_member', 'get_pending_invitations', 'accept_invitation', 'delete_member', 'delete_user_account', 'delete_club', 'verify_user_is_group_treasurer'}:
+            # Guard envelopes and invitation responses may change; data semantics stay protected.
+            if name not in {'invite_admin', 'invite_member', 'get_pending_invitations', 'accept_invitation', 'delete_member', 'delete_user_account', 'delete_club', 'verify_user_is_group_treasurer', 'accept_admin_invitation'}:
                 self.assertEqual(new[name], body, name)
         self.assertNotIn('send_sms_otp', ast.get_source_segment(SOURCE.read_text(), next(n for n in ast.parse(SOURCE.read_text()).body if isinstance(n, ast.AsyncFunctionDef) and n.name == 'invite_member')))
         for path in ['frontend/services/pdfReportService.ts', 'frontend/app/(member)/claims.tsx',
                      'frontend/app/(treasurer)/claims.tsx', 'frontend/hooks/usePersonalClaims.ts',
                      'frontend/app/(member)/_layout.tsx', 'frontend/app/(treasurer)/_layout.tsx']:
-            self.assertEqual((ROOT / path).read_text(), base(path))
+            expected = base(path)
+            if path == 'frontend/app/(treasurer)/claims.tsx':
+                expected = expected.replace('`${API_URL}/api/treasurer/dashboard/${user.id}`\n      );',
+                    '`${API_URL}/api/treasurer/dashboard/${user.id}`,\n        { headers: { Authorization: `Bearer ${token}` } }\n      );')
+            self.assertEqual((ROOT / path).read_text(), expected)
 
 
     async def test_member_failure_rolls_back_and_retry_remains_member_only(self):
@@ -301,3 +334,27 @@ class InvitationTests(unittest.IsolatedAsyncioTestCase):
         row = next(row for row in ns['db'].members.records if row['user_id'] == 'recipient')
         self.assertEqual(row['role_in_group'], 'member')
         self.assertEqual(len(ns['db'].users.records[2]['stokvel_memberships']), 1)
+
+
+class Phase2BPreservationTests(unittest.TestCase):
+    def test_membership_receipt_protocol_and_acceptance_mutations_unchanged(self):
+        baseline = subprocess.check_output(['git', 'show', 'HEAD:backend/server.py'], cwd=ROOT, text=True)
+        old = {n.name: n for n in ast.parse(baseline).body if isinstance(n, ast.AsyncFunctionDef)}
+        current = {n.name: n for n in ast.parse(SOURCE.read_text()).body if isinstance(n, ast.AsyncFunctionDef)}
+        for name in ('accept_invitation', 'accept_admin_invitation'):
+            node = current[name]
+            if name == 'accept_admin_invitation':
+                node.body = [statement for statement in node.body if not (
+                    isinstance(statement, ast.Assign) and isinstance(statement.targets[0], ast.Name)
+                    and statement.targets[0].id == 'outcome')]
+                node.body[-1] = old[name].body[-1]
+            else:
+                old_return = next(statement.body[-1] for statement in old[name].body
+                                  if isinstance(statement, ast.If) and 'resumable' in ast.unparse(statement.test)
+                                  and "'accepted'" in ast.unparse(statement.test))
+                for statement in node.body:
+                    if isinstance(statement, ast.If) and 'resumable' in ast.unparse(statement.test) and "'accepted'" in ast.unparse(statement.test):
+                        statement.body[-1] = old_return
+            self.assertEqual(ast.dump(node), ast.dump(old[name]), name)
+        path = 'backend/services/admin_invitations.py'
+        self.assertEqual((ROOT / path).read_text(), subprocess.check_output(['git', 'show', 'HEAD:' + path], cwd=ROOT, text=True))

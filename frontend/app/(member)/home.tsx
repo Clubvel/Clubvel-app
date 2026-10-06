@@ -267,6 +267,7 @@ export default function MemberHomeScreen() {
   };
 
   const openInvitations = async () => {
+    const request = dashboardRequest.current;
     setShowInvitations(true);
     setInvitationsLoading(true);
     setInvitationsError(null);
@@ -274,7 +275,7 @@ export default function MemberHomeScreen() {
       const response = await axios.get(`${API_URL}/api/invitations/pending/${user?.id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      setPendingInvitations(response.data.invitations || []);
+      if (request === dashboardRequest.current) setPendingInvitations(response.data.invitations || []);
     } catch (error: any) {
       setInvitationsError(error.response?.data?.detail || 'Could not load invitations. Please try again.');
     } finally {
@@ -283,18 +284,27 @@ export default function MemberHomeScreen() {
   };
 
   const acceptInvitation = async (invitation: PendingInvitation) => {
+    ++dashboardRequest.current;
+    dashboardInFlight.current = null;
     setAcceptingInvitation(invitation.id);
     try {
-      await axios.post(`${API_URL}/api/invitations/accept`, {
+      const response = await axios.post(`${API_URL}/api/invitations/accept`, {
         invitation_id: invitation.id,
         user_id: user?.id,
       }, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      await fetchDashboard();
-      Alert.alert(invitation.intended_role === 'admin' ? 'Admin invitation accepted' : 'Group joined',
-        `You are now ${invitation.intended_role === 'admin' ? 'an Admin' : 'a member'} of ${invitation.group_name}.`);
+      await fetchDashboard(true);
+      if (invitation.intended_role === 'admin') {
+        const active = response.data.admin_access === true;
+        Alert.alert(active ? 'Admin invitation accepted' : 'Invitation processed',
+          active ? `You are now an Admin of ${invitation.group_name}.`
+            : 'This invitation has been processed, but it does not currently grant you Admin access.');
+      } else {
+        Alert.alert('Group joined', `You are now a member of ${invitation.group_name}.`);
+      }
     } catch (error: any) {
+      void fetchDashboard(true);
       Alert.alert('Could not accept invitation', error.response?.data?.detail || 'Please try again.');
     } finally {
       setAcceptingInvitation(null);
@@ -302,14 +312,17 @@ export default function MemberHomeScreen() {
   };
 
   const declineInvitation = async (invitation: PendingInvitation) => {
+    ++dashboardRequest.current;
+    dashboardInFlight.current = null;
     setAcceptingInvitation(invitation.id);
     try {
       await axios.post(`${API_URL}/api/invitations/decline`, {
         invitation_id: invitation.id, user_id: user?.id,
       }, { headers: { Authorization: `Bearer ${token}` } });
-      await fetchDashboard();
+      await fetchDashboard(true);
       Alert.alert('Invitation declined', 'No membership or Admin access was granted.');
     } catch (error: any) {
+      void fetchDashboard(true);
       Alert.alert('Could not decline invitation', error.response?.data?.detail || 'Please try again.');
     } finally { setAcceptingInvitation(null); }
   };

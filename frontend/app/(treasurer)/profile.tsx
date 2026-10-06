@@ -28,7 +28,7 @@ interface PayoutSchedule {
 }
 
 export default function ProfileScreen() {
-  const { user, logout, updateProfilePhoto } = useAuth();
+  const { user, token, logout, updateProfilePhoto } = useAuth();
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -47,15 +47,15 @@ export default function ProfileScreen() {
   const fetchProfileData = async () => {
     try {
       // Fetch admin stats
-      const statsResponse = await axios.get(`${API_URL}/api/admin/stats/${user?.id}`);
+      const statsResponse = await axios.get(`${API_URL}/api/admin/stats/${user?.id}`, { headers: { Authorization: `Bearer ${token}` } });
       setStats(statsResponse.data);
 
       // Fetch managed clubs
-      const clubsResponse = await axios.get(`${API_URL}/api/admin/clubs/${user?.id}`);
+      const clubsResponse = await axios.get(`${API_URL}/api/admin/clubs/${user?.id}`, { headers: { Authorization: `Bearer ${token}` } });
       setClubs(clubsResponse.data.clubs || []);
 
       // Fetch payout schedules for managed clubs
-      const payoutResponse = await axios.get(`${API_URL}/api/admin/payout-schedules/${user?.id}`);
+      const payoutResponse = await axios.get(`${API_URL}/api/admin/payout-schedules/${user?.id}`, { headers: { Authorization: `Bearer ${token}` } });
       setPayoutSchedules(payoutResponse.data.schedules || []);
     } catch (error) {
       console.error('Error fetching profile data:', error);
