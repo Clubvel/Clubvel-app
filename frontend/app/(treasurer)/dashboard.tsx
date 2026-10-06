@@ -1,14 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Linking, Alert, Modal, Image, TextInput, KeyboardAvoidingView, Platform, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
+import { addPaymentReminder } from '../../services/paymentReminder';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface LateMember {
+  contribution_id: string;
+  user_id: string;
   member_name: string;
   group_name: string;
   days_late: number;
@@ -63,6 +66,7 @@ export default function AdminDashboardScreen() {
   const [paymentDueDate, setPaymentDueDate] = useState('25');
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+  const reminderInFlight = useRef(false);
 
   const fetchDashboard = async () => {
     try {
@@ -94,23 +98,26 @@ export default function AdminDashboardScreen() {
     fetchDashboard();
   };
 
-  const handleRemindMember = (phone: string, name: string) => {
-    Alert.alert(
-      'Send Reminder',
-      `Send WhatsApp reminder to ${name} at ${phone}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Send',
-          onPress: () => {
-            Alert.alert('Reminder Sent', `WhatsApp reminder sent to ${name}`);
-          },
-        },
-      ]
-    );
+  const handleRemindMember = (member: LateMember) => {
+    if (!token || !member.contribution_id || member.user_id === user?.id) return;
+    Alert.alert('Add Payment Reminder', `Add a payment reminder to ${member.member_name}'s Alerts?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Add Reminder', onPress: async () => {
+        if (reminderInFlight.current) return;
+        reminderInFlight.current = true;
+        try {
+          await addPaymentReminder(API_URL, token, member.contribution_id);
+        } finally { reminderInFlight.current = false; }
+      } },
+    ]);
   };
 
   const handleCreateClub = async () => {
+    if (!user?.id || !token) {
+      Alert.alert('Sign in required', 'Please sign in again before creating a group.');
+      return;
+    }
+
     if (!clubName || !monthlyContribution) {
       Alert.alert('Missing Information', 'Please fill in club name and monthly contribution');
       return;
@@ -126,7 +133,7 @@ export default function AdminDashboardScreen() {
         admin_user_id: user?.id,
         payment_reference_prefix: clubName.substring(0, 3).toUpperCase(),
         start_date: new Date().toISOString()
-      });
+      }, { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 });
 
       Alert.alert('Success', `Group "${clubName}" created successfully!`);
       setShowCreateClubModal(false);
@@ -329,13 +336,15 @@ export default function AdminDashboardScreen() {
                   {alert.group_name} • {alert.days_late} days late • R{alert.amount}
                 </Text>
               </View>
+              {alert.user_id && alert.user_id !== user?.id && alert.contribution_id && (
               <TouchableOpacity
                 style={styles.remindButton}
-                onPress={() => handleRemindMember(alert.phone, alert.member_name)}
+                onPress={() => handleRemindMember(alert)}
               >
                 <Ionicons name="logo-whatsapp" size={20} color={Colors.white} />
                 <Text style={styles.remindButtonText}>Remind</Text>
               </TouchableOpacity>
+              )}
             </View>
           ))}
         </View>

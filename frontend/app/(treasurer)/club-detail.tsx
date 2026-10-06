@@ -6,11 +6,13 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import axios from 'axios';
+import { addPaymentReminder } from '../../services/paymentReminder';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 
 interface Member {
   id: string;
+  user_id: string;
   name: string;
   phone: string;
   membership_status: string;
@@ -80,6 +82,7 @@ export default function ClubDetailScreen() {
   const [reviewingProof, setReviewingProof] = useState(false);
   const clubFetchInProgress = useRef<string | null>(null);
   const clubFetchSequence = useRef(0);
+  const reminderInFlight = useRef(false);
   
   const [claims, setClaims] = useState<GroupClaim[]>([]);
   const [claimsLoading, setClaimsLoading] = useState(false);
@@ -346,20 +349,18 @@ export default function ClubDetailScreen() {
     );
   };
 
-  const handleRemindMember = (memberName: string, phone: string) => {
-    Alert.alert(
-      'Send Reminder',
-      `Send payment reminder to ${memberName}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Send',
-          onPress: () => {
-            Alert.alert('Reminder Sent', `Payment reminder sent to ${memberName}`);
-          }
-        }
-      ]
-    );
+  const handleRemindMember = (member: Member) => {
+    if (!token || !member.contribution_id || member.user_id === user?.id) return;
+    Alert.alert('Add Payment Reminder', `Add a payment reminder to ${member.name}'s Alerts?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Add Reminder', onPress: async () => {
+        if (reminderInFlight.current) return;
+        reminderInFlight.current = true;
+        try {
+          await addPaymentReminder(API_URL, token, member.contribution_id!);
+        } finally { reminderInFlight.current = false; }
+      } },
+    ]);
   };
 
   // Admin Actions
@@ -675,10 +676,14 @@ export default function ClubDetailScreen() {
                           <Text style={styles.paymentAmount}>{member.proof_decline_reason}</Text>
                         )}
                       </>
-                    ) : (
-                      <TouchableOpacity 
+                    ) : null}
+                    {member.user_id && member.user_id !== user?.id && member.contribution_id &&
+                      ['pending', 'due', 'late'].includes(member.status) &&
+                      (!member.has_proof || member.proof_review_status === 'declined') &&
+                      member.amount_due != null && member.amount_due > member.amount_paid && (
+                      <TouchableOpacity
                         style={styles.remindButton}
-                        onPress={() => handleRemindMember(member.name, member.phone)}
+                        onPress={() => handleRemindMember(member)}
                       >
                         <Ionicons name="notifications" size={18} color={Colors.gold} />
                         <Text style={styles.remindButtonText}>Send Reminder</Text>

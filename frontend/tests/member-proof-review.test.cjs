@@ -65,7 +65,7 @@ async function setup(screen = 'proofs', review = 'declined', approved = false, d
 
 test('persisted declined proof and reason are shown after opening or returning to Proofs', async () => {
   const c = await setup(); const tree = c.render();
-  assert.ok(text(tree).includes('Club A')); assert.ok(text(tree).includes('Wrong reference'));
+  assert.ok(text(tree).includes('Club A')); assert.ok(text(tree).includes('Decline reason: Wrong reference'));
   const pill = nodes(tree).find(n => n.type === c.statusPill);
   assert.equal(pill.props.status, 'proof_declined');
   assert.equal(text(c.statusPill(pill.props)), 'Proof Declined');
@@ -180,4 +180,12 @@ test('Member Payments ignores an older focus response after deleting a proof and
   pending[1]({ data: { contributions: [] } }); await deleting; c.render();
   pending[0]({ data: { contributions: [{ ...c.record, proof_uploaded: true, group_name: 'Stale Proof' }] } }); await tick();
   assert.match(text(c.render()), /No proofs uploaded yet/); assert.doesNotMatch(text(c.render()), /Stale Proof/);
+});
+
+
+test('missing decline reason does not display a blank reason line', async () => {
+  const c = await setup(); c.record.proof_decline_reason = null;
+  c.ui.blur(); c.ui.focus(); await tick();
+  assert.doesNotMatch(text(c.render()), /Decline reason:/);
+  assert.ok(button(c.render(), 'View Proof')); assert.ok(button(c.render(), 'Replace Proof'));
 });

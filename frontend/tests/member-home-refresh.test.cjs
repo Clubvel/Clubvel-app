@@ -14,6 +14,7 @@ function setup(screen = 'member') {
     '../../contexts/AuthContext': { useAuth: () => auth },
     '../../components/StatusPill': { StatusPill: 'StatusPill' },
     '../../components/AdBanner': { AdBanner: 'AdBanner' },
+    '../../services/paymentReminder': { addPaymentReminder: async () => {} },
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '@react-native-async-storage/async-storage': {},
     axios: { get: url => url.includes('/invitations/') ? Promise.resolve({ data: { invitations: [] } })

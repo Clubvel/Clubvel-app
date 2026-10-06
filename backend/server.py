@@ -26,7 +26,7 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 # Import notification service
 from services.notification_service import (
     send_otp, get_notification_status,
-    send_payment_reminder, send_payment_confirmation, send_late_payment_alert,
+    send_payment_confirmation, send_late_payment_alert,
     format_phone_number
 )
 
@@ -267,6 +267,8 @@ class Alert(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     read_status: bool = False
     action_url: Optional[str] = None
+    contribution_id: Optional[str] = None
+    proof_version: Optional[str] = None
 
 class NotificationPreferences(BaseModel):
     """User notification preferences - all default to OFF for POPIA compliance"""
@@ -1463,6 +1465,8 @@ async def get_admin_dashboard(user_id: str):
                         if member_user and len(urgent_alerts) < 5:
                             days_late = (now - due_date).days
                             urgent_alerts.append({
+                                "contribution_id": contribution['id'],
+                                "user_id": member['user_id'],
                                 "member_name": member_user['full_name'],
                                 "group_name": group['group_name'],
                                 "days_late": days_late,
@@ -2397,14 +2401,39 @@ async def decline_contribution_proof(contribution_id: str, review: ProofReviewRe
     group = await verify_user_is_group_treasurer(actor_id, contribution['group_id'])
     if group.get('status') != 'active':
         raise HTTPException(status_code=403, detail='An active group is required')
-    require_pending_proof(contribution, review.proof_version)
-    updated = await db.contributions.update_one(proof_update_filter(contribution), {'$set': {
-        'contribution_status': 'pending', 'proof_review_status': 'declined',
-        'proof_decline_reason': (review.reason or '').strip() or None,
-        'proof_declined_by': actor_id, 'proof_declined_at': datetime.utcnow(),
-    }})
-    if updated.modified_count != 1:
-        raise HTTPException(status_code=409, detail='This proof changed. Refresh before declining it.')
+    member = await db.members.find_one({'id': contribution['member_id'], 'group_id': contribution['group_id']})
+    if not member:
+        raise HTTPException(status_code=404, detail='Contribution owner not found')
+    # A retry of the same completed review can repair alert persistence, never
+    # decline a replacement proof or overwrite the original review reason.
+    already_declined = (contribution.get('contribution_status') in ('pending', 'due', 'late') and
+                        contribution_outstanding(contribution) is not None and
+                        contribution_outstanding(contribution) > 0 and
+                        contribution.get('proof_review_status') == 'declined' and
+                        contribution.get('proof_declined_by') == actor_id and
+                        review.proof_version is not None and
+                        proof_version(contribution) == review.proof_version)
+    reason = contribution.get('proof_decline_reason') if already_declined else (review.reason or '').strip() or None
+    if not already_declined:
+        require_pending_proof(contribution, review.proof_version)
+        updated = await db.contributions.update_one(proof_update_filter(contribution), {'$set': {
+            'contribution_status': 'pending', 'proof_review_status': 'declined',
+            'proof_decline_reason': reason,
+            'proof_declined_by': actor_id, 'proof_declined_at': datetime.utcnow(),
+        }})
+        if updated.modified_count != 1:
+            raise HTTPException(status_code=409, detail='This proof changed. Refresh before declining it.')
+    alert_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"clubvel:proof-declined:{contribution_id}:{review.proof_version}"))
+    message = (f"Your proof for {group['group_name']} — R{contribution['amount_due']:.2f}, "
+               f"{contribution['month']:02d}/{contribution['year']} — was declined.")
+    if reason:
+        message += f" Decline reason: {reason}"
+    alert = Alert(id=alert_id, user_id=member['user_id'], group_id=group['id'],
+                  alert_type='payment_proof_declined', alert_message=message,
+                  contribution_id=contribution_id, proof_version=review.proof_version,
+                  action_url='/(member)/proofs')
+    # Mongo's existing unique _id guarantees one alert per reviewed proof version.
+    await db.alerts.update_one({'_id': alert_id}, {'$setOnInsert': alert.dict()}, upsert=True)
     return {'message': 'Proof declined', 'contribution_id': contribution_id, 'proof_review_status': 'declined'}
 
 
@@ -2814,6 +2843,7 @@ async def get_club_detail(group_id: str, treasurer_id: str):
         return {
             "id": member['id'],
             "contribution_id": contribution['id'] if contribution else None,
+            "user_id": member['user_id'],
             "name": user['full_name'],
             "phone": user['phone_number'],
             "reference": member['unique_reference_code'],
@@ -3121,75 +3151,46 @@ async def accept_invitation(request: AcceptInvitationRequest, authorization: Opt
 
 
 class SendReminderRequest(BaseModel):
-    member_id: str
-    group_id: str
-    treasurer_id: str  # Requesting treasurer - for authorization
+    contribution_id: str
 
 
 @api_router.post("/treasurer/send-reminder")
-async def send_payment_reminder_endpoint(request: SendReminderRequest):
-    """Send payment reminder to a member via WhatsApp"""
-    # DATA ACCESS CONTROL: Verify treasurer owns this group
-    group = await db.groups.find_one({"id": request.group_id})
-    if not group:
-        raise HTTPException(status_code=404, detail="Group not found")
-    
-    await verify_user_is_group_treasurer(request.treasurer_id, request.group_id)
-    
-    # Get member and user info
-    member = await db.members.find_one({"id": request.member_id})
+async def send_payment_reminder_endpoint(request: SendReminderRequest,
+                                         authorization: Optional[str] = Header(None)):
+    """Persist an in-app reminder for one recorded outstanding contribution."""
+    actor_id = authenticated_user_id(authorization)
+    contribution = await db.contributions.find_one({'id': request.contribution_id})
+    if not contribution:
+        raise HTTPException(status_code=404, detail='Contribution not found')
+    group = await verify_user_is_group_treasurer(actor_id, contribution['group_id'])
+    if group.get('status') != 'active':
+        raise HTTPException(status_code=403, detail='An active group is required')
+    if not proof_is_eligible(contribution):
+        raise HTTPException(status_code=409, detail='This contribution does not require a payment reminder. Refresh its payment details.')
+    member = await db.members.find_one({'id': contribution['member_id'],
+                                      'group_id': contribution['group_id'], 'status': 'active'})
     if not member:
-        raise HTTPException(status_code=404, detail="Member not found")
-    
-    # Verify member belongs to this group
-    if member['group_id'] != request.group_id:
-        raise HTTPException(
-            status_code=403,
-            detail="Access denied: This member does not belong to your group"
-        )
-    
-    user = await db.users.find_one({"id": member['user_id']})
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    # CHECK NOTIFICATION PREFERENCE - Respect user's opt-in choice
-    has_opted_in = await check_user_notification_preference(user['id'], "payment_reminder")
-    if not has_opted_in:
-        return {
-            "message": f"Notification not sent - {user['full_name']} has not opted in for contribution reminders",
-            "opted_in": False,
-            "channel": "none"
-        }
-    
-    # Calculate due date
-    now = datetime.utcnow()
-    due_date = f"{now.year}-{now.month:02d}-{min(group['payment_due_date'], 28):02d}"
-    
-    # Send WhatsApp reminder
-    notification_result = await send_payment_reminder(
-        phone=user['phone_number'],
-        member_name=user['full_name'].split()[0],
-        group_name=group['group_name'],
-        amount=group['monthly_contribution'],
-        due_date=due_date
-    )
-    
-    # Create alert record
-    alert = Alert(
-        user_id=user['id'],
-        group_id=group['id'],
-        alert_type="payment_reminder",
-        alert_message=f"Reminder: Your {group['group_name']} payment of R{group['monthly_contribution']:.2f} is due on {due_date}",
-        action_url=f"/member/club/{group['id']}"
-    )
+        raise HTTPException(status_code=409, detail='Active recipient membership unavailable')
+    if member['user_id'] == actor_id:
+        raise HTTPException(status_code=400, detail='You cannot send yourself a payment reminder')
+    recipient = await db.users.find_one({'id': member['user_id']})
+    if not recipient:
+        raise HTTPException(status_code=404, detail='Recipient not found')
+    try:
+        phone = format_phone_number(recipient['phone_number'])
+    except ValueError:
+        phone = None
+    outstanding = contribution_outstanding(contribution)
+    message = (f"Reminder: Your {group['group_name']} contribution for "
+               f"{contribution['month']:02d}/{contribution['year']} is R{contribution['amount_due']:.2f}, "
+               f"with R{outstanding:.2f} outstanding. Please pay and upload proof in Clubvel.")
+    alert = Alert(user_id=member['user_id'], group_id=group['id'],
+                  contribution_id=contribution['id'], alert_type='payment_reminder',
+                  alert_message=message, action_url='/(member)/proofs')
     await db.alerts.insert_one(alert.dict())
-    
-    return {
-        "message": f"Payment reminder sent to {user['full_name']}",
-        "channel": notification_result.get('channel', 'whatsapp'),
-        "mock": notification_result.get('mock', True),
-        "success": notification_result.get('success', False)
-    }
+    return {'message': 'Reminder added to member Alerts', 'contribution_id': contribution['id'],
+            'phone_number': phone,
+            'reminder_message': message}
 
 
 @api_router.post("/treasurer/send-late-alert/{member_id}")

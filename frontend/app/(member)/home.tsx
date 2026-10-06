@@ -214,6 +214,11 @@ export default function MemberHomeScreen() {
   };
 
   const createGroup = async () => {
+    if (!user?.id || !token) {
+      Alert.alert('Sign in required', 'Please sign in again before creating a group.');
+      return;
+    }
+
     const amount = Number(monthlyContribution);
     const dueDate = Number(paymentDueDate);
 
@@ -241,7 +246,7 @@ export default function MemberHomeScreen() {
         payment_due_date: dueDate,
         admin_user_id: user?.id,
         payment_reference_prefix: groupName.trim().slice(0, 3).toUpperCase() || 'CLB',
-      });
+      }, { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 });
       setShowCreateGroup(false);
       setGroupName('');
       setGroupType('savings');

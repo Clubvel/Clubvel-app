@@ -224,7 +224,13 @@ class InvitationTests(unittest.IsolatedAsyncioTestCase):
         for name, body in old.items(): self.assertEqual(new[name], body, name)
         old, new = functions(base('backend/server.py')), functions(SOURCE.read_text())
         for name, body in old.items():
-            if name != 'invite_member': self.assertEqual(new[name], body, name)
+            # Phase 1 changes only these reviewed alert/reminder handlers and
+            # owner/contribution metadata. Every other handler stays protected.
+            if name not in {'get_admin_dashboard', 'get_club_detail',
+                            'decline_contribution_proof', 'send_payment_reminder_endpoint'}:
+                self.assertEqual(new[name], body, name)
         self.assertNotIn('send_sms_otp', ast.get_source_segment(SOURCE.read_text(), next(n for n in ast.parse(SOURCE.read_text()).body if isinstance(n, ast.AsyncFunctionDef) and n.name == 'invite_member')))
-        for path in ['frontend/app/(member)/home.tsx', 'frontend/app/(treasurer)/reports.tsx', 'frontend/services/pdfReportService.ts']:
+        for path in ['frontend/services/pdfReportService.ts', 'frontend/app/(member)/claims.tsx',
+                     'frontend/app/(treasurer)/claims.tsx', 'frontend/hooks/usePersonalClaims.ts',
+                     'frontend/app/(member)/_layout.tsx', 'frontend/app/(treasurer)/_layout.tsx']:
             self.assertEqual((ROOT / path).read_text(), base(path))

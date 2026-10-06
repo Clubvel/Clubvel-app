@@ -215,6 +215,7 @@ export default function ReportsScreen() {
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Preserve the report handler while removing only Quick Actions.
   const handlePrintReport = async (reportType: 'monthly' | 'quarterly' | 'annual' | 'member') => {
     setIsGenerating(true);
     setGeneratingType(reportType);
@@ -432,37 +433,6 @@ export default function ReportsScreen() {
           </View>
         </View>
 
-        {/* Share Options */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.shareButtons}>
-            <TouchableOpacity 
-              style={[styles.shareButton, styles.whatsappButton]}
-              onPress={() => handleShareWhatsApp('monthly')}
-              disabled={isGenerating}
-            >
-              <Ionicons name="logo-whatsapp" size={20} color={Colors.white} />
-              <Text style={styles.shareButtonText}>WhatsApp</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.shareButton, styles.pdfButton]}
-              onPress={() => handleExportPDF('monthly')}
-              disabled={isGenerating}
-            >
-              <Ionicons name="document-text" size={20} color={Colors.white} />
-              <Text style={styles.shareButtonText}>PDF</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.shareButton, styles.emailButton]}
-              onPress={() => handlePrintReport('monthly')}
-              disabled={isGenerating}
-            >
-              <Ionicons name="print" size={20} color={Colors.white} />
-              <Text style={styles.shareButtonText}>Print</Text>
-            </TouchableOpacity>
-          </View>
-        </View>
-        
         {/* Ad Banner */}
         <AdBanner size="banner" />
       </ScrollView>

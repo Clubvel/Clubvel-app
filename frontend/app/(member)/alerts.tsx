@@ -1,10 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity, Image } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { AdBanner } from '../../components/AdBanner';
+import { useFocusEffect, useRouter } from 'expo-router';
 import axios from 'axios';
 import { format } from 'date-fns';
 
@@ -20,7 +19,7 @@ interface Alert {
 }
 
 export default function AlertsScreen() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const router = useRouter();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,35 +27,51 @@ export default function AlertsScreen() {
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
-  const fetchAlerts = async () => {
-    try {
-      // Fetch alerts from API - empty if no alerts
-      const response = await fetch(`${API_URL}/api/alerts/${user?.id}`, {
-        headers: { 'Authorization': `Bearer ${user?.id}` }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setAlerts(data.alerts || []);
-      } else {
-        setAlerts([]);
-      }
-    } catch (error) {
-      console.error('Error fetching alerts:', error);
-      setAlerts([]);
-    } finally {
+  const [error, setError] = useState<string | null>(null);
+  const [loadedContext, setLoadedContext] = useState<string | null>(null);
+  const context = JSON.stringify([API_URL, user?.id, token]);
+  const latestContext = useRef(context);
+  latestContext.current = context;
+  const request = useRef<{ key: string; sequence: number } | null>(null);
+  const sequence = useRef(0);
+
+  const fetchAlerts = useCallback(async (force = false) => {
+    if (!user?.id || !token) {
+      setError('Please sign in again to view your alerts.');
       setLoading(false);
       setRefreshing(false);
+      return;
     }
-  };
-
-  useEffect(() => {
-    fetchAlerts();
-  }, []);
-
-  const onRefresh = () => {
+    const key = JSON.stringify([API_URL, user.id, token]);
+    if (!force && request.current?.key === key) return;
+    const ticket = ++sequence.current;
+    request.current = { key, sequence: ticket };
+    setError(null);
     setRefreshing(true);
-    fetchAlerts();
-  };
+    try {
+      const response = await axios.get(`${API_URL}/api/alerts/${user.id}`, {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+      });
+      if (ticket !== sequence.current || latestContext.current !== key) return;
+      if (!Array.isArray(response.data?.alerts)) throw new Error('Invalid alerts response');
+      setAlerts(response.data.alerts);
+      setLoadedContext(key);
+    } catch {
+      if (ticket === sequence.current && latestContext.current === key) {
+        setError('Unable to load alerts. Please try again.');
+      }
+    } finally {
+      if (request.current?.sequence === ticket) {
+        request.current = null;
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+  }, [API_URL, user?.id, token]);
+
+  useFocusEffect(useCallback(() => { void fetchAlerts(); }, [fetchAlerts]));
+
+  const onRefresh = () => { void fetchAlerts(true); };
 
   const getAlertIcon = (type: string) => {
     switch (type) {
@@ -83,7 +98,7 @@ export default function AlertsScreen() {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const yesterdayStart = new Date(todayStart.getTime() - 86400000);
 
-    alerts.forEach((alert) => {
+    (loadedContext === context ? alerts : []).forEach((alert) => {
       const alertDate = new Date(alert.created_at);
       if (alertDate >= todayStart) {
         today.push(alert);
@@ -97,7 +112,7 @@ export default function AlertsScreen() {
     return { today, yesterday, earlier };
   };
 
-  if (loading) {
+  if ((loading || loadedContext !== context) && !error) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.mediumGreen} />
@@ -145,6 +160,14 @@ export default function AlertsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
+        {error && (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyStateText}>{error}</Text>
+            <TouchableOpacity onPress={() => void fetchAlerts(true)}>
+              <Text style={styles.emptyStateSubtext}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        )}
         {today.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Today</Text>
@@ -177,7 +200,7 @@ export default function AlertsScreen() {
           </View>
         )}
 
-        {today.length === 0 && yesterday.length === 0 && earlier.length === 0 && (
+        {!error && today.length === 0 && yesterday.length === 0 && earlier.length === 0 && (
           <View style={styles.emptyState}>
             <Ionicons name="notifications-outline" size={64} color={Colors.accent} />
             <Text style={styles.emptyStateText}>No alerts</Text>

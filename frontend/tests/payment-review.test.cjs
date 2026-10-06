@@ -21,6 +21,9 @@ async function setup(from = 'member', uploaded = true) {
       Alert: { alert: (...args) => alerts.push(args) } },
     'expo-router': { useLocalSearchParams: () => params, useFocusEffect: ui.useFocusEffect,
       useRouter: () => ({ replace: route => routes.push(route), back: () => routes.push('back') }) },
+    '../../services/paymentReminder': { addPaymentReminder: async (apiUrl, token, contributionId) => {
+      requests.push({ url: `${apiUrl}/api/treasurer/send-reminder`, data: { contribution_id: contributionId }, token });
+    } },
     '../../constants/Colors': { Colors: colors },
     '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '../../contexts/AuthContext': { useAuth: () => ({ user: { id: 'treasurer-1' }, token: 'session' }) },
@@ -221,4 +224,24 @@ test('approval refresh supersedes an older focus response for the same club', as
   pending[1]({ data: JSON.parse(JSON.stringify(c.club)) }); await tick(); c.render();
   pending[0]({ data: old }); await tick();
   assert.equal(button(c.render(), 'Approve Payment'), undefined);
+});
+
+
+test('club Payments hides self-reminders without removing contributions or totals', async () => {
+  const c = await setup('treasurer', false);
+  c.club.contributions = [
+    { ...c.member, user_id: 'treasurer-1', contribution_id: 'self', amount_due: 300 },
+    { ...c.member, user_id: 'other-user', contribution_id: 'other', amount_due: 600 },
+    { ...c.member, user_id: 'other-user', contribution_id: 'other-second', amount_due: 200 },
+  ];
+  c.ui.blur(); c.ui.focus(); await tick();
+  const tree = c.render();
+  assert.match(text(tree), /R0.00 \/ R300.00/);
+  assert.match(text(tree), /R0.00 \/ R600.00/);
+  assert.equal(nodes(tree).filter(n => n.type === 'TouchableOpacity' && text(n) === 'Send Reminder').length, 2);
+  button(tree, 'Send Reminder').props.onPress();
+  assert.equal(c.alerts.at(-1)[0], 'Add Payment Reminder');
+  await c.alerts.at(-1)[2].find(a => a.text === 'Add Reminder').onPress();
+  assert.equal(c.requests.at(-1).data.contribution_id, 'other');
+  assert.equal(c.requests.at(-1).token, 'session');
 });

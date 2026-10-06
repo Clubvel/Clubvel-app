@@ -68,7 +68,7 @@ class Collection:
         return Cursor([{**{k: v for k, v in r.items() if projection.get(k) == 1},
                         'proof_of_payment': bool(r.get('proof_of_payment'))} for r in records])
 
-    async def update_one(self, query, update):
+    async def update_one(self, query, update, upsert=False):
         if self.before_update:
             mutate, self.before_update = self.before_update, None
             mutate(self.records)
@@ -78,6 +78,9 @@ class Collection:
                 record.update(copy.deepcopy(update.get('$set', {})))
                 for key in update.get('$unset', {}): record.pop(key, None)
                 return Obj(modified_count=int(before != record))
+        if upsert:
+            await self.insert_one({**copy.deepcopy(query), **copy.deepcopy(update.get('$setOnInsert', {}))})
+            return Obj(modified_count=0, upserted_id=query.get('_id'))
         return Obj(modified_count=0)
 
     async def insert_one(self, record): self.records.append(copy.deepcopy(record))

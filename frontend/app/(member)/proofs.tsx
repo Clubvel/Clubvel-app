@@ -520,7 +520,7 @@ export default function ProofOfPaymentsScreen() {
                 </View>
 
                 {proof.status === 'proof_declined' && proof.declineReason && (
-                  <Text style={styles.proofDetailLabel}>{proof.declineReason}</Text>
+                  <Text style={styles.proofDetailLabel}>Decline reason: {proof.declineReason}</Text>
                 )}
                 {proof.hasImage && (
                   <View style={styles.proofActions}>
