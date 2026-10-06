@@ -83,7 +83,7 @@ def required_secret(name: str) -> str:
 
 SECRET_KEY = required_secret('JWT_SECRET_KEY')
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Absolute JWT lifetime; the client also tracks inactivity.
+ACCESS_TOKEN_EXPIRE_MINUTES = 30 * 24 * 60  # Absolute 30-day mobile session; activity never extends it.
 
 # Field-level encryption key (for sensitive data at rest)
 ENCRYPTION_KEY = required_secret('FIELD_ENCRYPTION_KEY')
@@ -256,6 +256,7 @@ class ClaimSubmission(BaseModel):
     group_id: str
     claim_amount: float
     reason: str
+    resubmitted_from_claim_id: Optional[str] = None
 
 
 class ClaimReview(BaseModel):
@@ -273,6 +274,7 @@ class Alert(BaseModel):
     action_url: Optional[str] = None
     contribution_id: Optional[str] = None
     proof_version: Optional[str] = None
+    claim_id: Optional[str] = None
 
 class NotificationPreferences(BaseModel):
     """User notification preferences - all default to OFF for POPIA compliance"""
@@ -635,7 +637,7 @@ def contribution_metadata_projection():
               'proof_version', 'proof_review_status', 'proof_decline_reason',
               'proof_declined_by', 'proof_declined_at', 'uploaded_by_admin',
               'proof_uploaded_by_user_id',
-              'proof_deleted_at', 'confirmation_date')
+              'proof_deleted_at', 'confirmation_date', 'proof_dismissed_by_user_id', 'proof_dismissed_version')
     return {**{field: 1 for field in fields}, '_id': 0,
             'proof_of_payment': {'$ne': [{'$ifNull': ['$proof_of_payment', '']}, '']}}
 
@@ -758,6 +760,9 @@ def personal_contribution_view(record: dict, membership: dict, group: dict) -> d
         'payment_reference': membership.get('unique_reference_code'),
         'payment_date': record.get('payment_date'),
         **proof_review_details(record),
+        'proof_dismissed': (record.get('proof_review_status') == 'declined' and
+                            record.get('proof_dismissed_by_user_id') == membership['user_id'] and
+                            record.get('proof_dismissed_version') == proof_version(record)),
         'due_date': None if flexible else f"{record['year']}-{record['month']:02d}-{min(group['payment_due_date'], 28):02d}",
     }
 
@@ -1142,7 +1147,15 @@ async def submit_member_claim(data: ClaimSubmission, authorization: Optional[str
         submitted_at=datetime.utcnow(),
     )
 
-    await db.claims.insert_one(claim.dict())
+    record = claim.dict()
+    source_id = getattr(data, 'resubmitted_from_claim_id', None)
+    if source_id:
+        original = await db.claims.find_one({'id': source_id, 'member_id': membership['id'],
+            'group_id': data.group_id, 'claim_status': 'rejected'})
+        if not original:
+            raise HTTPException(status_code=409, detail='Only your own rejected claim can be resubmitted')
+        record['resubmitted_from_claim_id'] = source_id
+    await db.claims.insert_one(record)
 
     return {
         "claim_id": claim.id,
@@ -1185,6 +1198,8 @@ async def get_member_claims(user_id: str, authorization: Optional[str] = Header(
         if not group or membership.get("group_id") != group.get("id"):
             continue
 
+        if claim.get("dismissed_by_user_id") == user_id and claim.get("claim_status") == "rejected":
+            continue
         claims.append({
             "claim_id": claim.get("id"),
             "group_id": group["id"],
@@ -1206,6 +1221,25 @@ async def get_member_claims(user_id: str, authorization: Optional[str] = Header(
     )
 
     return {"claims": claims}
+
+
+@api_router.post('/member/claims/{claim_id}/dismiss')
+async def dismiss_rejected_claim(claim_id: str, authorization: Optional[str] = Header(None)):
+    actor = authenticated_user_id(authorization)
+    claim = await db.claims.find_one({'id': claim_id})
+    if not claim:
+        raise HTTPException(status_code=404, detail='Claim not found')
+    member = await db.members.find_one({'id': claim['member_id'], 'user_id': actor,
+                                       'group_id': claim['group_id'], 'status': 'active'})
+    if not member:
+        raise HTTPException(status_code=403, detail='You may only dismiss your own rejected claim')
+    if claim.get('claim_status') != 'rejected':
+        raise HTTPException(status_code=409, detail='Only rejected claims can be dismissed')
+    result = await db.claims.update_one({'id': claim_id, 'claim_status': 'rejected'},
+        {'$set': {'dismissed_by_user_id': actor, 'dismissed_at': datetime.utcnow()}})
+    if not result.matched_count:
+        raise HTTPException(status_code=409, detail='Claim changed. Please refresh.')
+    return {'message': 'Claim removed from your view'}
 
 
 @api_router.get("/treasurer/groups/{group_id}/claims")
@@ -1277,7 +1311,10 @@ async def review_group_claim(
     if not claim:
         raise HTTPException(status_code=404, detail="Claim not found")
 
-    if claim.get("claim_status") != "pending_review":
+    retry_rejection = (data.action.strip().lower() == "reject" and claim.get("claim_status") == "rejected"
+                       and claim.get("reviewed_by_treasurer_id") == user_id
+                       and claim.get("rejection_reason") == (data.rejection_reason or "").strip())
+    if claim.get("claim_status") != "pending_review" and not retry_rejection:
         raise HTTPException(
             status_code=409,
             detail="Only pending claims can be reviewed"
@@ -1319,11 +1356,18 @@ async def review_group_claim(
         }
     )
 
-    if result.modified_count != 1:
-        raise HTTPException(
-            status_code=409,
-            detail="This claim has already been reviewed. Please refresh."
-        )
+    if result.modified_count != 1 and not retry_rejection:
+        raise HTTPException(status_code=409, detail="This claim has already been reviewed. Please refresh.")
+    if action == 'reject':
+        member = await db.members.find_one({'id': claim['member_id'], 'group_id': group_id})
+        group = await db.groups.find_one({'id': group_id})
+        if member and group:
+            alert_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f'clubvel:claim-rejected:{claim_id}'))
+            alert = Alert(id=alert_id, user_id=member['user_id'], group_id=group_id,
+                          alert_type='claim_rejected', claim_id=claim_id,
+                          alert_message=f"Your R{claim['claim_amount']:,.2f} claim for {group['group_name']} was rejected. Reason: {rejection_reason}",
+                          action_url='/(member)/claims')
+            await db.alerts.update_one({'_id': alert_id}, {'$setOnInsert': alert.dict()}, upsert=True)
 
     return {
         "claim_id": claim_id,
@@ -1903,8 +1947,18 @@ async def update_profile_photo(data: ProfilePhotoUpdate, authorization: Optional
 async def get_user_alerts(user_id: str, authorization: Optional[str] = Header(None)):
     if authenticated_user_id(authorization) != user_id:
         raise HTTPException(status_code=403, detail="You may only view your own alerts")
-    records = await db.alerts.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    records = await db.alerts.find({"user_id": user_id, "dismissed": {"$ne": True}}, {"_id": 0}).sort("created_at", -1).to_list(1000)
     return {"alerts": records}
+
+
+@api_router.post('/alerts/{alert_id}/dismiss')
+async def dismiss_alert(alert_id: str, authorization: Optional[str] = Header(None)):
+    actor = authenticated_user_id(authorization)
+    result = await db.alerts.update_one({'id': alert_id, 'user_id': actor},
+        {'$set': {'dismissed': True, 'dismissed_at': datetime.utcnow()}})
+    if not result.matched_count:
+        raise HTTPException(status_code=404, detail='Alert not found')
+    return {'message': 'Alert dismissed'}
 
 
 # ==================== NOTIFICATION PREFERENCES ====================
@@ -2454,6 +2508,29 @@ async def decline_contribution_proof(contribution_id: str, review: ProofReviewRe
     return {'message': 'Proof declined', 'contribution_id': contribution_id, 'proof_review_status': 'declined'}
 
 
+@api_router.post('/contributions/{contribution_id}/proof/dismiss')
+async def dismiss_declined_proof(contribution_id: str, review: ProofReviewRequest,
+                                 authorization: Optional[str] = Header(None)):
+    actor = authenticated_user_id(authorization)
+    record = await db.contributions.find_one({'id': contribution_id})
+    if not record:
+        raise HTTPException(status_code=404, detail='Contribution not found')
+    member = await db.members.find_one({'id': record['member_id'], 'user_id': actor,
+                                       'group_id': record['group_id'], 'status': 'active'})
+    if not member:
+        raise HTTPException(status_code=403, detail='You may only dismiss your own declined proof')
+    if (record.get('proof_review_status') != 'declined' or not proof_is_eligible(record)
+            or not review.proof_version or proof_version(record) != review.proof_version):
+        raise HTTPException(status_code=409, detail='Only the current declined unpaid proof can be dismissed')
+    result = await db.contributions.update_one(proof_update_filter(record), {'$set': {
+        'proof_dismissed_by_user_id': actor, 'proof_dismissed_version': review.proof_version,
+        'proof_dismissed_at': datetime.utcnow(),
+    }})
+    if not result.matched_count:
+        raise HTTPException(status_code=409, detail='Proof changed. Please refresh.')
+    return {'message': 'Declined proof removed from your view'}
+
+
 @api_router.delete('/contributions/{contribution_id}/proof')
 async def delete_contribution_proof(contribution_id: str, review: ProofReviewRequest,
                                     authorization: Optional[str] = Header(None)):
@@ -2596,7 +2673,7 @@ async def get_group_report(group_id: str, year: int, month: Optional[int] = None
     query = {'group_id': group_id, 'year': year}
     if month is not None:
         query['month'] = month
-    records = await db.contributions.find(query).to_list(None)
+    records = await db.contributions.find(query, {'proof_of_payment': 0}).to_list(None)
     # Include former members' historical records, but never unrelated-group records.
     members = await db.members.find({'group_id': group_id, 'id': {'$in': [r.get('member_id') for r in records]}}).to_list(None)
     users = await db.users.find({'id': {'$in': [m.get('user_id') for m in members]}}).to_list(None)

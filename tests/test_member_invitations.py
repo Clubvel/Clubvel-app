@@ -304,10 +304,12 @@ class InvitationTests(unittest.IsolatedAsyncioTestCase):
         old, new = functions(base('backend/server.py')), functions(SOURCE.read_text())
         for name, body in old.items():
             # Guard envelopes and invitation responses may change; data semantics stay protected.
-            if name not in {'invite_admin', 'invite_member', 'get_pending_invitations', 'accept_invitation', 'delete_member', 'delete_user_account', 'delete_club', 'verify_user_is_group_treasurer', 'accept_admin_invitation'}:
+            if name not in {'invite_admin', 'invite_member', 'get_pending_invitations', 'accept_invitation', 'delete_member', 'delete_user_account', 'delete_club', 'verify_user_is_group_treasurer', 'accept_admin_invitation',
+                            'contribution_metadata_projection', 'personal_contribution_view', 'submit_member_claim',
+                            'get_member_claims', 'review_group_claim', 'get_user_alerts', 'get_group_report'}:
                 self.assertEqual(new[name], body, name)
         self.assertNotIn('send_sms_otp', ast.get_source_segment(SOURCE.read_text(), next(n for n in ast.parse(SOURCE.read_text()).body if isinstance(n, ast.AsyncFunctionDef) and n.name == 'invite_member')))
-        for path in ['frontend/services/pdfReportService.ts', 'frontend/app/(member)/claims.tsx',
+        for path in ['frontend/services/pdfReportService.ts',
                      'frontend/app/(treasurer)/claims.tsx', 'frontend/hooks/usePersonalClaims.ts',
                      'frontend/app/(member)/_layout.tsx', 'frontend/app/(treasurer)/_layout.tsx']:
             expected = base(path)
@@ -342,19 +344,6 @@ class Phase2BPreservationTests(unittest.TestCase):
         old = {n.name: n for n in ast.parse(baseline).body if isinstance(n, ast.AsyncFunctionDef)}
         current = {n.name: n for n in ast.parse(SOURCE.read_text()).body if isinstance(n, ast.AsyncFunctionDef)}
         for name in ('accept_invitation', 'accept_admin_invitation'):
-            node = current[name]
-            if name == 'accept_admin_invitation':
-                node.body = [statement for statement in node.body if not (
-                    isinstance(statement, ast.Assign) and isinstance(statement.targets[0], ast.Name)
-                    and statement.targets[0].id == 'outcome')]
-                node.body[-1] = old[name].body[-1]
-            else:
-                old_return = next(statement.body[-1] for statement in old[name].body
-                                  if isinstance(statement, ast.If) and 'resumable' in ast.unparse(statement.test)
-                                  and "'accepted'" in ast.unparse(statement.test))
-                for statement in node.body:
-                    if isinstance(statement, ast.If) and 'resumable' in ast.unparse(statement.test) and "'accepted'" in ast.unparse(statement.test):
-                        statement.body[-1] = old_return
-            self.assertEqual(ast.dump(node), ast.dump(old[name]), name)
+            self.assertEqual(ast.dump(current[name]), ast.dump(old[name]), name)
         path = 'backend/services/admin_invitations.py'
         self.assertEqual((ROOT / path).read_text(), subprocess.check_output(['git', 'show', 'HEAD:' + path], cwd=ROOT, text=True))

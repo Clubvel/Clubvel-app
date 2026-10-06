@@ -5,6 +5,7 @@ import { AppState, AppStateStatus, Alert, View } from 'react-native';
 
 import { authentication, authenticationError, OTPResult } from '../services/authentication';
 import { AUTH_STORAGE_KEYS, restoreStoredSession, sessionExpired } from '../services/session';
+import { sessionStorage } from '../services/sessionStorage';
 
 interface User {
   id: string;
@@ -40,7 +41,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   
   const logout = useCallback(async () => {
     try {
-      await AsyncStorage.multiRemove(AUTH_STORAGE_KEYS);
+      try { await sessionStorage.clearToken(); }
+      finally { await AsyncStorage.multiRemove(AUTH_STORAGE_KEYS); }
     } finally {
       setToken(null);
       setUser(null);
@@ -105,13 +107,14 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
 
   const loadStoredAuth = async () => {
     try {
-      const [storedToken, storedUser, activity] = await Promise.all(AUTH_STORAGE_KEYS.map(key => AsyncStorage.getItem(key)));
+      const [storedToken, storedUser, activity] = await Promise.all([sessionStorage.getToken(), AsyncStorage.getItem('user_data'), AsyncStorage.getItem('last_activity')]);
       const session = restoreStoredSession(storedToken, storedUser, activity);
       if (session) {
         lastActivityRef.current = session.lastActivity;
         setToken(session.token);
         setUser(session.user);
       } else {
+        await sessionStorage.clearToken();
         await AsyncStorage.multiRemove(AUTH_STORAGE_KEYS);
       }
     } catch (error) {
@@ -129,8 +132,9 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       const { access_token, user: userData } = await authentication.login(phone, password);
       if (!access_token || !userData?.id) throw new Error('Clubvel returned an invalid session. Please try again.');
+      await sessionStorage.setToken(access_token);
       await AsyncStorage.multiSet([
-        ['auth_token', access_token], ['user_data', JSON.stringify(userData)],
+        ['user_data', JSON.stringify(userData)],
         ['last_activity', Date.now().toString()],
       ]);
       lastActivityRef.current = Date.now();

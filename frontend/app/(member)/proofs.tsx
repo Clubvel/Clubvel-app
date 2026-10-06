@@ -76,7 +76,7 @@ export default function ProofOfPaymentsScreen() {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (sequence !== proofSequence.current || latestContext.current !== key) return;
-      setProofs(response.data.contributions.filter((record: any) => record.proof_uploaded).map((record: any) => ({
+      setProofs(response.data.contributions.filter((record: any) => record.proof_uploaded && !record.proof_dismissed).map((record: any) => ({
         id: record.contribution_id,
         contribution_id: record.contribution_id,
         groupId: record.group_id,
@@ -124,10 +124,31 @@ export default function ProofOfPaymentsScreen() {
     ]);
   };
 
+  const removeDeclinedProof = (proof: Proof) => {
+    Alert.alert('Remove declined proof', 'Remove this declined proof from your view? Its review history is retained and you can still upload a replacement.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: async () => {
+        if (deletingProof) return;
+        setDeletingProof(proof.contribution_id);
+        try {
+          await axios.post(`${API_URL}/api/contributions/${proof.contribution_id}/proof/dismiss`,
+            { proof_version: proof.proofVersion }, {
+              headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+            });
+          await fetchProofs(true);
+        } catch {
+          Alert.alert('Unable to remove proof', 'Please refresh and try again. Your contribution has not been changed.');
+        } finally { setDeletingProof(null); }
+      } },
+    ]);
+  };
+
   const fetchClubs = async () => {
     setLoadingClubs(true);
     try {
-      const response = await axios.get(`${API_URL}/api/member/dashboard/${user?.id}`);
+      const response = await axios.get(`${API_URL}/api/member/dashboard/${user?.id}`, {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+      });
       const availableClubs = response.data.clubs.map((club: any) => ({
         id: club.id,
         name: club.name,
@@ -544,6 +565,12 @@ export default function ProofOfPaymentsScreen() {
                   <TouchableOpacity style={styles.viewProofButton} disabled={uploading || !!deletingProof}
                     onPress={() => uploadProofForClub({ id: proof.groupId, name: proof.groupName, amount_due: proof.amount }, proof.contribution_id)}>
                     <Text style={styles.viewProofText}>Replace Proof</Text>
+                  </TouchableOpacity>
+                )}
+                {proof.status === 'proof_declined' && (
+                  <TouchableOpacity style={styles.viewProofButton} disabled={uploading || !!deletingProof}
+                    onPress={() => removeDeclinedProof(proof)}>
+                    <Text style={styles.viewProofText}>Remove</Text>
                   </TouchableOpacity>
                 )}
               </View>

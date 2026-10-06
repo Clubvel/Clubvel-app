@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity, Image } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity, Image, Alert as NativeAlert } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
@@ -16,6 +16,7 @@ interface Alert {
   created_at: string;
   read_status: boolean;
   action_url: string | null;
+  claim_id?: string | null;
 }
 
 export default function AlertsScreen() {
@@ -71,6 +72,24 @@ export default function AlertsScreen() {
 
   useFocusEffect(useCallback(() => { void fetchAlerts(); }, [fetchAlerts]));
 
+  const dismissing = useRef(new Set<string>());
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+  const dismissAlert = async (alert: Alert) => {
+    if (dismissing.current.has(alert.id)) return;
+    const key = context;
+    dismissing.current.add(alert.id);
+    try {
+      await axios.post(`${API_URL}/api/alerts/${alert.id}/dismiss`, {}, {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+      });
+      if (latestContext.current !== key) return;
+      setDismissedIds(previous => new Set([...previous, `${key}:${alert.id}`]));
+      setAlerts(previous => previous.filter(item => item.id !== alert.id));
+    } catch {
+      NativeAlert.alert('Unable to dismiss alert', 'Please try again.');
+    } finally { dismissing.current.delete(alert.id); }
+  };
+
   const onRefresh = () => { void fetchAlerts(true); };
 
   const getAlertIcon = (type: string) => {
@@ -98,7 +117,7 @@ export default function AlertsScreen() {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const yesterdayStart = new Date(todayStart.getTime() - 86400000);
 
-    (loadedContext === context ? alerts : []).forEach((alert) => {
+    (loadedContext === context ? alerts : []).filter(alert => !dismissedIds.has(`${context}:${alert.id}`)).forEach((alert) => {
       const alertDate = new Date(alert.created_at);
       if (alertDate >= todayStart) {
         today.push(alert);
@@ -129,9 +148,18 @@ export default function AlertsScreen() {
         <View style={[styles.alertDot, { backgroundColor: icon.color }]} />
         <Ionicons name={icon.name} size={24} color={icon.color} style={styles.alertIcon} />
         <View style={styles.alertContent}>
-          <Text style={styles.alertMessage}>{alert.alert_message}</Text>
+          <TouchableOpacity disabled={!alert.action_url} onPress={() => {
+            if (alert.action_url === '/(member)/claims') router.push({ pathname: '/(member)/claims', params: alert.claim_id ? { claim_id: alert.claim_id } : {} });
+            else if (alert.action_url === '/(member)/proofs') router.push(alert.action_url);
+          }}>
+            <Text style={styles.alertMessage}>{alert.alert_message}</Text>
+          </TouchableOpacity>
           <Text style={styles.alertTime}>{format(new Date(alert.created_at), 'h:mm a')}</Text>
         </View>
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Dismiss alert" hitSlop={8}
+          onPress={() => void dismissAlert(alert)}>
+          <Ionicons name="close" size={18} color={Colors.textSecondary} />
+        </TouchableOpacity>
       </View>
     );
   };

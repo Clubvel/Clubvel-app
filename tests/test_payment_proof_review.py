@@ -37,12 +37,15 @@ class Collection:
     @staticmethod
     def matches(record, query):
         return all(record.get(k) in v['$in'] if isinstance(v, dict) and '$in' in v
+                   else record.get(k) != v['$ne'] if isinstance(v, dict) and '$ne' in v
                    else record.get(k) == v for k, v in query.items())
 
     @staticmethod
     def project(record, projection):
         if not projection:
             return copy.deepcopy(record)
+        if all(value == 0 for value in projection.values()):
+            return {k: copy.deepcopy(v) for k, v in record.items() if projection.get(k) != 0}
         result = {k: v for k, v in record.items() if projection.get(k) == 1}
         if isinstance(projection.get('proof_of_payment'), dict):
             result['proof_of_payment'] = bool(record.get('proof_of_payment'))

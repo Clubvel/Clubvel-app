@@ -118,11 +118,11 @@ test('Reports removes Quick Actions but retains individual report controls and h
   const ui = engine();
   const Screen = load('app/(treasurer)/reports.tsx', {
     react: ui.react, 'react-native': native,
-    'expo-router': { useRouter: () => ({ push() {} }) },
+    'expo-router': { useFocusEffect: ui.useFocusEffect, useRouter: () => ({ push() {} }) },
     '../../contexts/AuthContext': { useAuth: () => ({ user: { id: 'admin' }, token: 'session' }) },
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '../../components/AdBanner': { AdBanner: 'AdBanner' }, '../../services/pdfReportService': {},
-    axios: { get: async () => ({ data: { clubs: [] } }) },
+    axios: { get: async () => ({ data: { clubs: [{id:'managed-club'}] } }) },
   }).default;
   ui.render(Screen); await tick(); const tree = ui.render(Screen);
   assert.doesNotMatch(text(tree), /Quick Actions/);
@@ -131,7 +131,7 @@ test('Reports removes Quick Actions but retains individual report controls and h
   assert.equal(nodes(tree).filter(n => n.type === 'Ionicons' && n.props.name === 'logo-whatsapp').length, 4);
   const b = { isGenerating: false, setIsGenerating() {}, setGeneratingType() {}, dashboardData: {},
     Alert: { alert() {} }, buildReportData: async type => ({ reportType: type }),
-    generatePDFReport: async () => ({ success: true, uri: 'report.pdf' }),
+    generatePDF: async () => ({ success: true, uri: 'report.pdf' }),
     sharePDFReport: async uri => { assert.equal(uri, 'report.pdf'); } };
   await callback('app/(treasurer)/reports.tsx', 'handleShareWhatsApp', b)('monthly');
 });

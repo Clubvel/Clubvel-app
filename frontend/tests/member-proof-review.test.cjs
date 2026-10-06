@@ -31,6 +31,8 @@ async function setup(screen = 'proofs', review = 'declined', approved = false, d
     },
     post: async (url, data, options) => {
       requests.push({ url, data, options });
+      if (url.endsWith('/proof/dismiss')) { record.proof_dismissed = true; return; }
+      record.proof_dismissed = false;
       record.proof_review_status = 'pending'; record.proof_decline_reason = null;
       record.status = 'proof_uploaded'; record.proof_version = 'proof-v2'; record.proof_delete_eligible = true;
     },
@@ -199,4 +201,22 @@ test('member club initial and focus reads send the current bearer token', async 
   assert.equal(reads().length, 2);
   assert.deepEqual(reads()[1].options.headers, { Authorization: 'Bearer member-session' });
   assert.deepEqual(c.routes, []);
+});
+
+
+test('declined Remove persists a version-specific dismissal and leaves the proof and amounts intact', async () => {
+  const c = await setup();
+  button(c.render(), 'Remove').props.onPress();
+  await c.alerts.at(-1)[2].find(a => a.text === 'Remove').onPress(); await tick();
+  const request=c.requests.find(r=>r.url.endsWith('/proof/dismiss'));
+  assert.equal(request.data.proof_version,'proof-v1');
+  assert.equal(request.options.headers.Authorization,'Bearer member-session');
+  assert.equal(c.record.proof_uploaded,true);assert.equal(c.record.amount_paid,25);assert.equal(c.record.amount_due,175);
+  assert.equal(button(c.render(),'View Proof'),undefined);
+  c.ui.blur();c.ui.focus();await tick();assert.equal(button(c.render(),'View Proof'),undefined);
+});
+
+test('approved proof has no Remove action and remains viewable', async () => {
+  const c=await setup('proofs','approved',true);
+  assert.equal(button(c.render(),'Remove'),undefined);assert.ok(button(c.render(),'View Proof'));
 });

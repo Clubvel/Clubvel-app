@@ -1,8 +1,10 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
   Image,
+  KeyboardAvoidingView,
+  Platform,
   Modal,
   ScrollView,
   StyleSheet,
@@ -13,10 +15,10 @@ import {
 } from 'react-native';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter } from 'expo-router';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../contexts/AuthContext';
-import { usePersonalClaims } from '../../hooks/usePersonalClaims';
+import { usePersonalClaims, PersonalClaim } from '../../hooks/usePersonalClaims';
 
 const statusLabel = (status: string) => {
   switch (status) {
@@ -43,6 +45,7 @@ const formatDate = (value: string | null) => {
 export default function ClaimsScreen() {
   const { user, token } = useAuth();
   const router = useRouter();
+  const { claim_id: selectedClaimId } = useLocalSearchParams<{ claim_id?: string }>();
   const [activeGroups, setActiveGroups] = useState<Array<{
     id: string;
     name: string;
@@ -61,6 +64,12 @@ export default function ClaimsScreen() {
   const [amount, setAmount] = useState('');
   const [reason, setReason] = useState('');
   const [submitting, setSubmitting] = useState(false);
+  const [resubmittedFrom, setResubmittedFrom] = useState<string | null>(null);
+  const [removing, setRemoving] = useState<string | null>(null);
+  const formScroll = useRef<ScrollView>(null);
+  const reasonFocused = useRef(false);
+  const submitInFlight = useRef(false);
+  const removeInFlight = useRef(false);
 
   const loadActiveGroups = async () => {
     if (!user?.id || !token) return [];
@@ -109,6 +118,7 @@ export default function ClaimsScreen() {
         );
         return;
       }
+      setResubmittedFrom(null);
       setSelectedGroupId(groups.length === 1 ? groups[0].id : '');
       setFormOpen(true);
     } catch {
@@ -127,7 +137,35 @@ export default function ClaimsScreen() {
     setReason('');
   };
 
+  const resubmitClaim = (claim: PersonalClaim) => {
+    setSelectedGroupId(claim.group_id);
+    setAmount(claim.amount == null ? '' : String(claim.amount));
+    setReason(claim.reason || '');
+    setResubmittedFrom(claim.claim_id);
+    setFormOpen(true);
+  };
+
+  const removeClaim = (claim: PersonalClaim) => {
+    Alert.alert('Remove rejected claim', 'Remove this claim from your view? Your group will retain its claim history.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: async () => {
+        if (removeInFlight.current) return;
+        removeInFlight.current = true;
+        setRemoving(claim.claim_id);
+        try {
+          await axios.post(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api/member/claims/${claim.claim_id}/dismiss`, {}, {
+            headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+          });
+          await reload();
+        } catch {
+          Alert.alert('Unable to remove claim', 'Please try again. Your claim history has not been deleted.');
+        } finally { removeInFlight.current = false; setRemoving(null); }
+      } },
+    ]);
+  };
+
   const submitClaim = async () => {
+    if (submitInFlight.current) return;
     if (!token) {
       Alert.alert('Sign in required', 'Please sign in again before submitting a claim.');
       return;
@@ -155,6 +193,7 @@ export default function ClaimsScreen() {
       return;
     }
 
+    submitInFlight.current = true;
     setSubmitting(true);
     try {
       await axios.post(
@@ -163,6 +202,7 @@ export default function ClaimsScreen() {
           group_id: selectedGroupId,
           claim_amount: numericAmount,
           reason: cleanReason,
+          ...(resubmittedFrom ? { resubmitted_from_claim_id: resubmittedFrom } : {}),
         },
         {
           headers: { Authorization: `Bearer ${token}` },
@@ -188,6 +228,7 @@ export default function ClaimsScreen() {
       }
       Alert.alert('Unable to submit claim', message);
     } finally {
+      submitInFlight.current = false;
       setSubmitting(false);
     }
   };
@@ -251,12 +292,12 @@ export default function ClaimsScreen() {
             </Text>
           </View>
         ) : (
-          claims.map(claim => {
+          [...claims].sort((a, b) => Number(b.claim_id === selectedClaimId) - Number(a.claim_id === selectedClaimId)).map(claim => {
             const submitted = formatDate(claim.submitted_at);
             const scheduled = formatDate(claim.scheduled_claim_date);
 
             return (
-              <View key={claim.claim_id} style={styles.card}>
+              <View key={claim.claim_id} style={[styles.card, claim.claim_id === selectedClaimId && { borderColor: Colors.accent }]}>
                 <View style={styles.cardHeader}>
                   <View style={styles.claimIcon}>
                     <Ionicons name="document-text-outline" size={20} color={Colors.accent} />
@@ -291,6 +332,16 @@ export default function ClaimsScreen() {
                     <Text style={styles.rejectionText}>{claim.rejection_reason}</Text>
                   </View>
                 ) : null}
+                {claim.status === 'rejected' && (
+                  <View style={{ flexDirection: 'row', gap: 20, marginTop: 14 }}>
+                    <TouchableOpacity accessibilityRole="button" disabled={!!removing} onPress={() => resubmitClaim(claim)}>
+                      <Text style={styles.retryText}>Resubmit</Text>
+                    </TouchableOpacity>
+                    <TouchableOpacity accessibilityRole="button" disabled={!!removing} onPress={() => removeClaim(claim)}>
+                      <Text style={styles.retryText}>{removing === claim.claim_id ? 'Removing…' : 'Remove'}</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             );
           })
@@ -303,7 +354,7 @@ export default function ClaimsScreen() {
         transparent
         onRequestClose={closeForm}
       >
-        <View style={styles.modalBackdrop}>
+        <KeyboardAvoidingView style={styles.modalBackdrop} behavior={Platform.OS === 'android' ? 'height' : 'padding'}>
           <View style={styles.modalCard}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Submit a Claim</Text>
@@ -317,7 +368,8 @@ export default function ClaimsScreen() {
               </TouchableOpacity>
             </View>
 
-            <ScrollView keyboardShouldPersistTaps="handled">
+            <ScrollView ref={formScroll} keyboardShouldPersistTaps="handled" automaticallyAdjustKeyboardInsets
+              onLayout={() => { if (reasonFocused.current) formScroll.current?.scrollToEnd({ animated: true }); }}>
               <Text style={styles.label}>Group</Text>
 
               {activeGroups.map(group => (
@@ -365,6 +417,8 @@ export default function ClaimsScreen() {
               <Text style={styles.label}>Reason</Text>
               <TextInput
                 value={reason}
+                onFocus={() => { reasonFocused.current = true; formScroll.current?.scrollToEnd({ animated: true }); }}
+                onBlur={() => { reasonFocused.current = false; }}
                 onChangeText={setReason}
                 placeholder="What is this claim for?"
                 placeholderTextColor={Colors.textSecondary}
@@ -395,7 +449,7 @@ export default function ClaimsScreen() {
               </Text>
             </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );

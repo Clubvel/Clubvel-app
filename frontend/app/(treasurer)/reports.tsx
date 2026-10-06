@@ -1,11 +1,11 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, RefreshControl } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useRouter } from 'expo-router';
 import { AdBanner } from '../../components/AdBanner';
-import axios from 'axios';
+import axios, { isAxiosError } from 'axios';
 import { 
   generatePDFReport, 
   sharePDFReport, 
@@ -21,29 +21,52 @@ export default function ReportsScreen() {
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [loadingReports, setLoadingReports] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const request = useRef(0);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
-  const fetchReportData = async () => {
-    if (!user?.id) return;
-
+  const fetchReportData = useCallback(async () => {
+    const ticket = ++request.current;
+    setRefreshing(true);
+    setReportError(null);
     try {
-      const response = await axios.get(`${API_URL}/api/admin/dashboard/${user.id}`, { headers: { Authorization: `Bearer ${token}` } });
-      setDashboardData(response.data);
+      if (!user?.id || !token) throw new Error('Please sign in again to load reports.');
+      const response = await axios.get(`${API_URL}/api/admin/dashboard/${user.id}`, {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 20000,
+      });
+      if (!Array.isArray(response.data?.clubs)) throw new Error('Invalid report data received.');
+      if (ticket === request.current) setDashboardData(response.data);
     } catch (error) {
-      console.error('Error fetching report data:', error);
-      Alert.alert('Unable to Load Reports', 'Clubvel could not load the latest financial data. Please try again.');
+      if (ticket === request.current) {
+        setDashboardData(null);
+        setReportError(error instanceof Error && !isAxiosError(error)
+          ? error.message : 'Unable to load reports. Check your connection and try again.');
+      }
     } finally {
-      setLoadingReports(false);
-      setRefreshing(false);
+      if (ticket === request.current) { setLoadingReports(false); setRefreshing(false); }
     }
-  };
+  }, [API_URL, user?.id, token]);
 
-  useEffect(() => {
-    if (user?.id) {
-      fetchReportData();
-    }
-  }, [user?.id]);
+  useFocusEffect(useCallback(() => {
+    setDashboardData(null);
+    setLoadingReports(true);
+    void fetchReportData();
+    return () => { request.current += 1; };
+  }, [fetchReportData]));
+
+  // Bound native PDF generation too: an Android print failure must release the controls.
+  const generatePDF = async (data: ReportData) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        generatePDFReport(data),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('PDF generation timed out. Please try again.')), 45000);
+        }),
+      ]);
+    } finally { if (timer) clearTimeout(timer); }
+  };
 
   const buildReportData = async (
     reportType: 'monthly' | 'annual'
@@ -71,6 +94,7 @@ export default function ReportsScreen() {
     const responses = await Promise.all(
       managedClubs.map((club: any) =>
         axios.get(`${API_URL}/api/treasurer/reports/${club.id}`, {
+          timeout: 20000,
           params: reportType === 'monthly'
             ? { year, month }
             : { year },
@@ -193,7 +217,7 @@ export default function ReportsScreen() {
       }
 
       // Generate PDF
-      const result = await generatePDFReport(reportData);
+      const result = await generatePDF(reportData);
 
       if (result.success && result.uri) {
         Alert.alert(
@@ -208,7 +232,9 @@ export default function ReportsScreen() {
         Alert.alert('Error', result.message);
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to generate report. Please try again.');
+      Alert.alert('Unable to generate report', error instanceof Error ? error.message : 'Please try again.', [
+        { text: 'Cancel', style: 'cancel' }, { text: 'Retry', onPress: () => void handleExportPDF(reportType) },
+      ]);
     } finally {
       setIsGenerating(false);
       setGeneratingType(null);
@@ -269,7 +295,7 @@ export default function ReportsScreen() {
 
       const reportData = await buildReportData(reportType);
 
-      const result = await generatePDFReport(reportData);
+      const result = await generatePDF(reportData);
 
       if (result.success && result.uri) {
         await sharePDFReport(result.uri);
@@ -277,7 +303,9 @@ export default function ReportsScreen() {
         Alert.alert('Error', result.message);
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to share report. Please try again.');
+      Alert.alert('Unable to share report', error instanceof Error ? error.message : 'Please try again.', [
+        { text: 'Cancel', style: 'cancel' }, { text: 'Retry', onPress: () => void handleShareWhatsApp(reportType) },
+      ]);
     } finally {
       setIsGenerating(false);
       setGeneratingType(null);
@@ -319,7 +347,20 @@ export default function ReportsScreen() {
         </View>
       </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void fetchReportData()} />}>
+        {loadingReports ? <ActivityIndicator accessibilityLabel="Loading reports" color={Colors.accent} /> : null}
+        {reportError ? (
+          <View style={styles.section}>
+            <Text style={styles.reportDescription}>{reportError}</Text>
+            <TouchableOpacity accessibilityRole="button" onPress={() => void fetchReportData()}>
+              <Text style={{ color: Colors.accent, paddingVertical: 12 }}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : !loadingReports && dashboardData?.clubs.length === 0 ? (
+          <View style={styles.section}><Text style={styles.reportDescription}>No managed clubs or report data yet.</Text></View>
+        ) : null}
+        {dashboardData?.clubs.length > 0 && !reportError && (<>
+
         {/* Current Month Summary */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Current Month</Text>
@@ -433,6 +474,7 @@ export default function ReportsScreen() {
           </View>
         </View>
 
+        </>)}
         {/* Ad Banner */}
         <AdBanner size="banner" />
       </ScrollView>

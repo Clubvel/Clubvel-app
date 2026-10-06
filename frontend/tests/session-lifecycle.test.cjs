@@ -18,6 +18,7 @@ test('actual provider restores valid storage, expires on resume without awaiting
       '@react-native-async-storage/async-storage': storage, axios: {},
       'react-native': { AppState: { currentState: 'active', addEventListener: (_, fn) => { listener = fn; return { remove() {} }; } }, Alert: { alert: (...args) => alerts.push(args) } },
       '../services/session': load('services/session.ts'),
+      '../services/sessionStorage': { sessionStorage: { getToken: () => storage.getItem('auth_token'), setToken: value => storage.setItem('auth_token', value), clearToken: async () => data.delete('auth_token') } },
       '../services/authentication': { authentication: { login: async () => ({ access_token: jwt(now / 1000 + 600), user: person }) }, authenticationError: error => error },
     });
     const render = () => e.render(() => AuthProvider({ children: null })).props.value;

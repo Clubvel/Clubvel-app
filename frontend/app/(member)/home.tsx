@@ -353,13 +353,15 @@ export default function MemberHomeScreen() {
           <Text style={styles.brandName}>Clubvel</Text>
           <TouchableOpacity 
             style={styles.avatarButton}
+            accessibilityRole="button"
+            accessibilityLabel="Open profile menu"
             onPress={() => setShowProfileMenu(true)}
           >
             {user?.profile_photo ? (
-              <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} />
+              <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
             ) : (
               <View style={styles.avatar}>
-                <Ionicons name="person" size={24} color={Colors.white} />
+                <Ionicons name="person" size={32} color={Colors.white} />
               </View>
             )}
           </TouchableOpacity>
@@ -449,7 +451,8 @@ export default function MemberHomeScreen() {
                     <Text style={styles.clubMetaText}>R{club.monthly_contribution}/month</Text>
                   </View>
                 </View>
-                <StatusPill status={club.status} label={club.status_label} />
+                <StatusPill status={club.status} label={club.status_label === 'No contribution recorded' ? 'No contributions yet' : club.status_label}
+                  subtleAccent={club.status_label === 'Goal based' || club.status_label === 'No contribution recorded' || club.status_label === 'No contributions yet'} />
               </View>
             </TouchableOpacity>
           ))
@@ -753,8 +756,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 16,
   },
   brandName: {
+    flexShrink: 1,
     fontSize: 24,
     fontWeight: '700',
     color: Colors.white,
@@ -902,19 +907,20 @@ const styles = StyleSheet.create({
   },
   avatarButton: {
     padding: 4,
+    flexShrink: 0,
   },
   avatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatarImage: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
@@ -923,7 +929,7 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
     justifyContent: 'flex-start',
     alignItems: 'flex-end',
-    paddingTop: 110,
+    paddingTop: 148,
     paddingRight: 16,
   },
   dropdownMenu: {

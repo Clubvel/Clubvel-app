@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { load, engine, tick, nodes, text, button, native, colors } = require('./ui-harness.cjs');
 
 function setup() {
-  const ui = engine(), requests = [];
+  const ui = engine(), requests = [], dismissals = [];
   const auth = { user: { id: 'member' }, token: 'signed-session' };
   const Screen = load('app/(member)/alerts.tsx', {
     react: ui.react,
@@ -12,7 +12,7 @@ function setup() {
     '../../contexts/AuthContext': { useAuth: () => auth },
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     'date-fns': { format: () => '10:00' },
-    axios: { get: (url, options) => new Promise((resolve, reject) => requests.push({ url, options, resolve, reject })) },
+    axios: { post: async (url, data, options) => dismissals.push({url,data,options}), get: (url, options) => new Promise((resolve, reject) => requests.push({ url, options, resolve, reject })) },
   }).default;
   const render = () => ui.render(Screen);
   const respond = async (i, message) => {
@@ -22,7 +22,7 @@ function setup() {
   };
   const refresh = () => nodes(render()).find(n => n.type === 'ScrollView').props.refreshControl.props.onRefresh();
   const initial = render();
-  return { ui, requests, auth, render, respond, refresh, initial };
+  return { ui, requests, auth, render, respond, refresh, initial, dismissals };
 }
 
 test('Alerts initial load sends signed bearer token and shows genuine empty state only after success', async () => {
@@ -74,4 +74,15 @@ test('missing session makes no unauthenticated Alerts request and shows an error
   const c = setup(); c.auth.token = null; c.render();
   assert.equal(c.requests.length, 1); assert.match(text(c.render()), /Please sign in again/);
   await c.respond(0, 'Private'); assert.doesNotMatch(text(c.render()), /Private|No alerts/);
+});
+
+
+test('X persists an owned dismissal and stale refresh cannot resurrect the alert in this view', async () => {
+ const c=setup();await c.respond(0,'Old alert');
+ const x=nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Dismiss alert');
+ await x.props.onPress();await tick();assert.doesNotMatch(text(c.render()),/Old alert/);
+ assert.equal(c.dismissals[0].url.endsWith('/api/alerts/0/dismiss'),true);
+ assert.equal(c.dismissals[0].options.headers.Authorization,'Bearer signed-session');
+ c.refresh();c.requests[1].resolve({data:{alerts:[{id:'0',alert_message:'Old alert',created_at:new Date().toISOString()}]}});await tick();
+ assert.doesNotMatch(text(c.render()),/Old alert/);
 });

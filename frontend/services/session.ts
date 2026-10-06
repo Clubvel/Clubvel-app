@@ -1,6 +1,6 @@
 // These checks decide whether a cached session is worth restoring. They do not
 // authenticate a JWT: the backend still verifies signatures and permissions.
-export const SESSION_TIMEOUT_MS = 30 * 60 * 1000;
+export const SESSION_TIMEOUT_MS = 30 * 24 * 60 * 60 * 1000;
 export const AUTH_STORAGE_KEYS = ['auth_token', 'user_data', 'last_activity'];
 
 function tokenClaims(token: string): { exp?: number; user_id?: string } {

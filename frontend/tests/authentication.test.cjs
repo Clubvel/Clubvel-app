@@ -93,6 +93,7 @@ test('real AuthProvider can sign in, sign out and sign in again without Firebase
     react: React, '@react-native-async-storage/async-storage': storage, axios: {},
     'react-native': { AppState: { currentState: 'active' }, Alert: {} }, '../services/authentication': s,
     '../services/session': load('services/session.ts', {}),
+    '../services/sessionStorage': { sessionStorage: { getToken: async () => data.get('auth_token'), setToken: async value => data.set('auth_token',value), clearToken: async () => data.delete('auth_token') } },
   });
   const render = () => { cursor = 0; return AuthProvider({ children: null }).props.value; };
   await render().login('0821234567', 'secret');

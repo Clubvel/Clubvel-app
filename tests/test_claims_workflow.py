@@ -1,6 +1,7 @@
 """Security and workflow tests for member Claims."""
 import ast
 import math
+import uuid
 import unittest
 from datetime import datetime
 from pathlib import Path
@@ -28,6 +29,7 @@ class Cursor:
 class UpdateResult:
     def __init__(self, modified_count):
         self.modified_count = modified_count
+        self.matched_count = modified_count
 
 
 def matches(record, query):
@@ -37,6 +39,8 @@ def matches(record, query):
         if isinstance(expected, dict) and "$in" in expected:
             if actual not in expected["$in"]:
                 return False
+        elif isinstance(expected, dict) and "$ne" in expected:
+            if actual == expected["$ne"]: return False
         elif actual != expected:
             return False
 
@@ -62,12 +66,14 @@ class Collection:
         self.records.append(dict(record))
         return Obj(inserted_id=record.get("id"))
 
-    async def update_one(self, query, update):
+    async def update_one(self, query, update, upsert=False):
         for record in self.records:
             if matches(record, query):
                 record.update(update.get("$set", {}))
                 return UpdateResult(1)
 
+        if upsert:
+            self.records.append({**query, **update.get("$setOnInsert", {})})
         return UpdateResult(0)
 
 
@@ -113,6 +119,7 @@ def environment():
         "get_member_claims",
         "get_group_claims",
         "review_group_claim",
+        "dismiss_rejected_claim",
     }
 
     functions = [
@@ -133,6 +140,8 @@ def environment():
         "Claim": Claim,
         "datetime": datetime,
         "math": math,
+        "uuid": uuid,
+        "Alert": lambda **fields: Obj(dict=lambda: fields),
     }
 
     exec(
@@ -179,6 +188,7 @@ def make_db():
             },
         ]),
         claims=Collection(),
+        alerts=Collection(),
     )
 
 

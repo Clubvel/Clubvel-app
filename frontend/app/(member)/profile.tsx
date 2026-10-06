@@ -156,9 +156,10 @@ export default function ProfileScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.avatarContainer} onPress={handleChangePhoto} disabled={uploading}>
+        <TouchableOpacity style={styles.avatarContainer} onPress={handleChangePhoto} disabled={uploading}
+          accessibilityRole="button" accessibilityLabel="Change profile photo">
           {user?.profile_photo ? (
-            <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} />
+            <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
           ) : (
             <View style={styles.avatar}>
               <Ionicons name="person" size={32} color={Colors.white} />
@@ -171,6 +172,9 @@ export default function ProfileScreen() {
               <Ionicons name="camera" size={14} color={Colors.white} />
             )}
           </View>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handleChangePhoto} disabled={uploading} accessibilityRole="button">
+          <Text style={styles.photoActionText}>{uploading ? 'Updating photo…' : 'Change photo'}</Text>
         </TouchableOpacity>
         <Text style={styles.name}>{user?.full_name}</Text>
         {stats.date_joined && (
@@ -370,7 +374,14 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.darkGreen,
     paddingTop: 50,
     paddingBottom: 20,
+    paddingHorizontal: 24,
     alignItems: 'center',
+  },
+  photoActionText: {
+    color: Colors.accent,
+    fontSize: 14,
+    fontWeight: '600',
+    paddingVertical: 8,
   },
   avatar: {
     width: 80,
@@ -405,6 +416,8 @@ const styles = StyleSheet.create({
     borderColor: Colors.white,
   },
   name: {
+    alignSelf: 'stretch',
+    textAlign: 'center',
     fontSize: 20,
     fontWeight: 'bold',
     color: Colors.white,
