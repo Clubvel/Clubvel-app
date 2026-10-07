@@ -181,26 +181,27 @@ export default function ContributionsScreen() {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.headerTitle}>Payments</Text>
-          <View style={styles.monthNav}>
-            <TouchableOpacity onPress={handlePreviousMonth} style={styles.monthButton}>
-              <Ionicons name="chevron-back" size={20} color={Colors.white} />
-            </TouchableOpacity>
-            <Text style={styles.monthText}>
-              {getMonthName(currentMonth)} {currentYear}
-            </Text>
-            <TouchableOpacity onPress={handleNextMonth} style={styles.monthButton}>
-              <Ionicons name="chevron-forward" size={20} color={Colors.white} />
-            </TouchableOpacity>
-          </View>
         </View>
         <TouchableOpacity onPress={() => router.push('/(treasurer)/profile')} style={styles.profileButton}>
           {user?.profile_photo ? (
-            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} />
+            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
             <View style={styles.profilePlaceholder}>
-              <Ionicons name="person" size={20} color={Colors.white} />
+              <Ionicons name="person" size={32} color={Colors.white} />
             </View>
           )}
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.monthNav}>
+        <TouchableOpacity onPress={handlePreviousMonth} style={styles.monthButton}>
+          <Ionicons name="chevron-back" size={20} color={Colors.white} />
+        </TouchableOpacity>
+        <Text style={styles.monthText}>
+          {getMonthName(currentMonth)} {currentYear}
+        </Text>
+        <TouchableOpacity onPress={handleNextMonth} style={styles.monthButton}>
+          <Ionicons name="chevron-forward" size={20} color={Colors.white} />
         </TouchableOpacity>
       </View>
 
@@ -356,7 +357,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    gap: 16,
   },
   headerLeft: {
     flex: 1,
@@ -365,27 +367,30 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: Colors.white,
-    marginBottom: 12,
   },
   profileButton: {
     padding: 4,
+    flexShrink: 0,
   },
   profileImage: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
   profilePlaceholder: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
   },
   monthNav: {
+    backgroundColor: Colors.darkGreen,
+    paddingHorizontal: 24,
+    paddingBottom: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -398,7 +403,8 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: Colors.white,
-    minWidth: 150,
+    flex: 1,
+    flexShrink: 1,
     textAlign: 'center',
   },
   summaryContainer: {

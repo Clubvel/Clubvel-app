@@ -64,10 +64,10 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       {showProfile && (
         <TouchableOpacity onPress={handleProfilePress} style={styles.profileButton}>
           {user?.profile_photo ? (
-            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} />
+            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
             <View style={styles.profilePlaceholder}>
-              <Ionicons name="person" size={20} color={Colors.white} />
+              <Ionicons name="person" size={32} color={Colors.white} />
             </View>
           )}
         </TouchableOpacity>
@@ -84,8 +84,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 16,
   },
   leftSection: {
+    minWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
     flex: 1,
@@ -95,6 +97,7 @@ const styles = StyleSheet.create({
     padding: 4,
   },
   titleContainer: {
+    minWidth: 0,
     flex: 1,
   },
   title: {
@@ -107,18 +110,19 @@ const styles = StyleSheet.create({
   },
   profileButton: {
     padding: 4,
+    flexShrink: 0,
   },
   profileImage: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
   profilePlaceholder: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',

@@ -24,6 +24,8 @@ async function setup(from = 'member', uploaded = true) {
     '../../services/paymentReminder': { addPaymentReminder: async (apiUrl, token, contributionId) => {
       requests.push({ url: `${apiUrl}/api/treasurer/send-reminder`, data: { contribution_id: contributionId }, token });
     } },
+    '../../components/ClaimPaymentRecord':{ClaimPaymentRecord:'ClaimPaymentRecord'},
+  '../../components/ClaimPayoutDate': { ClaimPayoutDate: 'ClaimPayoutDate' },
     '../../constants/Colors': { Colors: colors },
     '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '../../contexts/AuthContext': { useAuth: () => ({ user: { id: 'treasurer-1' }, token: 'session' }) },

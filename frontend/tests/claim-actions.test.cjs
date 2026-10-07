@@ -36,3 +36,23 @@ test('Android claim modal resizes for keyboard and scrolls focused Reason after 
  const scroll=nodes(avoiding).find(n=>n.type==='ScrollView');const calls=[];scroll.props.ref.current={scrollToEnd:o=>calls.push(o)};
  const reason=nodes(tree).find(n=>n.type==='TextInput'&&n.props.multiline);reason.props.onFocus();scroll.props.onLayout();assert.equal(calls.length,2);reason.props.onBlur();scroll.props.onLayout();assert.equal(calls.length,2);
 });
+
+test('Member sees approved payout date or honest unscheduled state and cannot edit it',async()=>{
+ const c=await setup();c.claim.status='approved';c.claim.amount=50000;
+ let tree=c.render();assert.match(text(tree),/Payout date: To be scheduled/);
+ assert.equal(button(tree,'Set payout date'),undefined);assert.equal(button(tree,'Change payout date'),undefined);
+ c.claim.scheduled_claim_date='2026-11-20T00:00:00';tree=c.render();
+ assert.match(text(tree),new RegExp(`Payout date: ${new Date(c.claim.scheduled_claim_date).toLocaleDateString()}`));
+ assert.doesNotMatch(text(tree),/To be scheduled/);
+});
+
+test('Member Claims shows partial remaining and full paid actual date separately from schedule without mutation controls',async()=>{
+ const c=await setup();Object.assign(c.claim,{status:'approved',amount:50000,actual_amount_paid:20000,actual_payment_date:'2026-01-02',scheduled_claim_date:'2026-11-20'});
+ let tree=c.render();assert.match(text(tree),/Paid: R20,000 \(partially paid\)/);assert.match(text(tree),/Remaining: R30,000/);
+ assert.ok(text(tree).includes(`Last payment date: ${new Date('2026-01-02').toLocaleDateString()}`));
+ c.claim.status='paid';c.claim.actual_amount_paid=50000;tree=c.render();
+ assert.match(text(tree),/Paid: R50,000/);assert.match(text(tree),/Remaining: R0/);
+ assert.ok(text(tree).includes(`Payment date: ${new Date('2026-01-02').toLocaleDateString()}`));
+ assert.ok(text(tree).includes(`Scheduled payout ${new Date('2026-11-20').toLocaleDateString()}`));
+ assert.equal(button(tree,'Mark as Paid'),undefined);assert.equal(button(tree,'Review Payment'),undefined);
+});

@@ -31,6 +31,7 @@ interface DashboardData {
     days_until_next_claim: number | null;
     overdue_contributions: number;
     upcoming_payments: number;
+    upcoming_payout_amount?: number;
     claims_count: number;
   };
   clubs: Club[];
@@ -394,6 +395,15 @@ export default function MemberHomeScreen() {
         </View>
       </View>
 
+      <View style={styles.summaryContainer}>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Upcoming Payouts</Text>
+          <Text style={styles.summaryValue}>
+            R{(dashboardData?.summary.upcoming_payout_amount ?? 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+          </Text>
+        </View>
+      </View>
+
       {/* My Clubs Section */}
       <View style={styles.section}>
         <Text style={styles.sectionTitle}>My Clubs</Text>
@@ -479,80 +489,102 @@ export default function MemberHomeScreen() {
       <AdBanner size="banner" />
     </ScrollView>
 
-    {/* Profile Dropdown Menu Modal */}
+    {/* Member Account Panel */}
     <Modal
       visible={showProfileMenu}
       transparent={true}
       animationType="fade"
       onRequestClose={() => setShowProfileMenu(false)}
     >
-      <TouchableOpacity 
-        style={styles.modalOverlay}
-        activeOpacity={1}
-        onPress={() => setShowProfileMenu(false)}
-      >
-        <View style={styles.dropdownMenu}>
-          <View style={styles.dropdownHeader}>
-            <View style={styles.dropdownAvatar}>
-              <Text style={styles.dropdownAvatarText}>
-                {dashboardData?.user.first_name.charAt(0)}
-              </Text>
-            </View>
-            <View style={styles.dropdownUserInfo}>
-              <Text style={styles.dropdownUserName}>{dashboardData?.user.full_name}</Text>
-              <Text style={styles.dropdownUserRole}>Member</Text>
-            </View>
+      <View style={styles.modalOverlay}>
+        <TouchableOpacity
+          style={StyleSheet.absoluteFillObject}
+          activeOpacity={1}
+          onPress={() => setShowProfileMenu(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Close account panel backdrop"
+        />
+        <View style={styles.dropdownMenu} accessibilityViewIsModal>
+          <View style={styles.accountToolbar}>
+            <Text style={styles.accountTitle}>My Clubvel</Text>
+            <TouchableOpacity style={styles.accountClose} onPress={() => setShowProfileMenu(false)} accessibilityRole="button" accessibilityLabel="Close account panel">
+              <Ionicons name="close" size={26} color={Colors.textPrimary} />
+            </TouchableOpacity>
           </View>
-          
-          <View style={styles.dropdownDivider} />
-          
-          <TouchableOpacity style={styles.dropdownItem} onPress={navigateToProfile}>
-            <Ionicons name="person-outline" size={20} color={Colors.textPrimary} />
-            <Text style={styles.dropdownItemText}>My Profile</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.dropdownItem} onPress={navigateToSupport}>
-            <Ionicons name="help-circle-outline" size={20} color={Colors.textPrimary} />
-            <Text style={styles.dropdownItemText}>Contact Us</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.dropdownItem} onPress={() => {
-            setShowProfileMenu(false);
-            router.push('/(member)/about');
-          }}>
-            <Ionicons name="information-circle-outline" size={20} color={Colors.textPrimary} />
-            <Text style={styles.dropdownItemText}>About Us</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.dropdownItem} onPress={navigateToNotifications}>
-            <Ionicons name="notifications-outline" size={20} color={Colors.textPrimary} />
-            <Text style={styles.dropdownItemText}>Notification Preferences</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.dropdownItem} onPress={navigateToPrivacy}>
-            <Ionicons name="shield-checkmark-outline" size={20} color={Colors.textPrimary} />
-            <Text style={styles.dropdownItemText}>Privacy Policy</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.dropdownItem} 
-            onPress={() => {
-              setShowProfileMenu(false);
-              setShowDeleteModal(true);
-            }}
-          >
-            <Ionicons name="trash-outline" size={20} color={Colors.statusLate} />
-            <Text style={[styles.dropdownItemText, { color: Colors.statusLate }]}>Delete My Account</Text>
-          </TouchableOpacity>
-          
-          <View style={styles.dropdownDivider} />
-          
-          <TouchableOpacity style={styles.dropdownItemLogout} onPress={handleLogout}>
-            <Ionicons name="log-out-outline" size={20} color={Colors.statusLate} />
-            <Text style={styles.dropdownItemTextLogout}>Sign Out</Text>
-          </TouchableOpacity>
+          <ScrollView style={styles.accountScroll} contentContainerStyle={styles.accountContent}>
+            <View style={styles.dropdownHeader}>
+              {user?.profile_photo ? (
+                <Image source={{ uri: user.profile_photo }} style={styles.dropdownAvatar} resizeMode="cover" />
+              ) : (
+                <View style={styles.dropdownAvatar}>
+                  <Text style={styles.dropdownAvatarText}>{dashboardData?.user.first_name.charAt(0)}</Text>
+                </View>
+              )}
+              <View style={styles.dropdownUserInfo}>
+                <Text style={styles.dropdownUserName}>{dashboardData?.user.full_name}</Text>
+                <Text style={styles.dropdownUserRole}>
+                  {dashboardData ? `Member of ${dashboardData.summary.active_clubs} ${dashboardData.summary.active_clubs === 1 ? 'Clubvel' : 'Clubvels'}` : 'Member'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.dropdownDivider} />
+            <TouchableOpacity style={styles.dropdownItem} onPress={navigateToProfile} accessibilityRole="button" accessibilityLabel="My Profile">
+              <Ionicons name="person-outline" size={24} color={Colors.textPrimary} />
+              <View style={styles.dropdownItemCopy}>
+                <Text style={styles.dropdownItemText}>My Profile</Text>
+                <Text style={styles.dropdownDescription}>Photo, personal details and account</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.dropdownItem} onPress={navigateToNotifications} accessibilityRole="button" accessibilityLabel="Notification Preferences">
+              <Ionicons name="notifications-outline" size={24} color={Colors.textPrimary} />
+              <View style={styles.dropdownItemCopy}>
+                <Text style={styles.dropdownItemText}>Notification Preferences</Text>
+                <Text style={styles.dropdownDescription}>Choose which Clubvel alerts you receive</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.dropdownItem} onPress={navigateToPrivacy} accessibilityRole="button" accessibilityLabel="Privacy Policy">
+              <Ionicons name="shield-checkmark-outline" size={24} color={Colors.textPrimary} />
+              <View style={styles.dropdownItemCopy}>
+                <Text style={styles.dropdownItemText}>Privacy Policy</Text>
+                <Text style={styles.dropdownDescription}>How Clubvel protects your information</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.dropdownItem} onPress={navigateToSupport} accessibilityRole="button" accessibilityLabel="Contact Us">
+              <Ionicons name="help-circle-outline" size={24} color={Colors.textPrimary} />
+              <View style={styles.dropdownItemCopy}>
+                <Text style={styles.dropdownItemText}>Contact Us</Text>
+                <Text style={styles.dropdownDescription}>Get help with Clubvel</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.dropdownItem} onPress={() => { setShowProfileMenu(false); router.push('/(member)/about'); }} accessibilityRole="button" accessibilityLabel="About Clubvel">
+              <Ionicons name="information-circle-outline" size={24} color={Colors.textPrimary} />
+              <View style={styles.dropdownItemCopy}>
+                <Text style={styles.dropdownItemText}>About Clubvel</Text>
+                <Text style={styles.dropdownDescription}>Information about Clubvel</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+            </TouchableOpacity>
+            <View style={styles.dropdownDivider} />
+            <TouchableOpacity style={styles.dropdownItemLogout} onPress={handleLogout} accessibilityRole="button" accessibilityLabel="Sign Out">
+              <Ionicons name="log-out-outline" size={24} color={Colors.textPrimary} />
+              <Text style={styles.dropdownItemTextLogout}>Sign Out</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.dropdownItem}
+              onPress={() => { setShowProfileMenu(false); setShowDeleteModal(true); }}
+              accessibilityRole="button"
+              accessibilityLabel="Delete My Account"
+            >
+              <Ionicons name="trash-outline" size={24} color={Colors.statusLate} />
+              <Text style={[styles.dropdownItemText, styles.accountDeleteText]}>Delete My Account</Text>
+            </TouchableOpacity>
+          </ScrollView>
         </View>
-      </TouchableOpacity>
+      </View>
     </Modal>
 
     {/* Delete Account Confirmation Modal */}
@@ -927,82 +959,59 @@ const styles = StyleSheet.create({
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-start',
     alignItems: 'flex-end',
-    paddingTop: 148,
-    paddingRight: 16,
+    paddingVertical: 12,
   },
   dropdownMenu: {
     backgroundColor: Colors.white,
-    borderRadius: 16,
-    width: 260,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 8,
+    borderTopLeftRadius: 24,
+    borderBottomLeftRadius: 24,
+    width: '92%',
+    maxWidth: 420,
+    flex: 1,
     overflow: 'hidden',
   },
+  accountToolbar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingLeft: 24, paddingRight: 12, paddingVertical: 8, gap: 12,
+  },
+  accountTitle: { color: Colors.textPrimary, fontSize: 18, fontWeight: '700', flexShrink: 1 },
+  accountClose: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
+  accountScroll: { flex: 1 },
+  accountContent: { paddingBottom: 24 },
   dropdownHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
+    padding: 24,
+    paddingTop: 12,
     backgroundColor: Colors.lightBackground,
   },
   dropdownAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 2,
+    borderColor: Colors.gold,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  dropdownAvatarText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: Colors.white,
-  },
-  dropdownUserInfo: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  dropdownUserName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: Colors.textPrimary,
-  },
-  dropdownUserRole: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    marginTop: 2,
-  },
-  dropdownDivider: {
-    height: 1,
-    backgroundColor: Colors.cardBorder,
-  },
+  dropdownAvatarText: { fontSize: 30, fontWeight: 'bold', color: Colors.white },
+  dropdownUserInfo: { marginTop: 16, alignSelf: 'stretch' },
+  dropdownUserName: { fontSize: 26, fontWeight: 'bold', color: Colors.textPrimary },
+  dropdownUserRole: { fontSize: 15, color: Colors.textSecondary, marginTop: 6 },
+  dropdownDivider: { height: 1, backgroundColor: Colors.cardBorder, marginHorizontal: 24 },
   dropdownItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    gap: 12,
+    flexDirection: 'row', alignItems: 'center', minHeight: 64,
+    paddingVertical: 18, paddingHorizontal: 24, gap: 12,
   },
-  dropdownItemText: {
-    fontSize: 15,
-    color: Colors.textPrimary,
-  },
+  dropdownItemCopy: { flex: 1, minWidth: 0 },
+  dropdownItemText: { fontSize: 17, fontWeight: '600', color: Colors.textPrimary, flexShrink: 1 },
+  dropdownDescription: { fontSize: 13, color: Colors.textSecondary, marginTop: 4 },
   dropdownItemLogout: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    gap: 12,
+    flexDirection: 'row', alignItems: 'center', minHeight: 64,
+    paddingVertical: 18, paddingHorizontal: 24, gap: 12,
   },
-  dropdownItemTextLogout: {
-    fontSize: 15,
-    color: Colors.statusLate,
-    fontWeight: '500',
-  },
+  dropdownItemTextLogout: { fontSize: 17, color: Colors.textPrimary, fontWeight: '600', flexShrink: 1 },
+  accountDeleteText: { color: Colors.statusLate, fontSize: 15 },
   // Delete Account Modal Styles
   deleteModalOverlay: {
     flex: 1,

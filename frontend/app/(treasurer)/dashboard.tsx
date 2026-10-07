@@ -271,10 +271,10 @@ export default function AdminDashboardScreen() {
           onPress={() => setShowProfileMenu(true)}
         >
           {user?.profile_photo ? (
-            <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} />
+            <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
           ) : (
             <View style={styles.avatar}>
-              <Ionicons name="person" size={24} color={Colors.white} />
+              <Ionicons name="person" size={32} color={Colors.white} />
             </View>
           )}
         </TouchableOpacity>
@@ -670,8 +670,10 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 16,
   },
   brandName: {
+    flexShrink: 1,
     fontSize: 24,
     fontWeight: '700',
     color: Colors.white,
@@ -931,19 +933,20 @@ const styles = StyleSheet.create({
   },
   avatarButton: {
     padding: 4,
+    flexShrink: 0,
   },
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatarImage: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     borderWidth: 2,
     borderColor: Colors.gold,
   },

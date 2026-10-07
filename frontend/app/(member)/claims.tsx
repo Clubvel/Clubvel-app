@@ -240,13 +240,14 @@ export default function ClaimsScreen() {
         <TouchableOpacity
           accessibilityRole="button"
           accessibilityLabel="Open profile"
+          style={styles.profileButton}
           onPress={() => router.push('/(member)/profile')}
         >
           {user?.profile_photo ? (
-            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} />
+            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
             <View style={styles.profilePlaceholder}>
-              <Ionicons name="person" size={20} color={Colors.white} />
+              <Ionicons name="person" size={32} color={Colors.white} />
             </View>
           )}
         </TouchableOpacity>
@@ -322,8 +323,18 @@ export default function ClaimsScreen() {
                   <Text style={styles.meta}>Submitted {submitted}</Text>
                 ) : null}
 
-                {scheduled ? (
+                {claim.status === 'approved' ? (
+                  <Text style={styles.meta}>Payout date: {scheduled || 'To be scheduled'}</Text>
+                ) : scheduled ? (
                   <Text style={styles.meta}>Scheduled payout {scheduled}</Text>
+                ) : null}
+
+                {(claim.status === 'approved' || claim.status === 'paid') && (claim.actual_amount_paid || 0) > 0 ? (
+                  <View>
+                    <Text style={styles.meta}>Paid: R{claim.actual_amount_paid?.toLocaleString()}{claim.status === 'approved' ? ' (partially paid)' : ''}</Text>
+                    <Text style={styles.meta}>{claim.status === 'paid' ? 'Payment date' : 'Last payment date'}: {formatDate(claim.actual_payment_date) || 'Not recorded'}</Text>
+                    <Text style={styles.meta}>Remaining: R{Math.max((claim.amount || 0) - (claim.actual_amount_paid || 0), 0).toLocaleString()}</Text>
+                  </View>
                 ) : null}
 
                 {claim.rejection_reason ? (
@@ -468,23 +479,26 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 16,
   },
   headerTitle: {
+    flex: 1,
     fontSize: 24,
     fontWeight: 'bold',
     color: Colors.white,
   },
+  profileButton: { padding: 4, flexShrink: 0 },
   profileImage: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     borderWidth: 2,
     borderColor: Colors.accent,
   },
   profilePlaceholder: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     backgroundColor: Colors.accent,
     justifyContent: 'center',
     alignItems: 'center',

@@ -1,6 +1,7 @@
 """Signed offline JWTs exercising actual Member reads and historical proof policy."""
 import ast
 import copy
+import math
 import unittest
 from unittest.mock import AsyncMock
 
@@ -21,6 +22,7 @@ class ReadCollection(Collection):
 
 def environment():
     ns = proof_environment()
+    ns['math'] = math
     names = {'get_member_dashboard', 'get_active_membership_contexts'}
     nodes = [node for node in ast.parse(SOURCE.read_text()).body
              if isinstance(node, ast.AsyncFunctionDef) and node.name in names]

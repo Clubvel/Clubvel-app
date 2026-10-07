@@ -1,3 +1,5 @@
+import { ClaimPaymentRecord } from '../../components/ClaimPaymentRecord';
+import { ClaimPayoutDate } from '../../components/ClaimPayoutDate';
 import React, { useEffect, useState } from 'react';
 import {
   ActivityIndicator,
@@ -35,6 +37,7 @@ interface GroupClaim {
   submitted_at: string | null;
   scheduled_claim_date: string | null;
   actual_amount_paid: number | null;
+  actual_payment_date?: string | null;
   rejection_reason: string | null;
 }
 
@@ -250,10 +253,10 @@ export default function TreasurerClaimsScreen() {
           style={styles.profileButton}
         >
           {user?.profile_photo ? (
-            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} />
+            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
             <View style={styles.profilePlaceholder}>
-              <Ionicons name="person" size={20} color={Colors.white} />
+              <Ionicons name="person" size={32} color={Colors.white} />
             </View>
           )}
         </TouchableOpacity>
@@ -389,6 +392,28 @@ export default function TreasurerClaimsScreen() {
                         </Text>
                       ) : null}
 
+                      <ClaimPayoutDate
+                        groupId={claim.group_id}
+                        claimId={claim.claim_id}
+                        status={claim.status}
+                        scheduledDate={claim.scheduled_claim_date}
+                        token={token}
+                        onSaved={() => fetchClaims(claim.group_id)}
+                      />
+
+                      <ClaimPaymentRecord
+                        groupId={claim.group_id}
+                        claimId={claim.claim_id}
+                        memberName={claim.member_name}
+                        status={claim.status}
+                        approvedAmount={claim.amount}
+                        actualAmountPaid={claim.actual_amount_paid}
+                        actualPaymentDate={claim.actual_payment_date}
+                        scheduledDate={claim.scheduled_claim_date}
+                        token={token}
+                        onRecorded={() => fetchClaims(claim.group_id)}
+                      />
+
                       {claim.status === 'rejected' && claim.rejection_reason ? (
                         <Text style={styles.claimDate}>
                           Rejection reason: {claim.rejection_reason}
@@ -491,26 +516,29 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 16,
   },
   headerTitle: {
+    flex: 1,
     fontSize: 24,
     fontWeight: 'bold',
     color: Colors.white,
   },
   profileButton: {
     padding: 4,
+    flexShrink: 0,
   },
   profileImage: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
   profilePlaceholder: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 68,
+    height: 68,
+    borderRadius: 34,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',

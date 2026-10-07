@@ -11,6 +11,7 @@ export type PersonalClaim = {
   submitted_at: string | null;
   scheduled_claim_date: string | null;
   actual_amount_paid: number | null;
+  actual_payment_date: string | null;
   rejection_reason: string | null;
 };
 
@@ -52,6 +53,8 @@ function personalClaims(payload: unknown): PersonalClaim[] {
         typeof claim.actual_amount_paid === 'number'
           ? claim.actual_amount_paid
           : null,
+      actual_payment_date:
+        typeof claim.actual_payment_date === 'string' ? claim.actual_payment_date : null,
       rejection_reason:
         typeof claim.rejection_reason === 'string'
           ? claim.rejection_reason

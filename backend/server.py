@@ -10,11 +10,13 @@ from slowapi.errors import RateLimitExceeded
 import os
 import logging
 import math
+from decimal import Decimal
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import Literal, List, Optional
 import uuid
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 import random
@@ -46,6 +48,8 @@ import certifi
 import certifi
 
 ROOT_DIR = Path(__file__).parent
+# Calendar-date validation follows Clubvel's South African business timezone.
+BUSINESS_TIMEZONE = ZoneInfo('Africa/Johannesburg')
 load_dotenv(ROOT_DIR / '.env')
 
 # Rate limiter setup
@@ -245,6 +249,8 @@ class Claim(BaseModel):
     confirmation_date: Optional[datetime] = None
     notes: Optional[str] = None
     actual_amount_paid: Optional[float] = None
+    actual_payment_date: Optional[datetime] = None
+    payout_payments: List[dict] = Field(default_factory=list)
     reason: Optional[str] = None
     submitted_at: Optional[datetime] = None
     reviewed_at: Optional[datetime] = None
@@ -257,6 +263,16 @@ class ClaimSubmission(BaseModel):
     claim_amount: float
     reason: str
     resubmitted_from_claim_id: Optional[str] = None
+
+
+class ClaimPaymentRecord(BaseModel):
+    actual_amount_paid: float = Field(gt=0, strict=True, allow_inf_nan=False)
+    expected_actual_amount_paid: float = Field(ge=0, strict=True, allow_inf_nan=False)
+    actual_payment_date: date
+
+
+class ClaimPayoutDate(BaseModel):
+    scheduled_claim_date: date
 
 
 class ClaimReview(BaseModel):
@@ -1210,6 +1226,7 @@ async def get_member_claims(user_id: str, authorization: Optional[str] = Header(
             "submitted_at": claim.get("submitted_at"),
             "scheduled_claim_date": claim.get("scheduled_claim_date"),
             "actual_amount_paid": claim.get("actual_amount_paid"),
+            "actual_payment_date": claim.get("actual_payment_date"),
             "rejection_reason": claim.get("rejection_reason"),
         })
 
@@ -1273,6 +1290,7 @@ async def get_group_claims(group_id: str, authorization: Optional[str] = Header(
             "submitted_at": claim.get("submitted_at"),
             "scheduled_claim_date": claim.get("scheduled_claim_date"),
             "actual_amount_paid": claim.get("actual_amount_paid"),
+            "actual_payment_date": claim.get("actual_payment_date"),
             "rejection_reason": claim.get("rejection_reason"),
         })
 
@@ -1284,6 +1302,96 @@ async def get_group_claims(group_id: str, authorization: Optional[str] = Header(
     )
 
     return {"claims": claims}
+
+
+@api_router.post("/treasurer/groups/{group_id}/claims/{claim_id}/record-payment")
+async def record_claim_payment(
+    group_id: str,
+    claim_id: str,
+    data: ClaimPaymentRecord,
+    authorization: Optional[str] = Header(None)
+):
+    """Record an externally completed payout; this endpoint never moves money."""
+    user_id = authenticated_user_id(authorization)
+    await verify_user_is_group_treasurer(user_id, group_id)
+    claim = await db.claims.find_one({"id": claim_id, "group_id": group_id})
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+
+    total = Decimal(str(data.actual_amount_paid))
+    expected = Decimal(str(data.expected_actual_amount_paid))
+    if total.as_tuple().exponent < -2 or expected.as_tuple().exponent < -2:
+        raise HTTPException(status_code=422, detail="Payment amounts must have at most two decimal places")
+    if data.actual_payment_date > datetime.now(BUSINESS_TIMEZONE).date():
+        raise HTTPException(status_code=422, detail="Actual payment date cannot be in the future")
+
+    # The same actor/base/total/date identifies one recording, including a lost-response retry.
+    payment_id = str(uuid.uuid5(uuid.NAMESPACE_URL,
+        f"clubvel:claim-payment:{group_id}:{claim_id}:{user_id}:{expected:.2f}:{total:.2f}:{data.actual_payment_date.isoformat()}"))
+    if any(payment.get('id') == payment_id for payment in (claim.get('payout_payments') or [])):
+        return {"claim_id": claim_id, "status": claim['claim_status'],
+                "actual_amount_paid": claim['actual_amount_paid'],
+                "actual_payment_date": claim['actual_payment_date'], "already_recorded": True}
+
+    if claim.get('claim_status') != 'approved':
+        raise HTTPException(status_code=409, detail="Only approved claims awaiting payout can have payment recorded")
+    previous = Decimal(str(claim.get('actual_amount_paid') or 0))
+    approved = Decimal(str(claim['claim_amount']))
+    if previous != expected:
+        raise HTTPException(status_code=409, detail="The recorded payment changed. Refresh before recording payment.")
+    if total <= previous or total > approved:
+        raise HTTPException(status_code=422, detail="Total paid must exceed the amount already recorded and cannot exceed the approved amount")
+
+    now = datetime.utcnow()
+    paid_on = datetime.combine(data.actual_payment_date, datetime.min.time())
+    new_status = 'paid' if total == approved else 'approved'
+    payment = {"id": payment_id, "recorded_by_user_id": user_id, "recorded_at": now,
+               "amount": float(total - previous), "previous_amount_paid": float(previous),
+               "total_amount_paid": float(total), "actual_payment_date": paid_on}
+    result = await db.claims.update_one(
+        {"id": claim_id, "group_id": group_id, "claim_status": "approved",
+         "claim_amount": claim['claim_amount'], "actual_amount_paid": claim.get('actual_amount_paid')},
+        {"$set": {"actual_amount_paid": float(total), "actual_payment_date": paid_on, "claim_status": new_status},
+         "$push": {"payout_payments": payment}}
+    )
+    if result.modified_count != 1:
+        # If an identical concurrent request won, return its receipt without another write.
+        current = await db.claims.find_one({"id": claim_id, "group_id": group_id})
+        if current and any(p.get('id') == payment_id for p in (current.get('payout_payments') or [])):
+            return {"claim_id": claim_id, "status": current['claim_status'],
+                    "actual_amount_paid": current['actual_amount_paid'],
+                    "actual_payment_date": current['actual_payment_date'], "already_recorded": True}
+        raise HTTPException(status_code=409, detail="This claim changed. Refresh before recording payment.")
+    return {"claim_id": claim_id, "status": new_status, "actual_amount_paid": float(total),
+            "actual_payment_date": paid_on, "already_recorded": False}
+
+
+@api_router.post("/treasurer/groups/{group_id}/claims/{claim_id}/payout-date")
+async def set_claim_payout_date(
+    group_id: str,
+    claim_id: str,
+    data: ClaimPayoutDate,
+    authorization: Optional[str] = Header(None)
+):
+    """Schedule an approved claim without recording payment or changing its amount."""
+    user_id = authenticated_user_id(authorization)
+    await verify_user_is_group_treasurer(user_id, group_id)
+    claim = await db.claims.find_one({"id": claim_id, "group_id": group_id})
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    if claim.get("claim_status") != "approved" or (claim.get("actual_amount_paid") or 0) >= claim["claim_amount"]:
+        raise HTTPException(status_code=409, detail="Only approved claims awaiting payout can be scheduled")
+
+    scheduled = datetime.combine(data.scheduled_claim_date, datetime.min.time())
+    result = await db.claims.update_one(
+        {"id": claim_id, "group_id": group_id, "claim_status": "approved",
+         "actual_amount_paid": claim.get("actual_amount_paid")},
+        {"$set": {"scheduled_claim_date": scheduled,
+                  "payout_scheduled_by_user_id": user_id, "payout_scheduled_at": datetime.utcnow()}}
+    )
+    if result.modified_count != 1:
+        raise HTTPException(status_code=409, detail="This claim changed. Please refresh before scheduling.")
+    return {"claim_id": claim_id, "scheduled_claim_date": scheduled}
 
 
 @api_router.post("/treasurer/groups/{group_id}/claims/{claim_id}/review")
@@ -2169,6 +2277,7 @@ async def get_member_dashboard(user_id: str, authorization: str | None = Header(
     clubs = []
     overdue_count = 0
     upcoming_payments = 0
+    upcoming_payout_amount = 0.0
     days_until_next_claim = None
     
     for membership, group in contexts:
@@ -2203,6 +2312,15 @@ async def get_member_dashboard(user_id: str, authorization: str | None = Header(
         elif status in ("pending", "due", "proof_uploaded"):
             upcoming_payments += 1
         
+        # Approval is not payment. Only approved outstanding claims contribute to this total.
+        approved_claims = await db.claims.find({
+            "member_id": membership["id"], "group_id": group["id"], "claim_status": "approved"
+        }).to_list(None)
+        upcoming_payout_amount += math.fsum(
+            max(claim["claim_amount"] - (claim.get("actual_amount_paid") or 0), 0)
+            for claim in approved_claims
+        )
+
         # Get all confirmed contributions for this member
         confirmed_contributions = await db.contributions.find({
             "member_id": membership['id'],
@@ -2260,6 +2378,7 @@ async def get_member_dashboard(user_id: str, authorization: str | None = Header(
             "total_saved": total_saved,
             "active_clubs": len(clubs),
             "upcoming_payments": upcoming_payments,
+            "upcoming_payout_amount": round(upcoming_payout_amount, 2),
             "claims_count": claims_count,
             "days_until_next_claim": days_until_next_claim,
             "overdue_contributions": overdue_count

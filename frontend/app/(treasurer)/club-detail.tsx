@@ -1,3 +1,5 @@
+import { ClaimPaymentRecord } from '../../components/ClaimPaymentRecord';
+import { ClaimPayoutDate } from '../../components/ClaimPayoutDate';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { Linking, View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, TextInput, KeyboardAvoidingView, Platform, Image } from 'react-native';
 import { useLocalSearchParams, useRouter, Stack, useFocusEffect } from 'expo-router';
@@ -38,6 +40,7 @@ interface GroupClaim {
   submitted_at: string | null;
   scheduled_claim_date: string | null;
   actual_amount_paid: number | null;
+  actual_payment_date?: string | null;
   rejection_reason: string | null;
 }
 
@@ -792,6 +795,28 @@ export default function ClubDetailScreen() {
                         Submitted {new Date(claim.submitted_at).toLocaleDateString()}
                       </Text>
                     ) : null}
+
+                    <ClaimPayoutDate
+                      groupId={String(id)}
+                      claimId={claim.claim_id}
+                      status={claim.status}
+                      scheduledDate={claim.scheduled_claim_date}
+                      token={token}
+                      onSaved={fetchClaims}
+                    />
+
+                    <ClaimPaymentRecord
+                      groupId={String(id)}
+                      claimId={claim.claim_id}
+                      memberName={claim.member_name}
+                      status={claim.status}
+                      approvedAmount={claim.amount}
+                      actualAmountPaid={claim.actual_amount_paid}
+                      actualPaymentDate={claim.actual_payment_date}
+                      scheduledDate={claim.scheduled_claim_date}
+                      token={token}
+                      onRecorded={fetchClaims}
+                    />
 
                     {claim.status === 'rejected' && claim.rejection_reason ? (
                       <Text style={styles.claimDate}>

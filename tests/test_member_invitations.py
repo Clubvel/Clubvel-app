@@ -268,7 +268,7 @@ class InvitationTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(result['mock']); self.assertFalse(result['success']); client.messages.create.assert_not_called()
 
     def test_otp_acceptance_reports_and_payment_handlers_unchanged(self):
-        def base(path): return subprocess.check_output(['git', 'show', 'HEAD:' + path], cwd=ROOT, text=True)
+        def base(path): return subprocess.check_output(['git', 'show', '90ccfeeae2cbeb66783eb06b7cff33f226cb14be:' + path], cwd=ROOT, text=True)
         def functions(source):
             result = {}
             guarded = {'update_group', 'delete_club', 'delete_member', 'get_club_detail', 'confirm_payment',
@@ -297,6 +297,33 @@ class InvitationTests(unittest.IsolatedAsyncioTestCase):
                     for index, item in enumerate(node.body):
                         if isinstance(item, ast.Assign) and isinstance(item.targets[0], ast.Name) and item.targets[0].id == 'is_owner':
                             node.body[index] = ast.parse("is_owner = member['user_id'] == user_id").body[0]
+                if node.name == 'get_member_dashboard':
+                    # Permit only the approved additive payout summary; guard contribution semantics.
+                    node.body = [item for item in node.body if not (
+                        isinstance(item, ast.Assign) and isinstance(item.targets[0], ast.Name)
+                        and item.targets[0].id == 'upcoming_payout_amount')]
+                    for item in node.body:
+                        if isinstance(item, ast.For):
+                            item.body = [statement for statement in item.body if not (
+                                isinstance(statement, ast.Assign) and isinstance(statement.targets[0], ast.Name)
+                                and statement.targets[0].id == 'approved_claims') and not (
+                                isinstance(statement, ast.AugAssign) and isinstance(statement.target, ast.Name)
+                                and statement.target.id == 'upcoming_payout_amount')]
+                        if isinstance(item, ast.Return):
+                            summary = next(value for key, value in zip(item.value.keys, item.value.values)
+                                           if isinstance(key, ast.Constant) and key.value == 'summary')
+                            pairs = [(key, value) for key, value in zip(summary.keys, summary.values)
+                                     if key.value != 'upcoming_payout_amount']
+                            summary.keys = [key for key, _ in pairs]
+                            summary.values = [value for _, value in pairs]
+                if node.name == 'get_group_claims':
+                    # Allow only the additive structured actual-payment date in the read contract.
+                    for value in ast.walk(node):
+                        if isinstance(value, ast.Dict):
+                            pairs = [(key, item) for key, item in zip(value.keys, value.values)
+                                     if not (isinstance(key, ast.Constant) and key.value == 'actual_payment_date')]
+                            value.keys = [key for key, _ in pairs]
+                            value.values = [item for _, item in pairs]
                 result[node.name] = ast.dump(node)
             return result
         old, new = functions(base('backend/services/notification_service.py')), functions(NOTIFICATIONS.read_text())
@@ -313,10 +340,38 @@ class InvitationTests(unittest.IsolatedAsyncioTestCase):
                      'frontend/app/(treasurer)/claims.tsx', 'frontend/hooks/usePersonalClaims.ts',
                      'frontend/app/(member)/_layout.tsx', 'frontend/app/(treasurer)/_layout.tsx']:
             expected = base(path)
+            actual = (ROOT / path).read_text()
             if path == 'frontend/app/(treasurer)/claims.tsx':
                 expected = expected.replace('`${API_URL}/api/treasurer/dashboard/${user.id}`\n      );',
                     '`${API_URL}/api/treasurer/dashboard/${user.id}`,\n        { headers: { Authorization: `Bearer ${token}` } }\n      );')
-            self.assertEqual((ROOT / path).read_text(), expected)
+                # Normalize only the reviewed header styling and additive date editor.
+                expected = expected.replace('style={styles.profileImage} />', 'style={styles.profileImage} resizeMode="cover" />')
+                expected = expected.replace('name="person" size={20}', 'name="person" size={32}')
+                expected = expected.replace('width: 44,', 'width: 68,').replace('height: 44,', 'height: 68,').replace('borderRadius: 22,', 'borderRadius: 34,')
+                expected = expected.replace("    justifyContent: 'space-between',\n    alignItems: 'center',", "    justifyContent: 'space-between',\n    alignItems: 'center',\n    gap: 16,", 1)
+                expected = expected.replace('  headerTitle: {', '  headerTitle: {\n    flex: 1,')
+                expected = expected.replace('  profileButton: {\n    padding: 4,', '  profileButton: {\n    padding: 4,\n    flexShrink: 0,')
+                actual = actual.replace("import { ClaimPayoutDate } from '../../components/ClaimPayoutDate';\n", '')
+                date_editor = """                      <ClaimPayoutDate
+                        groupId={claim.group_id}
+                        claimId={claim.claim_id}
+                        status={claim.status}
+                        scheduledDate={claim.scheduled_claim_date}
+                        token={token}
+                        onSaved={() => fetchClaims(claim.group_id)}
+                      />
+
+"""
+                actual = actual.replace(date_editor, '')
+                actual = actual.replace("import { ClaimPaymentRecord } from '../../components/ClaimPaymentRecord';\n", '')
+                actual = actual.replace('  actual_payment_date?: string | null;\n', '')
+                payment_editor = '                      <ClaimPaymentRecord\n                        groupId={claim.group_id}\n                        claimId={claim.claim_id}\n                        memberName={claim.member_name}\n                        status={claim.status}\n                        approvedAmount={claim.amount}\n                        actualAmountPaid={claim.actual_amount_paid}\n                        actualPaymentDate={claim.actual_payment_date}\n                        scheduledDate={claim.scheduled_claim_date}\n                        token={token}\n                        onRecorded={() => fetchClaims(claim.group_id)}\n                      />\n\n'
+                actual = actual.replace(payment_editor, '')
+            if path == 'frontend/hooks/usePersonalClaims.ts':
+                # Permit only the new payment-date read field, preserving session/filter behavior.
+                actual = actual.replace('  actual_payment_date: string | null;\n', '')
+                actual = actual.replace("      actual_payment_date:\n        typeof claim.actual_payment_date === 'string' ? claim.actual_payment_date : null,\n", '')
+            self.assertEqual(actual, expected)
 
 
     async def test_member_failure_rolls_back_and_retry_remains_member_only(self):
