@@ -32,6 +32,8 @@ from services.notification_service import (
     format_phone_number
 )
 
+from services.monthly_reports import monthly_report
+
 from services.phone_numbers import normalize_phone, phone_aliases, phone_identity_query
 from services.auth_otp import AuthOTP, OTPError, runtime_mock_otp_allowed
 from services.admin_invitations import (
@@ -2797,6 +2799,33 @@ async def get_group_report(group_id: str, year: int, month: Optional[int] = None
     members = await db.members.find({'group_id': group_id, 'id': {'$in': [r.get('member_id') for r in records]}}).to_list(None)
     users = await db.users.find({'id': {'$in': [m.get('user_id') for m in members]}}).to_list(None)
     return contribution_report(group, records, members, users, year, month)
+
+
+@api_router.get('/treasurer/reports/{group_id}/monthly')
+async def get_monthly_group_report(group_id: str, year: int, month: int,
+                                   authorization: str | None = Header(None)):
+    person = authenticated_user_id(authorization)
+    membership = await db.members.find_one({'user_id': person, 'group_id': group_id, 'status': 'active',
+                                           'role_in_group': {'$in': ['admin', 'treasurer']}})
+    if not membership:
+        raise HTTPException(status_code=403, detail='Active group administration membership required')
+    if not 1 <= year <= 9999 or not 1 <= month <= 12:
+        raise HTTPException(status_code=422, detail='Invalid report period')
+    group = await db.groups.find_one({'id': group_id, 'status': 'active'})
+    if not group:
+        raise HTTPException(status_code=404, detail='Active group not found')
+    # Read-only: no reconciliation, obligation generation or proof content retrieval.
+    records = await db.contributions.find({'group_id': group_id, 'year': year, 'month': month},
+                                         {'proof_of_payment': 0}).to_list(None)
+    claims = await db.claims.find({'group_id': group_id}).to_list(None)
+    member_ids = [r.get('member_id') for r in records + claims]
+    members = await db.members.find({'group_id': group_id, 'id': {'$in': member_ids}}).to_list(None)
+    users = await db.users.find({'id': {'$in': [m.get('user_id') for m in members]}},
+                               {'id': 1, 'full_name': 1, '_id': 0}).to_list(None)
+    try:
+        return monthly_report(group, records, claims, members, users, year, month, contribution_outstanding)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
 
 
 @api_router.get('/treasurer/contributions/{contribution_id}/reminder')

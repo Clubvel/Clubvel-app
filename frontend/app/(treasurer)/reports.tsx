@@ -3,7 +3,8 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIn
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import MonthlyReport from '../../components/MonthlyReport';
 import { AdBanner } from '../../components/AdBanner';
 import axios, { isAxiosError } from 'axios';
 import { 
@@ -16,6 +17,7 @@ import {
 export default function ReportsScreen() {
   const { user, token } = useAuth();
   const router = useRouter();
+  const { group_id, clubId } = useLocalSearchParams<{ group_id?: string; clubId?: string }>();
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingType, setGeneratingType] = useState<string | null>(null);
   const [dashboardData, setDashboardData] = useState<any>(null);
@@ -23,6 +25,7 @@ export default function ReportsScreen() {
   const [refreshing, setRefreshing] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
   const request = useRef(0);
+  const [reportRefreshKey, setReportRefreshKey] = useState(0);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
@@ -36,7 +39,7 @@ export default function ReportsScreen() {
         headers: { Authorization: `Bearer ${token}` }, timeout: 20000,
       });
       if (!Array.isArray(response.data?.clubs)) throw new Error('Invalid report data received.');
-      if (ticket === request.current) setDashboardData(response.data);
+      if (ticket === request.current) { setDashboardData(response.data); setReportRefreshKey(value => value + 1); }
     } catch (error) {
       if (ticket === request.current) {
         setDashboardData(null);
@@ -375,49 +378,12 @@ export default function ReportsScreen() {
         ) : null}
         {dashboardData?.clubs.length > 0 && !reportError && (<>
 
-        {/* Current Month Summary */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Current Month</Text>
-          <View style={styles.summaryCard}>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Total Collected</Text>
-              <Text style={[styles.summaryValue, styles.collectedValue]}>
-                R{(dashboardData?.clubs || []).reduce((sum: number, club: any) => sum + Number(club.collected || 0), 0).toFixed(2)}
-              </Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Collection Rate</Text>
-              <Text style={styles.summaryValue}>
-                {(() => {
-                  const clubs = dashboardData?.clubs || [];
-                  const collected = clubs.reduce((sum: number, club: any) => sum + Number(club.collected || 0), 0);
-                  const expected = clubs.reduce((sum: number, club: any) => sum + Number(club.expected || 0), 0);
-                  return expected > 0 ? `${Math.round((collected / expected) * 100)}%` : '0%';
-                })()}
-              </Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Outstanding</Text>
-              <Text style={[styles.summaryValue, styles.outstandingValue]}>
-                R{Math.max(
-                  0,
-                  (dashboardData?.clubs || []).reduce((sum: number, club: any) => sum + Number(club.expected || 0), 0) -
-                  (dashboardData?.clubs || []).reduce((sum: number, club: any) => sum + Number(club.collected || 0), 0)
-                ).toFixed(2)}
-              </Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Late Members</Text>
-              <Text style={[styles.summaryValue, styles.lateValue]}>
-                {(dashboardData?.clubs || []).reduce((sum: number, club: any) => sum + Number(club.late_count || 0), 0)}
-              </Text>
-            </View>
-          </View>
-        </View>
+        <MonthlyReport clubs={dashboardData.clubs} token={token} contextualClubId={group_id || clubId} refreshKey={reportRefreshKey} />
 
         {/* Report Types */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Available Reports</Text>
+          <Text style={styles.sectionTitle}>Legacy exports</Text>
+          <Text style={styles.reportDescription}>Separate from the selected monthly view. Existing exports use the current month/year across all managed clubs, not the club or period selected above.</Text>
 
           {/* Monthly Report */}
           <View style={styles.reportCard}>
@@ -425,7 +391,7 @@ export default function ReportsScreen() {
               <Ionicons name="calendar" size={32} color={Colors.mediumGreen} />
             </View>
             <View style={styles.reportInfo}>
-              <Text style={styles.reportTitle}>Monthly Report</Text>
+              <Text style={styles.reportTitle}>Current-month contribution export</Text>
               <Text style={styles.reportDescription}>
                 Detailed breakdown of all contributions for the current month with member-by-member analysis.
               </Text>
@@ -476,9 +442,9 @@ export default function ReportsScreen() {
               <Ionicons name="alert-circle" size={32} color={Colors.statusLate} />
             </View>
             <View style={styles.reportInfo}>
-              <Text style={styles.reportTitle}>Defaulters Report</Text>
+              <Text style={styles.reportTitle}>Contribution export (legacy shortcut)</Text>
               <Text style={styles.reportDescription}>
-                List of all members with late or missed payments across all months managed.
+                Same current-month contribution export across managed clubs; not a standalone arrears report.
               </Text>
             </View>
             <View style={styles.reportActions}>

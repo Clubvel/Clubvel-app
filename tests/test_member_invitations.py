@@ -342,31 +342,11 @@ class InvitationTests(unittest.IsolatedAsyncioTestCase):
             expected = base(path)
             actual = (ROOT / path).read_text()
             if path == 'frontend/app/(treasurer)/claims.tsx':
-                expected = expected.replace('`${API_URL}/api/treasurer/dashboard/${user.id}`\n      );',
-                    '`${API_URL}/api/treasurer/dashboard/${user.id}`,\n        { headers: { Authorization: `Bearer ${token}` } }\n      );')
-                # Normalize only the reviewed header styling and additive date editor.
-                expected = expected.replace('style={styles.profileImage} />', 'style={styles.profileImage} resizeMode="cover" />')
-                expected = expected.replace('name="person" size={20}', 'name="person" size={32}')
-                expected = expected.replace('width: 44,', 'width: 68,').replace('height: 44,', 'height: 68,').replace('borderRadius: 22,', 'borderRadius: 34,')
-                expected = expected.replace("    justifyContent: 'space-between',\n    alignItems: 'center',", "    justifyContent: 'space-between',\n    alignItems: 'center',\n    gap: 16,", 1)
-                expected = expected.replace('  headerTitle: {', '  headerTitle: {\n    flex: 1,')
-                expected = expected.replace('  profileButton: {\n    padding: 4,', '  profileButton: {\n    padding: 4,\n    flexShrink: 0,')
-                actual = actual.replace("import { ClaimPayoutDate } from '../../components/ClaimPayoutDate';\n", '')
-                date_editor = """                      <ClaimPayoutDate
-                        groupId={claim.group_id}
-                        claimId={claim.claim_id}
-                        status={claim.status}
-                        scheduledDate={claim.scheduled_claim_date}
-                        token={token}
-                        onSaved={() => fetchClaims(claim.group_id)}
-                      />
-
-"""
-                actual = actual.replace(date_editor, '')
-                actual = actual.replace("import { ClaimPaymentRecord } from '../../components/ClaimPaymentRecord';\n", '')
-                actual = actual.replace('  actual_payment_date?: string | null;\n', '')
-                payment_editor = '                      <ClaimPaymentRecord\n                        groupId={claim.group_id}\n                        claimId={claim.claim_id}\n                        memberName={claim.member_name}\n                        status={claim.status}\n                        approvedAmount={claim.amount}\n                        actualAmountPaid={claim.actual_amount_paid}\n                        actualPaymentDate={claim.actual_payment_date}\n                        scheduledDate={claim.scheduled_claim_date}\n                        token={token}\n                        onRecorded={() => fetchClaims(claim.group_id)}\n                      />\n\n'
-                actual = actual.replace(payment_editor, '')
+                # Preserve the entire physically approved screen, including its 76px header and payout controls.
+                expected = subprocess.check_output(
+                    ['git', 'show', '267b31427060e7d539df7cfd34b0f3d0249c8c59:' + path],
+                    cwd=ROOT, text=True,
+                )
             if path == 'frontend/hooks/usePersonalClaims.ts':
                 # Permit only the new payment-date read field, preserving session/filter behavior.
                 actual = actual.replace('  actual_payment_date: string | null;\n', '')

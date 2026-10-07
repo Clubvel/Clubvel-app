@@ -118,15 +118,16 @@ test('Reports removes Quick Actions but retains individual report controls and h
   const ui = engine();
   const Screen = load('app/(treasurer)/reports.tsx', {
     react: ui.react, 'react-native': native,
-    'expo-router': { useFocusEffect: ui.useFocusEffect, useRouter: () => ({ push() {} }) },
+    'expo-router': { useFocusEffect: ui.useFocusEffect, useLocalSearchParams: () => ({}), useRouter: () => ({ push() {} }) },
     '../../contexts/AuthContext': { useAuth: () => ({ user: { id: 'admin' }, token: 'session' }) },
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
+    '../../components/MonthlyReport': { default: 'MonthlyReport' },
     '../../components/AdBanner': { AdBanner: 'AdBanner' }, '../../services/pdfReportService': {},
     axios: { get: async () => ({ data: { clubs: [{id:'managed-club'}] } }) },
   }).default;
   ui.render(Screen); await tick(); const tree = ui.render(Screen);
   assert.doesNotMatch(text(tree), /Quick Actions/);
-  assert.match(text(tree), /Member Statement/); assert.match(text(tree), /Defaulters Report/);
+  assert.match(text(tree), /Member Statement/); assert.match(text(tree), /Contribution export \(legacy shortcut\)/);
   assert.equal(nodes(tree).filter(n => n.type === 'Ionicons' && n.props.name === 'download').length, 4);
   assert.equal(nodes(tree).filter(n => n.type === 'Ionicons' && n.props.name === 'logo-whatsapp').length, 4);
   const b = { isGenerating: false, setIsGenerating() {}, setGeneratingType() {}, dashboardData: {},
