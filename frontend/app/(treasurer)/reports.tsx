@@ -1,5 +1,5 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, RefreshControl } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, RefreshControl, Image } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
@@ -342,9 +342,23 @@ export default function ReportsScreen() {
         <TouchableOpacity onPress={() => router.push('/(treasurer)/profile')} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={Colors.white} />
         </TouchableOpacity>
-        <View>
+        <View style={styles.headerTitleContainer}>
           <Text style={styles.headerTitle}>Reports</Text>
         </View>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Open profile"
+          onPress={() => router.push('/(treasurer)/profile')}
+          style={styles.profileButton}
+        >
+          {user?.profile_photo ? (
+            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
+          ) : (
+            <View style={styles.profilePlaceholder}>
+              <Text style={styles.profileInitial}>{(user?.full_name || '').trim().charAt(0).toUpperCase() || '?'}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
       <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void fetchReportData()} />}>
@@ -498,6 +512,36 @@ const styles = StyleSheet.create({
   },
   backButton: {
     padding: 8,
+  },
+  headerTitleContainer: {
+    flex: 1,
+    minWidth: 0,
+  },
+  profileButton: {
+    padding: 4,
+    flexShrink: 0,
+  },
+  profileImage: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 2,
+    borderColor: Colors.gold,
+  },
+  profilePlaceholder: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 2,
+    borderColor: Colors.gold,
+    backgroundColor: Colors.gold,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileInitial: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: Colors.white,
   },
   headerTitle: {
     fontSize: 24,

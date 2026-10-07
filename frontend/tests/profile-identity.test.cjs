@@ -19,15 +19,15 @@ async function setup(screen='home',photo='data:image/jpeg;base64,existing',clubC
 }
 const style=n=>Object.assign({},...([n.props.style].flat().filter(Boolean)));
 
-test('Home photo is 68px, circular, covered and retains its clementine ring',async()=>{
+test('Home photo is 76px, circular, covered and retains its clementine ring',async()=>{
  const c=await setup();const image=nodes(c.render()).find(n=>n.type==='Image');
- assert.deepEqual([style(image).width,style(image).height,style(image).borderRadius],[68,68,34]);
+ assert.deepEqual([style(image).width,style(image).height,style(image).borderRadius],[76,76,38]);
  assert.equal(style(image).borderWidth,2);assert.equal(style(image).borderColor,'gold');assert.equal(image.props.resizeMode,'cover');
  assert.equal(image.props.source.uri,'data:image/jpeg;base64,existing');
 });
-test('Home fallback matches 68px photo footprint and scales existing person icon',async()=>{
+test('Home fallback matches 76px photo footprint and scales existing person icon',async()=>{
  const c=await setup('home',null);const tree=c.render();const avatar=nodes(tree).find(n=>n.props?.accessibilityLabel==='Open profile menu');
- const circle=nodes(avatar).find(n=>n.type==='View');assert.deepEqual([style(circle).width,style(circle).height,style(circle).borderRadius],[68,68,34]);
+ const circle=nodes(avatar).find(n=>n.type==='View');assert.deepEqual([style(circle).width,style(circle).height,style(circle).borderRadius],[76,76,38]);
  assert.equal(nodes(avatar).find(n=>n.type==='Ionicons').props.size,32);
 });
 test('Home header keeps existing menu/profile route and reserves space on a 320px screen',async()=>{
@@ -35,7 +35,7 @@ test('Home header keeps existing menu/profile route and reserves space on a 320p
  const header=nodes(tree).find(n=>n.type==='View'&&n.props?.children?.includes(avatar));
  assert.equal(style(header).alignItems,'center');assert.equal(style(header).gap,16);assert.equal(style(avatar).flexShrink,0);
  const logo=nodes(header).find(n=>n.type==='Text');assert.equal(text(logo),'Clubvel');assert.equal(style(logo).flexShrink,1);
- assert.ok(320-2*style(header).paddingHorizontal-68-2*style(avatar).padding-style(header).gap>=100);
+ assert.ok(320-2*style(header).paddingHorizontal-76-2*style(avatar).padding-style(header).gap>=100);
  avatar.props.onPress();tree=c.render();assert.match(text(tree),/Alexandra Very Long Member Name/);
  nodes(tree).find(n=>n.type==='TouchableOpacity' && n.props.accessibilityLabel==='My Profile').props.onPress();
  assert.deepEqual(c.routes,['/(member)/profile']);
