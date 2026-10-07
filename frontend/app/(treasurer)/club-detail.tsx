@@ -1,3 +1,4 @@
+import ClubSummary from '../../components/ClubSummary';
 import { ClaimPaymentRecord } from '../../components/ClaimPaymentRecord';
 import { ClaimPayoutDate } from '../../components/ClaimPayoutDate';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
@@ -74,6 +75,7 @@ export default function ClubDetailScreen() {
   const insets = useSafeAreaInsets();
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
+  const [showClubSummary, setShowClubSummary] = useState(false);
   const [clubData, setClubData] = useState<ClubData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -581,6 +583,11 @@ export default function ClubDetailScreen() {
           <Text style={styles.summaryLabel}>Progress</Text>
         </View>
       </View>
+
+      <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open Club Summary" style={styles.retryButton} onPress={() => setShowClubSummary(true)}>
+        <Text style={styles.retryButtonText}>Club Summary</Text>
+      </TouchableOpacity>
+      {showClubSummary && <ClubSummary clubId={id} token={token} onClose={() => setShowClubSummary(false)} />}
 
       {/* Tabs */}
       <View style={styles.tabContainer}>
