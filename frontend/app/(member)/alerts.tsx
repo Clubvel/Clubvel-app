@@ -1,10 +1,9 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity, Image } from 'react-native';
+import React, { useCallback, useRef, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity, Image, Alert as NativeAlert } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
-import { useRouter } from 'expo-router';
-import { AdBanner } from '../../components/AdBanner';
+import { useFocusEffect, useRouter } from 'expo-router';
 import axios from 'axios';
 import { format } from 'date-fns';
 
@@ -17,10 +16,11 @@ interface Alert {
   created_at: string;
   read_status: boolean;
   action_url: string | null;
+  claim_id?: string | null;
 }
 
 export default function AlertsScreen() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const router = useRouter();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
@@ -28,35 +28,69 @@ export default function AlertsScreen() {
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
-  const fetchAlerts = async () => {
-    try {
-      // Fetch alerts from API - empty if no alerts
-      const response = await fetch(`${API_URL}/api/alerts/${user?.id}`, {
-        headers: { 'Authorization': `Bearer ${user?.id}` }
-      });
-      if (response.ok) {
-        const data = await response.json();
-        setAlerts(data.alerts || []);
-      } else {
-        setAlerts([]);
-      }
-    } catch (error) {
-      console.error('Error fetching alerts:', error);
-      setAlerts([]);
-    } finally {
+  const [error, setError] = useState<string | null>(null);
+  const [loadedContext, setLoadedContext] = useState<string | null>(null);
+  const context = JSON.stringify([API_URL, user?.id, token]);
+  const latestContext = useRef(context);
+  latestContext.current = context;
+  const request = useRef<{ key: string; sequence: number } | null>(null);
+  const sequence = useRef(0);
+
+  const fetchAlerts = useCallback(async (force = false) => {
+    if (!user?.id || !token) {
+      setError('Please sign in again to view your alerts.');
       setLoading(false);
       setRefreshing(false);
+      return;
     }
-  };
-
-  useEffect(() => {
-    fetchAlerts();
-  }, []);
-
-  const onRefresh = () => {
+    const key = JSON.stringify([API_URL, user.id, token]);
+    if (!force && request.current?.key === key) return;
+    const ticket = ++sequence.current;
+    request.current = { key, sequence: ticket };
+    setError(null);
     setRefreshing(true);
-    fetchAlerts();
+    try {
+      const response = await axios.get(`${API_URL}/api/alerts/${user.id}`, {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+      });
+      if (ticket !== sequence.current || latestContext.current !== key) return;
+      if (!Array.isArray(response.data?.alerts)) throw new Error('Invalid alerts response');
+      setAlerts(response.data.alerts);
+      setLoadedContext(key);
+    } catch {
+      if (ticket === sequence.current && latestContext.current === key) {
+        setError('Unable to load alerts. Please try again.');
+      }
+    } finally {
+      if (request.current?.sequence === ticket) {
+        request.current = null;
+        setLoading(false);
+        setRefreshing(false);
+      }
+    }
+  }, [API_URL, user?.id, token]);
+
+  useFocusEffect(useCallback(() => { void fetchAlerts(); }, [fetchAlerts]));
+
+  const dismissing = useRef(new Set<string>());
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
+  const dismissAlert = async (alert: Alert) => {
+    if (dismissing.current.has(alert.id)) return;
+    const key = context;
+    dismissing.current.add(alert.id);
+    try {
+      await axios.post(`${API_URL}/api/alerts/${alert.id}/dismiss`, {}, {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+      });
+      if (latestContext.current !== key) return;
+      setDismissedIds(previous => new Set([...previous, `${key}:${alert.id}`]));
+      setAlerts(previous => previous.filter(item => item.id !== alert.id));
+    } catch {
+      NativeAlert.alert('Unable to dismiss alert', 'Please try again.');
+    } finally { dismissing.current.delete(alert.id); }
   };
+
+  const onRefresh = () => { void fetchAlerts(true); };
 
   const getAlertIcon = (type: string) => {
     switch (type) {
@@ -83,7 +117,7 @@ export default function AlertsScreen() {
     const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
     const yesterdayStart = new Date(todayStart.getTime() - 86400000);
 
-    alerts.forEach((alert) => {
+    (loadedContext === context ? alerts : []).filter(alert => !dismissedIds.has(`${context}:${alert.id}`)).forEach((alert) => {
       const alertDate = new Date(alert.created_at);
       if (alertDate >= todayStart) {
         today.push(alert);
@@ -97,7 +131,7 @@ export default function AlertsScreen() {
     return { today, yesterday, earlier };
   };
 
-  if (loading) {
+  if ((loading || loadedContext !== context) && !error) {
     return (
       <View style={styles.loadingContainer}>
         <ActivityIndicator size="large" color={Colors.mediumGreen} />
@@ -114,9 +148,18 @@ export default function AlertsScreen() {
         <View style={[styles.alertDot, { backgroundColor: icon.color }]} />
         <Ionicons name={icon.name} size={24} color={icon.color} style={styles.alertIcon} />
         <View style={styles.alertContent}>
-          <Text style={styles.alertMessage}>{alert.alert_message}</Text>
+          <TouchableOpacity disabled={!alert.action_url} onPress={() => {
+            if (alert.action_url === '/(member)/claims') router.push({ pathname: '/(member)/claims', params: alert.claim_id ? { claim_id: alert.claim_id } : {} });
+            else if (alert.action_url === '/(member)/proofs') router.push(alert.action_url);
+          }}>
+            <Text style={styles.alertMessage}>{alert.alert_message}</Text>
+          </TouchableOpacity>
           <Text style={styles.alertTime}>{format(new Date(alert.created_at), 'h:mm a')}</Text>
         </View>
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Dismiss alert" hitSlop={8}
+          onPress={() => void dismissAlert(alert)}>
+          <Ionicons name="close" size={18} color={Colors.textSecondary} />
+        </TouchableOpacity>
       </View>
     );
   };
@@ -130,10 +173,10 @@ export default function AlertsScreen() {
         </View>
         <TouchableOpacity onPress={() => router.push('/(member)/profile')} style={styles.profileButton}>
           {user?.profile_photo ? (
-            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} />
+            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
             <View style={styles.profilePlaceholder}>
-              <Ionicons name="person" size={20} color={Colors.white} />
+              <Ionicons name="person" size={32} color={Colors.white} />
             </View>
           )}
         </TouchableOpacity>
@@ -145,6 +188,14 @@ export default function AlertsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
+        {error && (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyStateText}>{error}</Text>
+            <TouchableOpacity onPress={() => void fetchAlerts(true)}>
+              <Text style={styles.emptyStateSubtext}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        )}
         {today.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Today</Text>
@@ -177,9 +228,9 @@ export default function AlertsScreen() {
           </View>
         )}
 
-        {today.length === 0 && yesterday.length === 0 && earlier.length === 0 && (
+        {!error && today.length === 0 && yesterday.length === 0 && earlier.length === 0 && (
           <View style={styles.emptyState}>
-            <Ionicons name="notifications-outline" size={64} color={Colors.textMuted} />
+            <Ionicons name="notifications-outline" size={64} color={Colors.accent} />
             <Text style={styles.emptyStateText}>No alerts</Text>
             <Text style={styles.emptyStateSubtext}>You're all caught up!</Text>
           </View>
@@ -208,6 +259,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 16,
   },
   headerLeft: {
     flex: 1,
@@ -219,18 +271,19 @@ const styles = StyleSheet.create({
   },
   profileButton: {
     padding: 4,
+    flexShrink: 0,
   },
   profileImage: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
   profilePlaceholder: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',

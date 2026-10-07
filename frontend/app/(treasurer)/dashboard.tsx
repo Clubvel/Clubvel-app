@@ -1,14 +1,17 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Linking, Alert, Modal, Image, TextInput, KeyboardAvoidingView, Platform, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
+import { addPaymentReminder } from '../../services/paymentReminder';
 import { useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface LateMember {
+  contribution_id: string;
+  user_id: string;
   member_name: string;
   group_name: string;
   days_late: number;
@@ -45,9 +48,12 @@ interface DashboardData {
 }
 
 export default function AdminDashboardScreen() {
-  const { user, logout } = useAuth();
+  const { user, token, logout } = useAuth();
   const router = useRouter();
+  const dashboardScroll = useRef<ScrollView>(null);
+  const clubsOffset = useRef(0);
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [dashboardCountAvailable, setDashboardCountAvailable] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
@@ -56,18 +62,22 @@ export default function AdminDashboardScreen() {
   const [showCreateClubModal, setShowCreateClubModal] = useState(false);
   const [creatingClub, setCreatingClub] = useState(false);
   
-  // Create Club Form State
+  // Create Group Form State
   const [clubName, setClubName] = useState('');
   const [clubType, setClubType] = useState('savings');
   const [monthlyContribution, setMonthlyContribution] = useState('');
   const [paymentDueDate, setPaymentDueDate] = useState('25');
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+  const reminderInFlight = useRef(false);
 
   const fetchDashboard = async () => {
+    setDashboardCountAvailable(false);
     try {
-      const response = await axios.get(`${API_URL}/api/admin/dashboard/${user?.id}`);
+      const response = await axios.get(`${API_URL}/api/admin/dashboard/${user?.id}`, { headers: { Authorization: `Bearer ${token}` } });
       setDashboardData(response.data);
+      const count = response.data?.summary?.total_clubs;
+      setDashboardCountAvailable(Number.isInteger(count) && count >= 0);
     } catch (error) {
       console.error('Error fetching admin dashboard:', error);
       // Set empty dashboard data if API fails
@@ -94,23 +104,26 @@ export default function AdminDashboardScreen() {
     fetchDashboard();
   };
 
-  const handleRemindMember = (phone: string, name: string) => {
-    Alert.alert(
-      'Send Reminder',
-      `Send WhatsApp reminder to ${name} at ${phone}?`,
-      [
-        { text: 'Cancel', style: 'cancel' },
-        {
-          text: 'Send',
-          onPress: () => {
-            Alert.alert('Reminder Sent', `WhatsApp reminder sent to ${name}`);
-          },
-        },
-      ]
-    );
+  const handleRemindMember = (member: LateMember) => {
+    if (!token || !member.contribution_id || member.user_id === user?.id) return;
+    Alert.alert('Add Payment Reminder', `Add a payment reminder to ${member.member_name}'s Alerts?`, [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Add Reminder', onPress: async () => {
+        if (reminderInFlight.current) return;
+        reminderInFlight.current = true;
+        try {
+          await addPaymentReminder(API_URL, token, member.contribution_id);
+        } finally { reminderInFlight.current = false; }
+      } },
+    ]);
   };
 
   const handleCreateClub = async () => {
+    if (!user?.id || !token) {
+      Alert.alert('Sign in required', 'Please sign in again before creating a group.');
+      return;
+    }
+
     if (!clubName || !monthlyContribution) {
       Alert.alert('Missing Information', 'Please fill in club name and monthly contribution');
       return;
@@ -126,9 +139,9 @@ export default function AdminDashboardScreen() {
         admin_user_id: user?.id,
         payment_reference_prefix: clubName.substring(0, 3).toUpperCase(),
         start_date: new Date().toISOString()
-      });
+      }, { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 });
 
-      Alert.alert('Success', `Club "${clubName}" created successfully!`);
+      Alert.alert('Success', `Group "${clubName}" created successfully!`);
       setShowCreateClubModal(false);
       // Reset form
       setClubName('');
@@ -138,14 +151,23 @@ export default function AdminDashboardScreen() {
       // Refresh dashboard
       fetchDashboard();
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to create club');
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to create group');
     } finally {
       setCreatingClub(false);
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
     setShowProfileMenu(false);
+
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm('Are you sure you want to sign out?');
+      if (!confirmed) return;
+      await logout();
+      router.replace('/auth');
+      return;
+    }
+
     Alert.alert(
       'Sign Out',
       'Are you sure you want to sign out?',
@@ -167,6 +189,7 @@ export default function AdminDashboardScreen() {
     setDeleting(true);
     try {
       await axios.delete(`${API_URL}/api/user/delete-account`, {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
         data: {
           user_id: user?.id,
           confirmation: 'DELETE'
@@ -227,15 +250,20 @@ export default function AdminDashboardScreen() {
 
   if (loading) {
     return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={Colors.mediumGreen} />
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <Text style={styles.brandName}>Clubvel</Text>
+        </View>
+        <View style={styles.loadingContainer}>
+          <ActivityIndicator size="large" color={Colors.mediumGreen} />
+        </View>
       </View>
     );
   }
 
   return (
     <View style={{ flex: 1 }}>
-    <ScrollView
+    <ScrollView ref={dashboardScroll}
       style={styles.container}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -243,16 +271,16 @@ export default function AdminDashboardScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.logoText}>Clubvel</Text>
+        <Text style={styles.brandName}>Clubvel</Text>
         <TouchableOpacity 
           style={styles.avatarButton}
           onPress={() => setShowProfileMenu(true)}
         >
           {user?.profile_photo ? (
-            <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} />
+            <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
           ) : (
             <View style={styles.avatar}>
-              <Ionicons name="person" size={24} color={Colors.white} />
+              <Ionicons name="person" size={32} color={Colors.white} />
             </View>
           )}
         </TouchableOpacity>
@@ -260,10 +288,13 @@ export default function AdminDashboardScreen() {
 
       {/* Summary Cards */}
       <View style={styles.summaryContainer}>
-        <View style={styles.summaryCard}>
+        <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Show All Clubs" activeOpacity={0.75} onPress={() => dashboardScroll.current?.scrollTo({ y: clubsOffset.current, animated: true })}>
           <Text style={styles.summaryLabel}>Total Clubs</Text>
-          <Text style={styles.summaryValue}>{dashboardData?.summary.total_clubs || 0}</Text>
-        </View>
+          <View>
+            <Text style={styles.summaryValue}>{dashboardData?.summary.total_clubs || 0}</Text>
+            <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} style={{ position: 'absolute', top: '100%', left: 0 }} />
+          </View>
+        </TouchableOpacity>
 
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Total Members</Text>
@@ -274,27 +305,27 @@ export default function AdminDashboardScreen() {
       <View style={styles.summaryContainer}>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Collected This Month</Text>
-          <Text style={[styles.summaryValue, styles.moneyValue]}>
+          <Text style={[styles.summaryValue, { color: Colors.statusPaid }]}>
             R{dashboardData?.summary.total_collected_this_month?.toFixed(2) || '0.00'}
           </Text>
         </View>
 
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Late Members</Text>
-          <Text style={[styles.summaryValue, dashboardData?.summary.late_members_count ? styles.lateValue : null]}>
+          <Text style={[styles.summaryValue, styles.lateValue]}>
             {dashboardData?.summary.late_members_count || 0}
           </Text>
         </View>
       </View>
 
-      {/* Create Club Button */}
+      {/* Create Group Button */}
       <View style={styles.createClubSection}>
         <TouchableOpacity 
           style={styles.createClubButton}
           onPress={() => setShowCreateClubModal(true)}
         >
           <Ionicons name="add-circle" size={24} color={Colors.white} />
-          <Text style={styles.createClubButtonText}>Create New Club/Stokvel/Society</Text>
+          <Text style={styles.createClubButtonText}>Create a Group</Text>
         </TouchableOpacity>
       </View>
 
@@ -314,20 +345,22 @@ export default function AdminDashboardScreen() {
                   {alert.group_name} • {alert.days_late} days late • R{alert.amount}
                 </Text>
               </View>
+              {alert.user_id && alert.user_id !== user?.id && alert.contribution_id && (
               <TouchableOpacity
                 style={styles.remindButton}
-                onPress={() => handleRemindMember(alert.phone, alert.member_name)}
+                onPress={() => handleRemindMember(alert)}
               >
                 <Ionicons name="logo-whatsapp" size={20} color={Colors.white} />
                 <Text style={styles.remindButtonText}>Remind</Text>
               </TouchableOpacity>
+              )}
             </View>
           ))}
         </View>
       )}
 
       {/* All Clubs */}
-      <View style={styles.section}>
+      <View style={styles.section} onLayout={event => { clubsOffset.current = event.nativeEvent.layout.y; }}>
         <Text style={styles.sectionTitle}>All Clubs</Text>
 
         {dashboardData?.clubs && dashboardData.clubs.length > 0 ? (
@@ -343,23 +376,18 @@ export default function AdminDashboardScreen() {
             >
               <View style={styles.clubCardHeader}>
                 <Text style={styles.clubName}>{club.name}</Text>
-                {club.late_count > 0 ? (
-                  <View style={styles.lateBadge}>
-                    <Text style={styles.lateBadgeText}>{club.late_count} late</Text>
-                  </View>
-                ) : (
+                {club.expected > 0 && club.collected >= club.expected ? (
                   <View style={styles.paidBadge}>
                     <Ionicons name="checkmark-circle" size={16} color={Colors.statusPaid} />
-                    <Text style={styles.paidBadgeText}>All paid</Text>
+                    <Text style={styles.paidBadgeText}>Contributions confirmed</Text>
                   </View>
-                )}
+                ) : null}
               </View>
 
               <View style={styles.clubMeta}>
                 <Ionicons name="people" size={14} color={Colors.textSecondary} />
                 <Text style={styles.clubMetaText}>{club.member_count} members</Text>
-                <Text style={styles.clubMetaText}> • </Text>
-                <Text style={styles.clubMetaText}>Due: {club.due_date} of month</Text>
+
               </View>
 
               <View style={styles.clubProgress}>
@@ -375,7 +403,9 @@ export default function AdminDashboardScreen() {
                   />
                 </View>
                 <Text style={styles.progressText}>
-                  R{club.collected.toFixed(2)} / R{club.expected.toFixed(2)}
+                  <Text style={{ color: Colors.accent }}>R{club.collected.toFixed(2)}</Text>
+                      <Text style={{ color: Colors.textMuted }}> / </Text>
+                      <Text style={{ color: Colors.primary }}>R{club.expected.toFixed(2)}</Text>
                 </Text>
               </View>
               
@@ -388,8 +418,8 @@ export default function AdminDashboardScreen() {
         ) : (
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={48} color={Colors.textMuted} />
-            <Text style={styles.emptyStateText}>No clubs managed</Text>
-            <Text style={styles.emptyStateSubtext}>Tap "Create New Club" above to get started</Text>
+            <Text style={styles.emptyStateText}>No groups managed</Text>
+            <Text style={styles.emptyStateSubtext}>Tap "Create a Group" above to get started</Text>
           </View>
         )}
       </View>
@@ -415,80 +445,105 @@ export default function AdminDashboardScreen() {
       <AdBanner size="banner" />
     </ScrollView>
 
-    {/* Profile Dropdown Menu Modal */}
+    {/* Admin Account Panel */}
     <Modal
       visible={showProfileMenu}
       transparent={true}
       animationType="fade"
       onRequestClose={() => setShowProfileMenu(false)}
     >
-      <TouchableOpacity 
-        style={styles.modalOverlay}
-        activeOpacity={1}
-        onPress={() => setShowProfileMenu(false)}
-      >
-        <View style={styles.dropdownMenu}>
-          <View style={styles.dropdownHeader}>
-            <View style={styles.dropdownAvatar}>
-              <Text style={styles.dropdownAvatarText}>
-                {user?.full_name?.charAt(0) || 'A'}
-              </Text>
-            </View>
-            <View style={styles.dropdownUserInfo}>
-              <Text style={styles.dropdownUserName}>{user?.full_name}</Text>
-              <Text style={styles.dropdownUserRole}>Admin</Text>
-            </View>
+      <View style={styles.modalOverlay}>
+        <TouchableOpacity
+          style={StyleSheet.absoluteFillObject}
+          activeOpacity={1}
+          onPress={() => setShowProfileMenu(false)}
+          accessibilityRole="button"
+          accessibilityLabel="Close account panel backdrop"
+        />
+        <View style={styles.dropdownMenu} accessibilityViewIsModal>
+          <View style={styles.accountToolbar}>
+            <Text style={styles.accountTitle}>My Clubvel</Text>
+            <TouchableOpacity style={styles.accountClose} onPress={() => setShowProfileMenu(false)} accessibilityRole="button" accessibilityLabel="Close account panel">
+              <Ionicons name="close" size={26} color={Colors.textPrimary} />
+            </TouchableOpacity>
           </View>
-          
-          <View style={styles.dropdownDivider} />
-          
-          <TouchableOpacity style={styles.dropdownItem} onPress={navigateToProfile}>
-            <Ionicons name="person-outline" size={20} color={Colors.textPrimary} />
-            <Text style={styles.dropdownItemText}>My Profile</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.dropdownItem} onPress={navigateToSupport}>
-            <Ionicons name="help-circle-outline" size={20} color={Colors.textPrimary} />
-            <Text style={styles.dropdownItemText}>Contact Us</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.dropdownItem} onPress={navigateToAbout}>
-            <Ionicons name="information-circle-outline" size={20} color={Colors.textPrimary} />
-            <Text style={styles.dropdownItemText}>About Us</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.dropdownItem} onPress={navigateToNotifications}>
-            <Ionicons name="notifications-outline" size={20} color={Colors.textPrimary} />
-            <Text style={styles.dropdownItemText}>Notification Preferences</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity style={styles.dropdownItem} onPress={navigateToPrivacy}>
-            <Ionicons name="shield-checkmark-outline" size={20} color={Colors.textPrimary} />
-            <Text style={styles.dropdownItemText}>Privacy Policy</Text>
-          </TouchableOpacity>
-          
-          <TouchableOpacity 
-            style={styles.dropdownItem} 
-            onPress={() => {
-              setShowProfileMenu(false);
-              setShowDeleteModal(true);
-            }}
-          >
-            <Ionicons name="trash-outline" size={20} color={Colors.statusLate} />
-            <Text style={[styles.dropdownItemText, { color: Colors.statusLate }]}>Delete My Account</Text>
-          </TouchableOpacity>
-          
-          <View style={styles.dropdownDivider} />
-          
-          <TouchableOpacity style={styles.dropdownItemLogout} onPress={handleLogout}>
-            <Ionicons name="log-out-outline" size={20} color={Colors.statusLate} />
-            <Text style={styles.dropdownItemTextLogout}>Sign Out</Text>
-          </TouchableOpacity>
+          <ScrollView style={styles.accountScroll} contentContainerStyle={styles.accountContent}>
+            <View style={styles.dropdownHeader}>
+              {user?.profile_photo ? (
+                <Image source={{ uri: user.profile_photo }} style={styles.dropdownAvatar} resizeMode="cover" />
+              ) : (
+                <View style={styles.dropdownAvatar}>
+                  <Text style={styles.dropdownAvatarText}>{(user?.full_name || '').trim().charAt(0).toUpperCase() || '?'}</Text>
+                </View>
+              )}
+              <View style={styles.dropdownUserInfo}>
+                <Text style={styles.dropdownUserName}>{user?.full_name}</Text>
+                <Text style={styles.dropdownUserRole}>
+                  {dashboardCountAvailable && dashboardData ? `Managing ${dashboardData.summary.total_clubs} ${dashboardData.summary.total_clubs === 1 ? 'Clubvel' : 'Clubvels'}` : 'Club administration'}
+                </Text>
+              </View>
+            </View>
+            <View style={styles.dropdownDivider} />
+            <TouchableOpacity style={styles.dropdownItem} onPress={navigateToProfile} accessibilityRole="button" accessibilityLabel="My Profile">
+              <Ionicons name="person-outline" size={24} color={Colors.textPrimary} />
+              <View style={styles.dropdownItemCopy}>
+                <Text style={styles.dropdownItemText}>My Profile</Text>
+                <Text style={styles.dropdownDescription}>Photo, personal details and account</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.dropdownItem} onPress={navigateToNotifications} accessibilityRole="button" accessibilityLabel="Notification Preferences">
+              <Ionicons name="notifications-outline" size={24} color={Colors.textPrimary} />
+              <View style={styles.dropdownItemCopy}>
+                <Text style={styles.dropdownItemText}>Notification Preferences</Text>
+                <Text style={styles.dropdownDescription}>Choose which Clubvel alerts you receive</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.dropdownItem} onPress={navigateToPrivacy} accessibilityRole="button" accessibilityLabel="Privacy Policy">
+              <Ionicons name="shield-checkmark-outline" size={24} color={Colors.textPrimary} />
+              <View style={styles.dropdownItemCopy}>
+                <Text style={styles.dropdownItemText}>Privacy Policy</Text>
+                <Text style={styles.dropdownDescription}>How Clubvel protects your information</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.dropdownItem} onPress={navigateToSupport} accessibilityRole="button" accessibilityLabel="Contact Us">
+              <Ionicons name="help-circle-outline" size={24} color={Colors.textPrimary} />
+              <View style={styles.dropdownItemCopy}>
+                <Text style={styles.dropdownItemText}>Contact Us</Text>
+                <Text style={styles.dropdownDescription}>Get help with Clubvel</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+            </TouchableOpacity>
+            <TouchableOpacity style={styles.dropdownItem} onPress={navigateToAbout} accessibilityRole="button" accessibilityLabel="About Clubvel">
+              <Ionicons name="information-circle-outline" size={24} color={Colors.textPrimary} />
+              <View style={styles.dropdownItemCopy}>
+                <Text style={styles.dropdownItemText}>About Clubvel</Text>
+                <Text style={styles.dropdownDescription}>Information about Clubvel</Text>
+              </View>
+              <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+            </TouchableOpacity>
+            <View style={styles.dropdownDivider} />
+            <TouchableOpacity style={styles.dropdownItemLogout} onPress={handleLogout} accessibilityRole="button" accessibilityLabel="Sign Out">
+              <Ionicons name="log-out-outline" size={24} color={Colors.textPrimary} />
+              <Text style={styles.dropdownItemTextLogout}>Sign Out</Text>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.dropdownItem}
+              onPress={() => { setShowProfileMenu(false); setShowDeleteModal(true); }}
+              accessibilityRole="button"
+              accessibilityLabel="Delete My Account"
+            >
+              <Ionicons name="trash-outline" size={24} color={Colors.statusLate} />
+              <Text style={[styles.dropdownItemText, styles.accountDeleteText]}>Delete My Account</Text>
+            </TouchableOpacity>
+          </ScrollView>
         </View>
-      </TouchableOpacity>
+      </View>
     </Modal>
 
-    {/* Create Club Modal */}
+    {/* Create Group Modal */}
     <Modal
       visible={showCreateClubModal}
       transparent={true}
@@ -502,7 +557,7 @@ export default function AdminDashboardScreen() {
         <TouchableWithoutFeedback onPress={Keyboard.dismiss}>
           <View style={styles.createClubModalContent}>
             <View style={styles.createClubModalHeader}>
-              <Text style={styles.createClubModalTitle}>Create New Club</Text>
+              <Text style={styles.createClubModalTitle}>Create a Group</Text>
               <TouchableOpacity onPress={() => setShowCreateClubModal(false)}>
                 <Ionicons name="close" size={28} color={Colors.textPrimary} />
               </TouchableOpacity>
@@ -513,17 +568,17 @@ export default function AdminDashboardScreen() {
               keyboardShouldPersistTaps="handled"
               showsVerticalScrollIndicator={true}
             >
-              <Text style={styles.inputLabel}>Club Name *</Text>
+              <Text style={styles.inputLabel}>Group Name *</Text>
               <TextInput
                 style={styles.input}
-                placeholder="e.g. Family Savings Club"
+                placeholder="e.g. Family Savings Group"
                 value={clubName}
                 onChangeText={setClubName}
               />
 
-              <Text style={styles.inputLabel}>Club Type</Text>
+              <Text style={styles.inputLabel}>Group Type</Text>
               <View style={styles.typeSelector}>
-                {['savings', 'burial', 'investment', 'grocery', 'social'].map((type) => (
+                {['savings', 'burial', 'investment', 'grocery', 'social', 'travel'].map((type) => (
                   <TouchableOpacity
                     key={type}
                     style={[styles.typeButton, clubType === type && styles.typeButtonActive]}
@@ -539,7 +594,7 @@ export default function AdminDashboardScreen() {
               <Text style={styles.inputLabel}>Monthly Contribution (R) *</Text>
               <TextInput
                 style={styles.input}
-                placeholder="e.g. 500"
+                placeholder="e.g. R500"
                 value={monthlyContribution}
                 onChangeText={setMonthlyContribution}
                 keyboardType="numeric"
@@ -559,17 +614,27 @@ export default function AdminDashboardScreen() {
               <View style={{ height: 150 }} />
             </ScrollView>
 
-            <TouchableOpacity
-              style={[styles.createClubSubmitButton, creatingClub && styles.buttonDisabled]}
-              onPress={handleCreateClub}
-              disabled={creatingClub}
-            >
-              {creatingClub ? (
-                <ActivityIndicator color={Colors.white} />
-              ) : (
-                <Text style={styles.createClubSubmitText}>Create Club</Text>
-              )}
-            </TouchableOpacity>
+            <View style={styles.createClubActions}>
+              <TouchableOpacity
+                style={styles.createClubCancelButton}
+                onPress={() => setShowCreateClubModal(false)}
+                disabled={creatingClub}
+              >
+                <Text style={styles.createClubCancelText}>Cancel</Text>
+              </TouchableOpacity>
+
+              <TouchableOpacity
+                style={[styles.createClubSubmitButton, creatingClub && styles.buttonDisabled]}
+                onPress={handleCreateClub}
+                disabled={creatingClub}
+              >
+                {creatingClub ? (
+                  <ActivityIndicator color={Colors.white} />
+                ) : (
+                  <Text style={styles.createClubSubmitText}>Create Group</Text>
+                )}
+              </TouchableOpacity>
+            </View>
           </View>
         </TouchableWithoutFeedback>
       </KeyboardAvoidingView>
@@ -635,12 +700,20 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: Colors.darkGreen,
-    paddingTop: 60,
-    paddingBottom: 24,
+    paddingTop: 52,
+    paddingBottom: 16,
     paddingHorizontal: 24,
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 16,
+  },
+  brandName: {
+    flexShrink: 1,
+    fontSize: 24,
+    fontWeight: '700',
+    color: Colors.white,
+    letterSpacing: 0.2,
   },
   summaryContainer: {
     flexDirection: 'row',
@@ -896,102 +969,80 @@ const styles = StyleSheet.create({
   },
   avatarButton: {
     padding: 4,
+    flexShrink: 0,
   },
   avatar: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatarImage: {
-    width: 48,
-    height: 48,
-    borderRadius: 24,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
   modalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-start',
     alignItems: 'flex-end',
-    paddingTop: 110,
-    paddingRight: 16,
+    paddingVertical: 12,
   },
   dropdownMenu: {
     backgroundColor: Colors.white,
-    borderRadius: 16,
-    width: 260,
-    shadowColor: '#000',
-    shadowOffset: { width: 0, height: 4 },
-    shadowOpacity: 0.25,
-    shadowRadius: 12,
-    elevation: 8,
+    borderTopLeftRadius: 24,
+    borderBottomLeftRadius: 24,
+    width: '92%',
+    maxWidth: 420,
+    flex: 1,
     overflow: 'hidden',
   },
+  accountToolbar: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingLeft: 24, paddingRight: 12, paddingVertical: 8, gap: 12,
+  },
+  accountTitle: { color: Colors.textPrimary, fontSize: 18, fontWeight: '700', flexShrink: 1 },
+  accountClose: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
+  accountScroll: { flex: 1 },
+  accountContent: { paddingBottom: 24 },
   dropdownHeader: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    padding: 16,
+    padding: 24,
+    paddingTop: 12,
     backgroundColor: Colors.lightBackground,
   },
   dropdownAvatar: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 80,
+    height: 80,
+    borderRadius: 40,
+    borderWidth: 2,
+    borderColor: Colors.gold,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  dropdownAvatarText: {
-    fontSize: 18,
-    fontWeight: 'bold',
-    color: Colors.white,
-  },
-  dropdownUserInfo: {
-    marginLeft: 12,
-    flex: 1,
-  },
-  dropdownUserName: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: Colors.textPrimary,
-  },
-  dropdownUserRole: {
-    fontSize: 12,
-    color: Colors.textSecondary,
-    marginTop: 2,
-  },
-  dropdownDivider: {
-    height: 1,
-    backgroundColor: Colors.cardBorder,
-  },
+  dropdownAvatarText: { fontSize: 30, fontWeight: 'bold', color: Colors.white },
+  dropdownUserInfo: { marginTop: 16, alignSelf: 'stretch' },
+  dropdownUserName: { fontSize: 26, fontWeight: 'bold', color: Colors.textPrimary },
+  dropdownUserRole: { fontSize: 15, color: Colors.textSecondary, marginTop: 6 },
+  dropdownDivider: { height: 1, backgroundColor: Colors.cardBorder, marginHorizontal: 24 },
   dropdownItem: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    gap: 12,
+    flexDirection: 'row', alignItems: 'center', minHeight: 64,
+    paddingVertical: 18, paddingHorizontal: 24, gap: 12,
   },
-  dropdownItemText: {
-    fontSize: 15,
-    color: Colors.textPrimary,
-  },
+  dropdownItemCopy: { flex: 1, minWidth: 0 },
+  dropdownItemText: { fontSize: 17, fontWeight: '600', color: Colors.textPrimary, flexShrink: 1 },
+  dropdownDescription: { fontSize: 13, color: Colors.textSecondary, marginTop: 4 },
   dropdownItemLogout: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    paddingVertical: 14,
-    paddingHorizontal: 16,
-    gap: 12,
+    flexDirection: 'row', alignItems: 'center', minHeight: 64,
+    paddingVertical: 18, paddingHorizontal: 24, gap: 12,
   },
-  dropdownItemTextLogout: {
-    fontSize: 15,
-    color: Colors.statusLate,
-    fontWeight: '500',
-  },
-  // Create Club Modal Styles
+  dropdownItemTextLogout: { fontSize: 17, color: Colors.textPrimary, fontWeight: '600', flexShrink: 1 },
+  accountDeleteText: { color: Colors.statusLate, fontSize: 15 },
+  // Create Group Modal Styles
   createClubModalOverlay: {
     flex: 1,
     backgroundColor: 'rgba(0, 0, 0, 0.5)',
@@ -999,6 +1050,7 @@ const styles = StyleSheet.create({
   },
   createClubModalContent: {
     backgroundColor: Colors.white,
+    marginBottom: 16,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     maxHeight: '85%',
@@ -1043,6 +1095,8 @@ const styles = StyleSheet.create({
     gap: 8,
   },
   typeButton: {
+    width: '31%',
+    alignItems: 'center',
     paddingHorizontal: 16,
     paddingVertical: 8,
     borderRadius: 20,
@@ -1051,8 +1105,8 @@ const styles = StyleSheet.create({
     borderColor: Colors.cardBorder,
   },
   typeButtonActive: {
-    backgroundColor: Colors.mediumGreen,
-    borderColor: Colors.mediumGreen,
+    backgroundColor: Colors.accent,
+    borderColor: Colors.accent,
   },
   typeButtonText: {
     fontSize: 14,
@@ -1062,9 +1116,27 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontWeight: '600',
   },
-  createClubSubmitButton: {
-    backgroundColor: Colors.mediumGreen,
+  createClubActions: {
+    flexDirection: 'row',
+    gap: 12,
     marginHorizontal: 20,
+  },
+  createClubCancelButton: {
+    flex: 1,
+    paddingVertical: 16,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    alignItems: 'center',
+  },
+  createClubCancelText: {
+    color: Colors.textPrimary,
+    fontSize: 18,
+    fontWeight: '600',
+  },
+  createClubSubmitButton: {
+    flex: 1,
+    backgroundColor: Colors.accent,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',

@@ -1,30 +1,35 @@
-import React, { useEffect, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Image, Modal } from 'react-native';
+import React, { useCallback, useRef, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Image, Modal, TextInput, RefreshControl } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { AdBanner } from '../../components/AdBanner';
+import * as FileSystem from 'expo-file-system/legacy';
+import * as Sharing from 'expo-sharing';
 import axios from 'axios';
+import { paymentRemaining, paymentSummaryRecords } from '../../services/paymentSummaryRecords';
 
 interface Contribution {
   id: string | null;
   member_id: string;
   member_name: string;
   reference_code: string;
-  amount_due: number;
+  amount_due: number | null;
   amount_paid: number;
   status: string;
+  contribution_status: string | null;
   proof_uploaded: boolean;
-  proof_of_payment: string | null;
+  proof_version: string | null;
+  proof_review_status?: string | null;
   payment_date: string | null;
-  reference_number: string | null;
 }
 
 export default function ContributionsScreen() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const router = useRouter();
+  const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
   const [loading, setLoading] = useState(true);
   const [contributions, setContributions] = useState<Contribution[]>([]);
   const [summary, setSummary] = useState({ collected: 0, outstanding: 0, total_expected: 0, collection_rate: 0 });
@@ -33,24 +38,75 @@ export default function ContributionsScreen() {
   const [selectedProof, setSelectedProof] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [clubs, setClubs] = useState<{ id: string; name: string }[]>([]);
+  const [groupId, setGroupId] = useState<string | null>(null);
+  const [showClubs, setShowClubs] = useState(false);
+  const [declining, setDeclining] = useState<Contribution | null>(null);
+  const [reason, setReason] = useState('');
+  const [error, setError] = useState<string | null>(null);
+  const [loadedKey, setLoadedKey] = useState<string | null>(null);
+  const context = `${groupId}:${currentMonth}:${currentYear}:${user?.id}:${token}`;
+  const [paymentFilter, setPaymentFilter] = useState<{ key: string; kind: 'collected' | 'outstanding' } | null>(null);
+  const activeFilter = paymentFilter?.key === context ? paymentFilter.kind : null;
+  const breakdown = paymentSummaryRecords(contributions, summary);
+  const filterMatches = activeFilter === 'collected' ? breakdown.collectedMatches : breakdown.outstandingMatches;
+  const effectiveFilter = activeFilter && filterMatches ? activeFilter : null;
+  const visibleContributions = effectiveFilter === 'collected' ? breakdown.collected : effectiveFilter === 'outstanding' ? breakdown.outstanding : contributions;
+  const latestContext = useRef(context);
+  latestContext.current = context;
+  const request = useRef<{ key: string; sequence: number } | null>(null);
+  const sequence = useRef(0);
+  const clubsRequest = useRef<string | null>(null);
+  const clubsContext = `${user?.id}:${token}`;
+  const latestClubsContext = useRef(clubsContext);
+  latestClubsContext.current = clubsContext;
 
-  const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
-
-  const fetchContributions = async () => {
+  const fetchClubs = useCallback(async () => {
+    if (!user?.id) return;
+    const key = `${user.id}:${token}`;
+    if (clubsRequest.current === key) return;
+    clubsRequest.current = key;
     try {
-      // Empty contributions - real data will come from API when user creates a club
-      setContributions([]);
-      setSummary({ collected: 0, outstanding: 0, total_expected: 0, collection_rate: 0 });
-    } catch (error) {
-      console.error('Error fetching contributions:', error);
-    } finally {
+      const response = await axios.get(`${API_URL}/api/admin/clubs/${user.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      if (latestClubsContext.current !== key) return;
+      const managed = response.data.clubs;
+      setClubs(managed);
+      setGroupId(previous => managed.some((club: { id: string }) => club.id === previous) ? previous : managed[0]?.id ?? null);
+      if (!managed.length) setLoading(false);
+    } catch (err: any) {
+      if (latestClubsContext.current !== key) return;
+      setError(err.response?.data?.detail || 'Unable to load clubs. Please try again.');
       setLoading(false);
+    } finally {
+      if (clubsRequest.current === key) clubsRequest.current = null;
     }
-  };
+  }, [API_URL, user?.id, token]);
 
-  useEffect(() => {
-    fetchContributions();
-  }, [currentMonth, currentYear]);
+  const fetchContributions = useCallback(async (force = false) => {
+    if (!groupId || !user?.id) return;
+    const key = `${groupId}:${currentMonth}:${currentYear}:${user.id}:${token}`;
+    if (!force && request.current?.key === key) return;
+    const ticket = ++sequence.current;
+    request.current = { key, sequence: ticket };
+    setLoading(true);
+    setError(null);
+    try {
+      const response = await axios.get(`${API_URL}/api/treasurer/contributions/${groupId}/month/${currentMonth}/year/${currentYear}`, {
+        params: { treasurer_id: user.id }, headers: { Authorization: `Bearer ${token}` }
+      });
+      if (sequence.current !== ticket || latestContext.current !== key) return;
+      setContributions(response.data.contributions);
+      setSummary(response.data.summary);
+      setLoadedKey(key);
+    } catch (err: any) {
+      if (sequence.current === ticket && latestContext.current === key) setError(err.response?.data?.detail || 'Unable to load payments. Please try again.');
+    } finally {
+      if (request.current?.sequence === ticket) { request.current = null; setLoading(false); }
+    }
+  }, [API_URL, groupId, currentMonth, currentYear, user?.id, token]);
+
+  useFocusEffect(useCallback(() => { void fetchClubs(); }, [fetchClubs]));
+  useFocusEffect(useCallback(() => { void fetchContributions(); }, [fetchContributions]));
 
   const handlePreviousMonth = () => {
     if (currentMonth === 1) {
@@ -72,27 +128,53 @@ export default function ContributionsScreen() {
     setLoading(true);
   };
 
-  const handleViewProof = (proof: string) => {
-    setSelectedProof(proof);
-    setModalVisible(true);
+  const handleViewProof = async (contributionId: string) => {
+    try {
+      const response = await axios.get(`${API_URL}/api/contributions/${contributionId}/proof`, { params: { user_id: user?.id }, headers: { Authorization: `Bearer ${token}` } });
+      const proof = response.data.proof_image;
+      if (!proof) throw new Error('Proof unavailable');
+      const mime = response.data.proof_mime_type || (proof.startsWith('data:application/pdf') ? 'application/pdf' : 'image/jpeg');
+      if (mime !== 'application/pdf') {
+        setSelectedProof(proof.startsWith('data:') ? proof : `data:${mime};base64,${proof}`);
+        setModalVisible(true);
+        return;
+      }
+      if (!await Sharing.isAvailableAsync()) { Alert.alert('Error', 'Opening PDF files is not available on this device.'); return; }
+      const fileUri = FileSystem.documentDirectory + `proof_${Date.now()}.pdf`;
+      await FileSystem.writeAsStringAsync(fileUri, proof.replace(/^data:[^;]+;base64,/, ''), { encoding: FileSystem.EncodingType.Base64 });
+      await Sharing.shareAsync(fileUri, { mimeType: 'application/pdf', dialogTitle: 'Open Proof of Payment' });
+    } catch (err: any) { Alert.alert('Error', err.response?.data?.detail || 'Failed to open proof of payment.'); }
   };
 
-  const handleConfirmPayment = async (contributionId: string) => {
-    setConfirmingId(contributionId);
+  const handleConfirmPayment = async (contribution: Contribution) => {
+    if (!contribution.id || !contribution.proof_version || confirmingId) return;
+    setConfirmingId(contribution.id);
     try {
       await axios.post(`${API_URL}/api/treasurer/confirm-payment`, {
-        contribution_id: contributionId,
-        notes: 'Payment confirmed by treasurer',
-        treasurer_id: user?.id,  // Authorization: Pass treasurer ID for access control
-      });
-
+        contribution_id: contribution.id, proof_version: contribution.proof_version,
+        notes: 'Payment confirmed by treasurer', treasurer_id: user?.id,
+      }, { headers: { Authorization: `Bearer ${token}` } });
       Alert.alert('Success', 'Payment confirmed! Member has been notified.');
-      fetchContributions(); // Refresh data
-    } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to confirm payment');
-    } finally {
-      setConfirmingId(null);
-    }
+      await fetchContributions(true);
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.detail || 'Failed to confirm payment');
+      if (err.response?.status === 409) await fetchContributions(true);
+    } finally { setConfirmingId(null); }
+  };
+
+  const handleDeclineProof = async () => {
+    if (!declining?.id || !declining.proof_version || confirmingId) return;
+    setConfirmingId(declining.id);
+    try {
+      await axios.post(`${API_URL}/api/contributions/${declining.id}/decline-proof`, {
+        proof_version: declining.proof_version, reason: reason.trim() || null,
+      }, { headers: { Authorization: `Bearer ${token}` } });
+      setDeclining(null);
+      await fetchContributions(true);
+    } catch (err: any) {
+      Alert.alert('Error', err.response?.data?.detail || 'Failed to decline proof');
+      if (err.response?.status === 409) { setDeclining(null); await fetchContributions(true); }
+    } finally { setConfirmingId(null); }
   };
 
   const getMonthName = (month: number) => {
@@ -100,96 +182,122 @@ export default function ContributionsScreen() {
     return months[month - 1];
   };
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={Colors.mediumGreen} />
-      </View>
-    );
-  }
-
   return (
     <View style={styles.container}>
       {/* Header with Month Navigation and Profile */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.headerTitle}>Payments</Text>
-          <View style={styles.monthNav}>
-            <TouchableOpacity onPress={handlePreviousMonth} style={styles.monthButton}>
-              <Ionicons name="chevron-back" size={20} color={Colors.white} />
-            </TouchableOpacity>
-            <Text style={styles.monthText}>
-              {getMonthName(currentMonth)} {currentYear}
-            </Text>
-            <TouchableOpacity onPress={handleNextMonth} style={styles.monthButton}>
-              <Ionicons name="chevron-forward" size={20} color={Colors.white} />
-            </TouchableOpacity>
-          </View>
         </View>
         <TouchableOpacity onPress={() => router.push('/(treasurer)/profile')} style={styles.profileButton}>
           {user?.profile_photo ? (
-            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} />
+            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
             <View style={styles.profilePlaceholder}>
-              <Ionicons name="person" size={20} color={Colors.white} />
+              <Ionicons name="person" size={32} color={Colors.white} />
             </View>
           )}
         </TouchableOpacity>
       </View>
 
-      {/* Summary Totals */}
-      <View style={styles.summaryContainer}>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Collected</Text>
-          <Text style={[styles.summaryValue, styles.collectedValue]}>R{summary.collected.toFixed(2)}</Text>
-        </View>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Outstanding</Text>
-          <Text style={[styles.summaryValue, styles.outstandingValue]}>R{summary.outstanding.toFixed(2)}</Text>
-        </View>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Collection Rate</Text>
-          <Text style={styles.summaryValue}>{summary.collection_rate}%</Text>
-        </View>
+      <View style={styles.monthNav}>
+        <TouchableOpacity onPress={handlePreviousMonth} style={styles.monthButton}>
+          <Ionicons name="chevron-back" size={20} color={Colors.white} />
+        </TouchableOpacity>
+        <Text style={styles.monthText}>
+          {getMonthName(currentMonth)} {currentYear}
+        </Text>
+        <TouchableOpacity onPress={handleNextMonth} style={styles.monthButton}>
+          <Ionicons name="chevron-forward" size={20} color={Colors.white} />
+        </TouchableOpacity>
       </View>
 
+      <TouchableOpacity style={styles.summaryContainer} onPress={() => setShowClubs(true)}>
+        <Text>{clubs.find(club => club.id === groupId)?.name || 'Select Club'}</Text>
+        <Ionicons name="chevron-down" size={20} color={Colors.mediumGreen} />
+      </TouchableOpacity>
+      {error && <View style={styles.summaryContainer}><Text>{error}</Text><TouchableOpacity onPress={() => { void fetchClubs(); void fetchContributions(); }}><Text>Retry</Text></TouchableOpacity></View>}
+      {loadedKey === context && <>
+      {/* Summary Totals */}
+      <View style={styles.summaryContainer}>
+        <TouchableOpacity style={styles.summaryCard} disabled={!breakdown.collectedMatches} accessibilityRole={breakdown.collectedMatches ? 'button' : undefined} accessibilityLabel="Show records contributing to collected" accessibilityState={{ disabled: !breakdown.collectedMatches, selected: effectiveFilter === 'collected' }} activeOpacity={0.75} onPress={() => setPaymentFilter({ key: context, kind: 'collected' })}>
+          <Text style={styles.summaryLabel}>Collected</Text>
+          <Text style={[styles.summaryValue, styles.collectedValue]}>R{summary.collected.toFixed(2)}</Text>
+        {breakdown.collectedMatches && <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} />}
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.summaryCard} disabled={!breakdown.outstandingMatches} accessibilityRole={breakdown.outstandingMatches ? 'button' : undefined} accessibilityLabel="Show records contributing to outstanding" accessibilityState={{ disabled: !breakdown.outstandingMatches, selected: effectiveFilter === 'outstanding' }} activeOpacity={0.75} onPress={() => setPaymentFilter({ key: context, kind: 'outstanding' })}>
+          <Text style={styles.summaryLabel}>Outstanding</Text>
+          <Text style={[styles.summaryValue, styles.outstandingValue]}>R{summary.outstanding.toFixed(2)}</Text>
+        {breakdown.outstandingMatches && <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} />}
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Explain collection rate" activeOpacity={0.75} onPress={() => Alert.alert('Collection Rate', `Expected: R${summary.total_expected.toFixed(2)}\nCollected: R${summary.collected.toFixed(2)}\nCollection Rate: ${summary.collection_rate}%\n\nCollected ÷ Expected × 100. When Expected is zero, the displayed rate is zero. Collected includes valid recorded payments, even when not yet confirmed.`)}>
+          <Text style={styles.summaryLabel}>Collection Rate</Text>
+          <Text style={styles.summaryValue}>{summary.collection_rate}%</Text>
+        <Ionicons name="information-circle-outline" size={14} color={Colors.textSecondary} />
+        </TouchableOpacity>
+      </View>
+
+      </>}
       {/* Contributions List */}
-      <ScrollView style={styles.content}>
-        {contributions.map((contribution, index) => (
-          <View key={index} style={styles.contributionCard}>
+      <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={loading && loadedKey === context} onRefresh={() => void fetchContributions()} />}>
+        {loading && loadedKey !== context && <ActivityIndicator size="large" color={Colors.mediumGreen} />}
+        {!loading && !groupId && !error && <Text>No managed clubs yet.</Text>}
+        {loadedKey === context && effectiveFilter && <View style={styles.contributionCard}>
+          <Text accessibilityLiveRegion="polite">Showing {effectiveFilter === 'collected' ? 'recorded payments contributing to Collected' : 'remaining balances contributing to Outstanding'} — R{summary[effectiveFilter].toFixed(2)}</Text>
+          <Text>{effectiveFilter === 'collected' ? 'Recorded amounts may still await confirmation.' : 'Settled and excused records do not add an outstanding balance.'}</Text>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Show all payment records" onPress={() => setPaymentFilter(null)}><Text style={styles.viewProofText}>Show all</Text></TouchableOpacity>
+          {visibleContributions.length === 0 && <Text>No records contribute to this amount.</Text>}
+        </View>}
+        {(loadedKey === context ? visibleContributions : []).map((contribution) => (
+          <View key={contribution.id ?? contribution.member_id} style={styles.contributionCard}>
             <View style={styles.contributionHeader}>
               <View>
                 <Text style={styles.memberName}>{contribution.member_name}</Text>
                 <Text style={styles.memberReference}>{contribution.reference_code}</Text>
               </View>
-              <StatusPill status={contribution.status} />
+              <StatusPill status={contribution.proof_review_status === 'declined' ? 'proof_declined' : contribution.status} />
             </View>
 
             <View style={styles.contributionAmount}>
               <Text style={styles.amountLabel}>Amount</Text>
-              <Text style={styles.amountValue}>R{contribution.amount_due.toFixed(2)}</Text>
+              <Text style={styles.amountValue}>{contribution.amount_due == null ? 'Not recorded' : `R${contribution.amount_due.toFixed(2)}`}</Text>
             </View>
 
-            {contribution.proof_uploaded && contribution.status !== 'confirmed' && (
+            {effectiveFilter && <View style={styles.contributionAmount}>
+              <Text style={styles.amountLabel}>{effectiveFilter === 'collected' ? 'Recorded payment' : 'Remaining balance'}</Text>
+              <Text style={styles.amountValue}>R{(effectiveFilter === 'collected' ? contribution.amount_paid : paymentRemaining(contribution) || 0).toFixed(2)}</Text>
+            </View>}
+
+            {contribution.proof_uploaded && contribution.id && (
               <View style={styles.contributionActions}>
                 <TouchableOpacity
                   style={styles.viewProofButton}
-                  onPress={() => handleViewProof(contribution.proof_of_payment!)}
+                  onPress={() => handleViewProof(contribution.id!)}
                 >
                   <Ionicons name="eye" size={18} color={Colors.mediumGreen} />
                   <Text style={styles.viewProofText}>View Proof</Text>
                 </TouchableOpacity>
 
+                {contribution.contribution_status === 'proof_uploaded' && contribution.proof_review_status !== 'declined' && contribution.proof_review_status !== 'approved' && contribution.proof_version && <>
+                  <Text>Awaiting Review</Text>
                 <TouchableOpacity
                   style={[styles.confirmButton, confirmingId === contribution.id && styles.confirmButtonDisabled]}
-                  onPress={() => handleConfirmPayment(contribution.id!)}
-                  disabled={confirmingId === contribution.id}
+                  onPress={() => handleConfirmPayment(contribution)}
+                  disabled={!!confirmingId}
                 >
                   <Ionicons name="checkmark-circle" size={18} color={Colors.white} />
                   <Text style={styles.confirmButtonText}>
-                    {confirmingId === contribution.id ? 'Confirming...' : 'Confirm Payment'}
+                    {confirmingId === contribution.id ? 'Confirming...' : 'Approve Payment'}
                   </Text>
                 </TouchableOpacity>
+                  <TouchableOpacity
+                    style={styles.viewProofButton}
+                    disabled={!!confirmingId}
+                    onPress={() => { setReason(''); setDeclining(contribution); }}
+                  >
+                    <Text style={styles.viewProofText}>Decline Proof</Text>
+                  </TouchableOpacity>
+                </>}
               </View>
             )}
 
@@ -206,6 +314,23 @@ export default function ContributionsScreen() {
         <AdBanner size="banner" />
       </ScrollView>
 
+      <Modal visible={showClubs} transparent animationType="fade" onRequestClose={() => setShowClubs(false)}>
+        <View style={styles.modalOverlay}><View style={[styles.modalContent, { padding: 20 }]}>
+          <Text style={styles.modalTitle}>Select Club</Text>
+          <ScrollView>
+            {clubs.map(club => <TouchableOpacity key={club.id} style={styles.viewProofButton} onPress={() => { setGroupId(club.id); setShowClubs(false); }}><Text>{club.name}</Text></TouchableOpacity>)}
+          </ScrollView>
+          <TouchableOpacity onPress={() => setShowClubs(false)}><Text>Cancel</Text></TouchableOpacity>
+        </View></View>
+      </Modal>
+      <Modal visible={!!declining} transparent animationType="fade" onRequestClose={() => setDeclining(null)}>
+        <View style={styles.modalOverlay}><View style={[styles.modalContent, { padding: 20 }]}>
+          <Text style={styles.modalTitle}>Decline Proof</Text>
+          <TextInput value={reason} onChangeText={setReason} maxLength={200} placeholder="Reason (optional)" />
+          <TouchableOpacity style={styles.confirmButton} disabled={!!confirmingId} onPress={handleDeclineProof}><Text style={styles.confirmButtonText}>Confirm Decline</Text></TouchableOpacity>
+          <TouchableOpacity disabled={!!confirmingId} onPress={() => setDeclining(null)}><Text>Cancel</Text></TouchableOpacity>
+        </View></View>
+      </Modal>
       {/* Proof of Payment Modal */}
       <Modal
         visible={modalVisible}
@@ -253,7 +378,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    gap: 16,
   },
   headerLeft: {
     flex: 1,
@@ -262,27 +388,30 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: Colors.white,
-    marginBottom: 12,
   },
   profileButton: {
     padding: 4,
+    flexShrink: 0,
   },
   profileImage: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
   profilePlaceholder: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
   },
   monthNav: {
+    backgroundColor: Colors.darkGreen,
+    paddingHorizontal: 24,
+    paddingBottom: 20,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -295,7 +424,8 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: '600',
     color: Colors.white,
-    minWidth: 150,
+    flex: 1,
+    flexShrink: 1,
     textAlign: 'center',
   },
   summaryContainer: {
@@ -382,11 +512,11 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
   },
   contributionActions: {
-    flexDirection: 'row',
+    flexDirection: 'column',
     gap: 8,
   },
   viewProofButton: {
-    flex: 1,
+    flex: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -403,7 +533,7 @@ const styles = StyleSheet.create({
     color: Colors.mediumGreen,
   },
   confirmButton: {
-    flex: 1,
+    flex: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

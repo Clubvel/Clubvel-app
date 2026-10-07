@@ -14,7 +14,7 @@ interface NotificationPrefs {
 }
 
 export default function NotificationPreferencesScreen() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -32,7 +32,9 @@ export default function NotificationPreferencesScreen() {
 
   const fetchPreferences = async () => {
     try {
-      const response = await axios.get(`${API_URL}/api/user/notification-preferences/${user?.id}`);
+      const response = await axios.get(`${API_URL}/api/user/notification-preferences/${user?.id}`, {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+      });
       setPreferences({
         contribution_reminders: response.data.contribution_reminders || false,
         claim_updates: response.data.claim_updates || false,
@@ -54,7 +56,7 @@ export default function NotificationPreferencesScreen() {
       await axios.put(`${API_URL}/api/user/notification-preferences`, {
         user_id: user?.id,
         [key]: value,
-      });
+      }, { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 });
     } catch (error) {
       console.error('Error updating notification preferences:', error);
       // Revert on error

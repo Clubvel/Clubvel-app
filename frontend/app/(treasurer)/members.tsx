@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, Alert, ActivityIndicator, Image } from 'react-native';
+import React, { useState, useEffect, useRef } from 'react';
+import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, Alert, ActivityIndicator, Image, KeyboardAvoidingView, Platform, Linking } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
@@ -14,6 +14,7 @@ interface Member {
   initials: string;
   reference: string;
   status: string;
+  paymentStatus: string;
   amount: number;
   phone: string;
 }
@@ -24,7 +25,7 @@ interface Club {
 }
 
 export default function MembersScreen() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const router = useRouter();
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
   
@@ -36,6 +37,7 @@ export default function MembersScreen() {
   const [clubs, setClubs] = useState<Club[]>([]);
   const [showClubPicker, setShowClubPicker] = useState(false);
   const [sending, setSending] = useState(false);
+  const invitationInFlight = useRef(false);
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -43,10 +45,43 @@ export default function MembersScreen() {
     fetchData();
   }, []);
 
+  useEffect(() => {
+    if (selectedClub) {
+      fetchMembers(selectedClub.id);
+    }
+  }, [selectedClub]);
+
+  const fetchMembers = async (groupId: string) => {
+    try {
+      const response = await axios.get(
+        `${API_URL}/api/treasurer/club/${groupId}?treasurer_id=${user?.id}`,
+        { headers: { Authorization: `Bearer ${token}` } },
+      );
+      setMembers((response.data.members || []).map((member: any) => ({
+        id: member.id,
+        name: member.name,
+        initials: member.name
+          .split(/\s+/)
+          .filter(Boolean)
+          .slice(0, 2)
+          .map((part: string) => part.charAt(0).toUpperCase())
+          .join(''),
+        reference: member.reference,
+        status: member.membership_status,
+        paymentStatus: member.status,
+        amount: member.amount_paid,
+        phone: member.phone,
+      })));
+    } catch (error) {
+      console.error('Error fetching members:', error);
+      setMembers([]);
+    }
+  };
+
   const fetchData = async () => {
     try {
       // Fetch treasurer's clubs
-      const dashboardRes = await axios.get(`${API_URL}/api/treasurer/dashboard/${user?.id}`);
+      const dashboardRes = await axios.get(`${API_URL}/api/treasurer/dashboard/${user?.id}`, { headers: { Authorization: `Bearer ${token}` } });
       if (dashboardRes.data.clubs) {
         const clubList = dashboardRes.data.clubs.map((c: any) => ({
           id: c.id,
@@ -57,9 +92,6 @@ export default function MembersScreen() {
           setSelectedClub(clubList[0]);
         }
       }
-
-      // Empty members - real data will come from API when user creates a club
-      setMembers([]);
     } catch (error) {
       console.error('Error fetching data:', error);
     } finally {
@@ -67,9 +99,9 @@ export default function MembersScreen() {
     }
   };
 
-  const lateCount = members.filter(m => m.status === 'late').length;
-  const paidCount = members.filter(m => m.status === 'confirmed').length;
-  const dueCount = members.filter(m => m.status === 'due').length;
+  const lateCount = members.filter(m => m.paymentStatus === 'late').length;
+  const paidCount = members.filter(m => m.paymentStatus === 'confirmed').length;
+  const dueCount = members.filter(m => m.paymentStatus === 'due').length;
 
   const getAvatarColor = (status: string) => {
     switch (status) {
@@ -92,55 +124,58 @@ export default function MembersScreen() {
     return cleaned;
   };
 
-  const handleSendInvite = async () => {
+  const handleSendInvite = async (channel: 'whatsapp' | 'sms') => {
+    if (invitationInFlight.current) return;
     if (!invitePhone.trim()) {
       Alert.alert('Error', 'Please enter a phone number');
       return;
     }
-
     if (!selectedClub) {
       Alert.alert('Error', 'Please select a club');
       return;
     }
-
+    if (!user?.id || !token) {
+      Alert.alert('Error', 'Please sign in before inviting a member');
+      return;
+    }
     const formattedPhone = formatPhoneNumber(invitePhone);
     if (formattedPhone.length !== 10) {
       Alert.alert('Error', 'Please enter a valid 10-digit phone number');
       return;
     }
 
+    invitationInFlight.current = true;
     setSending(true);
     try {
-      const response = await axios.post(`${API_URL}/api/treasurer/invite-member`, {
+      const { data } = await axios.post(`${API_URL}/api/treasurer/invite-member`, {
         phone_number: formattedPhone,
         name: inviteName.trim() || undefined,
         group_id: selectedClub.id,
-        group_name: selectedClub.name,
-        invited_by: user?.id,
-        treasurer_name: user?.full_name
-      });
+        channel,
+      }, { headers: { Authorization: `Bearer ${token}` } });
 
-      Alert.alert(
-        'Invitation Sent!',
-        `An SMS invitation has been sent to ${formattedPhone}. They will be automatically added to ${selectedClub.name} when they register.`,
-        [{ text: 'OK', onPress: () => {
-          setShowInviteModal(false);
-          setInvitePhone('');
-          setInviteName('');
-        }}]
-      );
+      if (channel === 'whatsapp') {
+        try {
+          const digits = data.phone_number.replace(/^\+/, '');
+          await Linking.openURL(`https://wa.me/${digits}?text=${encodeURIComponent(data.invitation_message)}`);
+          Alert.alert('WhatsApp opened', 'Press Send in WhatsApp to share the invitation. It remains pending in Clubvel until they accept.');
+        } catch {
+          Alert.alert('WhatsApp could not be opened', 'The Clubvel invitation is still pending. You can use SMS instead.', [
+            { text: 'Cancel', style: 'cancel' },
+            { text: 'Use SMS', onPress: () => handleSendInvite('sms') },
+          ]);
+        }
+      } else if (data.delivery_status === 'submitted') {
+        Alert.alert('SMS submitted', 'The invitation was submitted to the SMS provider. They must accept it in My Clubvel before joining.');
+      } else if (data.delivery_status === 'mock') {
+        Alert.alert('Invitation saved', 'No SMS was sent in test mode. The invitation is pending in Clubvel.');
+      } else {
+        Alert.alert('SMS could not be sent', 'The Clubvel invitation is still pending. Try SMS again or use WhatsApp.');
+      }
     } catch (error: any) {
-      console.error('Error sending invite:', error);
-      Alert.alert(
-        'Invitation Sent!',
-        `An SMS invitation has been sent to ${formattedPhone}. They will be automatically added to ${selectedClub.name} when they register.`,
-        [{ text: 'OK', onPress: () => {
-          setShowInviteModal(false);
-          setInvitePhone('');
-          setInviteName('');
-        }}]
-      );
+      Alert.alert('Could not prepare invitation', error.response?.data?.detail || 'Please try again.');
     } finally {
+      invitationInFlight.current = false;
       setSending(false);
     }
   };
@@ -155,10 +190,10 @@ export default function MembersScreen() {
         </View>
         <TouchableOpacity onPress={() => router.push('/(treasurer)/profile')} style={styles.profileButton}>
           {user?.profile_photo ? (
-            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} />
+            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
             <View style={styles.profilePlaceholder}>
-              <Ionicons name="person" size={20} color={Colors.white} />
+              <Ionicons name="person" size={32} color={Colors.white} />
             </View>
           )}
         </TouchableOpacity>
@@ -242,8 +277,15 @@ export default function MembersScreen() {
         animationType="slide"
         onRequestClose={() => setShowInviteModal(false)}
       >
-        <View style={styles.modalOverlay}>
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
           <View style={styles.modalContent}>
+            <ScrollView
+              keyboardShouldPersistTaps="handled"
+              showsVerticalScrollIndicator={true}
+            >
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Invite Member</Text>
               <TouchableOpacity onPress={() => setShowInviteModal(false)}>
@@ -252,7 +294,7 @@ export default function MembersScreen() {
             </View>
 
             <Text style={styles.modalDescription}>
-              Enter the phone number of the person you want to invite. They will receive an SMS with instructions to join your club.
+              Enter the phone number of the person you want to invite. Choose WhatsApp or SMS to share instructions to join your club.
             </Text>
 
             {/* Club Selector */}
@@ -316,27 +358,28 @@ export default function MembersScreen() {
               maxLength={12}
             />
 
-            <TouchableOpacity 
-              style={[styles.sendButton, sending && styles.sendButtonDisabled]}
-              onPress={handleSendInvite}
-              disabled={sending}
-            >
-              {sending ? (
-                <ActivityIndicator color={Colors.white} />
-              ) : (
-                <>
-                  <Ionicons name="send" size={20} color={Colors.white} />
-                  <Text style={styles.sendButtonText}>Send Invitation</Text>
-                </>
-              )}
-            </TouchableOpacity>
+            <View style={styles.deliveryButtons}>
+              {(['whatsapp', 'sms'] as const).map((channel) => (
+                <TouchableOpacity
+                  key={channel}
+                  style={[styles.sendButton, styles.deliveryButton, sending && styles.sendButtonDisabled]}
+                  onPress={() => handleSendInvite(channel)}
+                  disabled={sending}
+                >
+                  <Ionicons name={channel === 'whatsapp' ? 'logo-whatsapp' : 'chatbubble-outline'} size={20} color={Colors.white} />
+                  <Text style={styles.sendButtonText}>{channel === 'whatsapp' ? 'WhatsApp' : 'SMS'}</Text>
+                </TouchableOpacity>
+              ))}
+            </View>
+            {sending && <ActivityIndicator color={Colors.accent} />}
 
             <Text style={styles.infoText}>
               <Ionicons name="information-circle" size={14} color={Colors.textMuted} />
               {' '}The person will receive an SMS with a link to download Clubvel and join your club.
             </Text>
+            </ScrollView>
           </View>
-        </View>
+        </KeyboardAvoidingView>
       </Modal>
     </View>
   );
@@ -355,6 +398,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 16,
   },
   headerLeft: {
     flex: 1,
@@ -371,18 +415,19 @@ const styles = StyleSheet.create({
   },
   profileButton: {
     padding: 4,
+    flexShrink: 0,
   },
   profileImage: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
   profilePlaceholder: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
@@ -596,6 +641,8 @@ const styles = StyleSheet.create({
     color: Colors.mediumGreen,
     fontWeight: '600',
   },
+  deliveryButtons: { flexDirection: 'row', gap: 12 },
+  deliveryButton: { flex: 1 },
   sendButton: {
     flexDirection: 'row',
     alignItems: 'center',

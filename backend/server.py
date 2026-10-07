@@ -1,18 +1,22 @@
-from fastapi import FastAPI, APIRouter, HTTPException, status as http_status, Request
+from fastapi import FastAPI, APIRouter, Header, HTTPException, status as http_status, Request
 from fastapi.responses import HTMLResponse
 from dotenv import load_dotenv
 from starlette.middleware.cors import CORSMiddleware
 from motor.motor_asyncio import AsyncIOMotorClient
+from pymongo.errors import DuplicateKeyError
 from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import os
 import logging
+import math
+from decimal import Decimal
 from pathlib import Path
 from pydantic import BaseModel, Field
-from typing import List, Optional
+from typing import Literal, List, Optional
 import uuid
-from datetime import datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
+from zoneinfo import ZoneInfo
 from passlib.context import CryptContext
 from jose import JWTError, jwt
 import random
@@ -23,9 +27,20 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 # Import notification service
 from services.notification_service import (
-    send_otp, verify_stored_otp, get_notification_status,
-    send_payment_reminder, send_payment_confirmation, send_late_payment_alert,
+    send_otp, get_notification_status,
+    send_payment_confirmation, send_late_payment_alert,
     format_phone_number
+)
+
+from services.monthly_reports import monthly_report
+from services.intelligence.context import summary_context
+from services.intelligence.schemas import SummaryContext
+
+from services.phone_numbers import normalize_phone, phone_aliases, phone_identity_query
+from services.auth_otp import AuthOTP, OTPError, runtime_mock_otp_allowed
+from services.admin_invitations import (
+    reserve_invitation, accepting_slot, release_slot, grant_decision,
+    cancel_admin_grant, commit_admin_grant,
 )
 
 # Import bank feed service
@@ -37,6 +52,8 @@ import certifi
 import certifi
 
 ROOT_DIR = Path(__file__).parent
+# Calendar-date validation follows Clubvel's South African business timezone.
+BUSINESS_TIMEZONE = ZoneInfo('Africa/Johannesburg')
 load_dotenv(ROOT_DIR / '.env')
 
 # Rate limiter setup
@@ -65,12 +82,19 @@ db = client[os.environ.get('DB_NAME', 'clubvel')]
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # JWT settings
-SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'clubvel-secret-key-change-in-production')
+def required_secret(name: str) -> str:
+    value = os.environ.get(name)
+    if not value or len(value) < 32:
+        raise RuntimeError(f"Configure {name} privately with the existing environment key (at least 32 characters).")
+    return value
+
+
+SECRET_KEY = required_secret('JWT_SECRET_KEY')
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Session expires after 30 minutes of inactivity
+ACCESS_TOKEN_EXPIRE_MINUTES = 30 * 24 * 60  # Absolute 30-day mobile session; activity never extends it.
 
 # Field-level encryption key (for sensitive data at rest)
-ENCRYPTION_KEY = os.environ.get('FIELD_ENCRYPTION_KEY', 'clubvel-encryption-key-32bytes!')
+ENCRYPTION_KEY = required_secret('FIELD_ENCRYPTION_KEY')
 
 def get_fernet_key():
     """Generate a Fernet-compatible key from the encryption key"""
@@ -121,7 +145,8 @@ class UserCreate(BaseModel):
     phone_number: str
     email: Optional[str] = None
     password: str
-    role: Optional[str] = "member"  # Optional - defaults to member for backward compatibility
+    # Accepted and ignored only so older installed clients do not fail validation.
+    role: Optional[str] = None
 
 class UserLogin(BaseModel):
     phone_number: str
@@ -152,21 +177,33 @@ class User(BaseModel):
     phone_number: str
     email: Optional[str] = None
     password_hash: str
-    # Legacy fields - kept for backward compatibility, defaults to member
-    role: str = "member"  # Deprecated: Use stokvel_memberships instead
-    roles: List[str] = ["member"]  # Deprecated: Use stokvel_memberships instead
+    # Deprecated compatibility fields. They are never authorization inputs.
+    role: Optional[str] = None
+    roles: List[str] = Field(default_factory=list)
     # New contextual membership array - maps roles per stokvel dynamically
-    stokvel_memberships: List[dict] = []  # Format: [{"stokvel_id": "string", "role": "treasurer/admin/member", "joined_at": datetime, "status": "active"}]
+    stokvel_memberships: List[dict] = Field(default_factory=list)
     profile_photo: Optional[str] = None  # base64
     date_joined: datetime = Field(default_factory=datetime.utcnow)
     status: str = "active"  # active or inactive
     otp_verified: bool = False
 
+
+def person_document(user: User) -> dict:
+    """Serialize a new identity without deprecated account-wide role fields."""
+    document = user.dict()
+    document.pop("role", None)
+    document.pop("roles", None)
+    return document
+
 class Group(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     group_name: str
-    group_type: str  # savings, burial society, investment, grocery, social
-    monthly_contribution: float
+    group_type: str  # savings, burial society, investment, grocery, social, travel
+    contribution_mode: str = 'fixed_monthly'
+    monthly_contribution: float = 0
+    destination: Optional[str] = None
+    target_amount_per_member: Optional[float] = None
+    target_date: Optional[str] = None
     payment_due_date: int  # day of month (1-31)
     bank_name: str
     bank_account_number: str
@@ -210,12 +247,41 @@ class Claim(BaseModel):
     member_id: str
     group_id: str
     claim_amount: float
-    scheduled_claim_date: datetime
-    claim_status: str = "upcoming"  # upcoming, ready, processing, paid, confirmed
+    scheduled_claim_date: Optional[datetime] = None
+    claim_status: str = "upcoming"  # legacy payout states plus pending_review, approved, rejected
     confirmed_by_treasurer_id: Optional[str] = None
     confirmation_date: Optional[datetime] = None
     notes: Optional[str] = None
     actual_amount_paid: Optional[float] = None
+    actual_payment_date: Optional[datetime] = None
+    payout_payments: List[dict] = Field(default_factory=list)
+    reason: Optional[str] = None
+    submitted_at: Optional[datetime] = None
+    reviewed_at: Optional[datetime] = None
+    reviewed_by_treasurer_id: Optional[str] = None
+    rejection_reason: Optional[str] = None
+
+
+class ClaimSubmission(BaseModel):
+    group_id: str
+    claim_amount: float
+    reason: str
+    resubmitted_from_claim_id: Optional[str] = None
+
+
+class ClaimPaymentRecord(BaseModel):
+    actual_amount_paid: float = Field(gt=0, strict=True, allow_inf_nan=False)
+    expected_actual_amount_paid: float = Field(ge=0, strict=True, allow_inf_nan=False)
+    actual_payment_date: date
+
+
+class ClaimPayoutDate(BaseModel):
+    scheduled_claim_date: date
+
+
+class ClaimReview(BaseModel):
+    action: str
+    rejection_reason: Optional[str] = None
 
 class Alert(BaseModel):
     id: str = Field(default_factory=lambda: str(uuid.uuid4()))
@@ -226,17 +292,9 @@ class Alert(BaseModel):
     created_at: datetime = Field(default_factory=datetime.utcnow)
     read_status: bool = False
     action_url: Optional[str] = None
-
-class TrustScore(BaseModel):
-    id: str = Field(default_factory=lambda: str(uuid.uuid4()))
-    user_id: str
-    overall_score: int = 50  # out of 100
-    payment_consistency_score: int = 50
-    months_active_score: int = 50
-    groups_joined_score: int = 50
-    disputes_score: int = 50
-    last_calculated: datetime = Field(default_factory=datetime.utcnow)
-
+    contribution_id: Optional[str] = None
+    proof_version: Optional[str] = None
+    claim_id: Optional[str] = None
 
 class NotificationPreferences(BaseModel):
     """User notification preferences - all default to OFF for POPIA compliance"""
@@ -259,14 +317,30 @@ class NotificationPreferencesUpdate(BaseModel):
 
 class ProofUpload(BaseModel):
     contribution_id: str
-    proof_image: str  # base64
+    proof_image: str  # base64 data URL; retained for backward compatibility
     reference_number: str
     user_id: str  # Requesting user - for authorization
+    proof_mime_type: Optional[str] = None
+    proof_file_name: Optional[str] = None
 
 class ConfirmPayment(BaseModel):
     contribution_id: str
+    proof_version: Optional[str] = None
     notes: Optional[str] = None
     treasurer_id: str  # Requesting treasurer - for authorization
+
+class RecordMonthlyContribution(BaseModel):
+    member_id: str
+    treasurer_id: str
+
+class RecordFlexibleContribution(BaseModel):
+    group_id: str
+    amount: float = Field(gt=0)
+
+class ProofReviewRequest(BaseModel):
+    proof_version: str
+    reason: Optional[str] = Field(default=None, max_length=200)
+
 
 # ==================== HELPER FUNCTIONS ====================
 
@@ -297,6 +371,91 @@ async def verify_member_owns_data(user_id: str, target_user_id: str) -> bool:
     return True
 
 
+def get_legacy_group_admin_role(user_id: str, group: dict) -> Optional[str]:
+    """Return a contextual role only when legacy group metadata proves admin access."""
+    if "admin_user_ids" in group:
+        return "admin" if user_id in (group.get("admin_user_ids") or []) else None
+    if group.get("treasurer_user_id") == user_id:
+        return "treasurer"
+    if user_id in (group.get("admin_user_ids") or []):
+        return "admin"
+    return None
+
+
+async def reconcile_legacy_group_admin_membership(user_id: str, group: dict) -> Optional[dict]:
+    """Lazily migrate a proven legacy group administrator into members.
+
+    Group ownership metadata is used only as migration evidence. The resulting
+    active members record remains the authorization source for the request and
+    all subsequent requests.
+    """
+    role_in_group = get_legacy_group_admin_role(user_id, group)
+    if not role_in_group:
+        return None
+
+    group_id = group["id"]
+    existing_membership = await db.members.find_one({
+        "user_id": user_id, "group_id": group_id
+    })
+    if existing_membership:
+        # Explicit membership decisions outrank historical owner metadata.
+        # Never reactivate a removed member or undo a contextual demotion.
+        if existing_membership.get("status") == "active" and existing_membership.get("role_in_group") in ("admin", "treasurer"):
+            return existing_membership
+        return None
+
+    member_count = await db.members.count_documents({"group_id": group_id})
+    reference_prefix = group.get("payment_reference_prefix", "CLB")
+    await db.members.update_one(
+        {"user_id": user_id, "group_id": group_id},
+        {
+            "$setOnInsert": {
+                "status": "active", "role_in_group": role_in_group,
+                "id": str(uuid.uuid4()),
+                "unique_reference_code": generate_reference_code(
+                    reference_prefix, member_count + 1
+                ),
+                "date_joined_group": datetime.utcnow(),
+                "payout_position": member_count + 1
+            }
+        },
+        upsert=True
+    )
+    membership = await db.members.find_one({"user_id": user_id, "group_id": group_id})
+    logging.info("Reconciled legacy admin membership for user %s in group %s", user_id, group_id)
+    return membership
+
+
+async def reconcile_legacy_admin_memberships(user_id: str) -> None:
+    """Migrate active groups that explicitly name this person as an administrator."""
+    legacy_groups = await db.groups.find({
+        "$or": [
+            {"treasurer_user_id": user_id},
+            {"admin_user_ids": user_id}
+        ],
+        "status": "active"
+    }).to_list(100)
+    for group in legacy_groups:
+        await reconcile_legacy_group_admin_membership(user_id, group)
+
+
+async def get_active_membership_contexts(user_id: str) -> list[tuple[dict, dict]]:
+    """Return authoritative active membership/group pairs for a person."""
+    await reconcile_legacy_admin_memberships(user_id)
+    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(None)
+    groups = await db.groups.find({
+        "id": {"$in": [membership["group_id"] for membership in memberships]},
+        "status": "active"
+    }).to_list(None)
+    groups_by_id = {group["id"]: group for group in groups}
+    contexts = []
+    for membership in memberships:
+        group = groups_by_id.get(membership["group_id"])
+        if group:
+            contexts.append((membership, group))
+    return contexts
+
+
 async def verify_user_is_group_member(user_id: str, group_id: str) -> dict:
     """Verify user is an active member of the specified group"""
     membership = await db.members.find_one({
@@ -304,6 +463,12 @@ async def verify_user_is_group_member(user_id: str, group_id: str) -> dict:
         "group_id": group_id,
         "status": "active"
     })
+    if not membership or membership.get("role_in_group") not in ("admin", "treasurer"):
+        group = await db.groups.find_one({"id": group_id})
+        if group:
+            reconciled = await reconcile_legacy_group_admin_membership(user_id, group)
+            if reconciled:
+                membership = reconciled
     if not membership:
         raise HTTPException(
             status_code=403, 
@@ -313,25 +478,40 @@ async def verify_user_is_group_member(user_id: str, group_id: str) -> dict:
 
 
 async def verify_user_is_group_treasurer(user_id: str, group_id: str) -> dict:
-    """Verify user is the treasurer of the specified group"""
+    """Verify the user's active membership grants administration in this group."""
     group = await db.groups.find_one({"id": group_id})
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
-    
-    if group.get('treasurer_user_id') != user_id:
+
+    if group.get('status') != 'active':
+        raise HTTPException(403, 'An active group is required')
+    membership = await db.members.find_one({
+        "user_id": user_id,
+        "group_id": group_id,
+        "status": "active",
+        "role_in_group": {"$in": ["admin", "treasurer"]}
+    })
+    if not membership:
+        membership = await reconcile_legacy_group_admin_membership(user_id, group)
+    if not membership:
         raise HTTPException(
             status_code=403, 
-            detail="Access denied: You are not the treasurer of this group"
+            detail="Access denied: Group admin access required"
         )
     return group
 
 
 async def verify_treasurer_owns_groups(user_id: str) -> list:
-    """Get all groups where user is treasurer"""
-    groups = await db.groups.find({
-        "treasurer_user_id": user_id, 
-        "status": "active"
+    """Get groups where the user's contextual membership is administrative."""
+    await reconcile_legacy_admin_memberships(user_id)
+
+    memberships = await db.members.find({
+        "user_id": user_id,
+        "status": "active",
+        "role_in_group": {"$in": ["admin", "treasurer"]}
     }).to_list(100)
+    group_ids = [membership["group_id"] for membership in memberships]
+    groups = await db.groups.find({"id": {"$in": group_ids}, "status": "active"}).to_list(100)
     return groups
 
 
@@ -359,9 +539,11 @@ async def verify_contribution_access(user_id: str, contribution_id: str, require
             )
         return contribution
     
-    # Check if user is treasurer of the group
-    group = await db.groups.find_one({"id": contribution['group_id']})
-    if group and group.get('treasurer_user_id') == user_id:
+    admin_membership = await db.members.find_one({
+        "user_id": user_id, "group_id": contribution['group_id'], "status": "active",
+        "role_in_group": {"$in": ["admin", "treasurer"]}
+    })
+    if admin_membership:
         return contribution
     
     raise HTTPException(
@@ -384,9 +566,11 @@ async def verify_member_access(user_id: str, member_id: str) -> dict:
     if member['user_id'] == user_id:
         return member
     
-    # Check if user is treasurer of the group
-    group = await db.groups.find_one({"id": member['group_id']})
-    if group and group.get('treasurer_user_id') == user_id:
+    admin_membership = await db.members.find_one({
+        "user_id": user_id, "group_id": member['group_id'], "status": "active",
+        "role_in_group": {"$in": ["admin", "treasurer"]}
+    })
+    if admin_membership:
         return member
     
     raise HTTPException(
@@ -422,14 +606,35 @@ def verify_token(token: str) -> dict:
             detail="Session expired or invalid. Please log in again."
         )
 
+
+def authenticated_user_id(authorization: Optional[str]) -> str:
+    """Return the person identified by a Bearer session token."""
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Authentication required")
+    payload = verify_token(authorization[7:])
+    user_id = payload.get("user_id")
+    if not user_id:
+        raise HTTPException(status_code=401, detail="Invalid session")
+    return user_id
+
+
+def require_account_owner(user_id: str, authorization: Optional[str]) -> None:
+    """Account identity comes from the signed session, never a supplied ID."""
+    if authenticated_user_id(authorization) != user_id:
+        raise HTTPException(status_code=403, detail="You may only access your own account")
+
+
+def phone_variants(phone_number: str) -> list[str]:
+    return sorted(set(phone_aliases(phone_number)) | {phone_number})
+
 def generate_reference_code(prefix: str, member_position: int) -> str:
     """Generate unique reference code for member"""
     return f"{prefix}{member_position:03d}"
 
 def calculate_contribution_status(contribution: dict, due_day: int) -> str:
     """Calculate if contribution is late, due, or pending"""
-    if contribution['contribution_status'] == 'confirmed':
-        return 'confirmed'
+    if contribution['contribution_status'] in ('confirmed', 'paid', 'excused'):
+        return contribution['contribution_status']
     
     now = datetime.utcnow()
     current_due_date = datetime(contribution['year'], contribution['month'], min(due_day, 28))
@@ -444,451 +649,857 @@ def calculate_contribution_status(contribution: dict, due_day: int) -> str:
     else:
         return 'pending'
 
+
+def contribution_metadata_projection():
+    """Return proof presence, never the proof file, for payment list reads."""
+    fields = ('id', 'member_id', 'group_id', 'month', 'year', 'amount_due', 'amount_paid',
+              'contribution_status', 'payment_date', 'reference_number', 'due_date',
+              'proof_version', 'proof_review_status', 'proof_decline_reason',
+              'proof_declined_by', 'proof_declined_at', 'uploaded_by_admin',
+              'proof_uploaded_by_user_id',
+              'proof_deleted_at', 'confirmation_date', 'proof_dismissed_by_user_id', 'proof_dismissed_version')
+    return {**{field: 1 for field in fields}, '_id': 0,
+            'proof_of_payment': {'$ne': [{'$ifNull': ['$proof_of_payment', '']}, '']}}
+
+
+async def get_group_payment_records(group_id, month, year, members):
+    records = await db.contributions.aggregate([
+        {'$match': {'group_id': group_id, 'month': month, 'year': year,
+                    'member_id': {'$in': [member['id'] for member in members]}}},
+        {'$project': contribution_metadata_projection()},
+    ]).to_list(None)
+    users = await db.users.find({'id': {'$in': [member['user_id'] for member in members]}},
+                               {'id': 1, 'full_name': 1, 'phone_number': 1, '_id': 0}).to_list(None)
+    by_member = {}
+    for record in records:
+        by_member.setdefault(record['member_id'], []).append(record)
+    return by_member, {user['id']: user for user in users}
+
+
+def contribution_outstanding(contribution: dict) -> Optional[float]:
+    """Unknown/malformed amounts must never become an invented payment obligation."""
+    due, paid = contribution.get('amount_due'), contribution.get('amount_paid')
+    if any(isinstance(v, bool) or not isinstance(v, (int, float)) or not math.isfinite(v)
+           for v in (due, paid)) or due < 0 or paid < 0:
+        return None
+    if contribution.get('contribution_status') in ('confirmed', 'paid', 'excused'):
+        return 0
+    return round(max(0, due - paid), 2)
+
+
+def proof_is_eligible(contribution: dict) -> bool:
+    outstanding = contribution_outstanding(contribution)
+    return bool(contribution.get('id') and
+                contribution.get('contribution_status') in ('pending', 'due', 'late') and
+                (not contribution.get('proof_of_payment') or contribution.get('proof_review_status') == 'declined') and
+                outstanding is not None and outstanding > 0)
+
+
+def proof_version(record: dict) -> Optional[str]:
+    if not record.get('proof_of_payment'):
+        return None
+    # Existing proofs need no backfill; new uploads always receive a unique version.
+    return record.get('proof_version') or f"legacy:{record['id']}:{record.get('payment_date')}"
+
+
+def proof_is_pending(record: dict) -> bool:
+    outstanding = contribution_outstanding(record)
+    return bool(record.get('proof_of_payment') and record.get('contribution_status') == 'proof_uploaded'
+                and record.get('proof_review_status') in (None, 'pending')
+                and outstanding is not None and outstanding > 0)
+
+
+def proof_review_details(record: dict) -> dict:
+    return {
+        'proof_version': proof_version(record),
+        'proof_review_status': record.get('proof_review_status'),
+        'proof_decline_reason': record.get('proof_decline_reason'),
+        'proof_declined_by': record.get('proof_declined_by'),
+        'proof_declined_at': record.get('proof_declined_at'),
+        'proof_delete_eligible': proof_is_pending(record) and not record.get('uploaded_by_admin'),
+    }
+
+
+def proof_update_filter(record: dict) -> dict:
+    return {key: record.get(key) for key in (
+        'id', 'contribution_status', 'amount_due', 'amount_paid', 'proof_of_payment',
+        'proof_version', 'proof_review_status', 'payment_date', 'uploaded_by_admin',
+        'proof_uploaded_by_user_id', 'proof_deleted_at')}
+
+
+def require_pending_proof(record: dict, expected_version: Optional[str]):
+    if not proof_is_pending(record) or not expected_version or expected_version != proof_version(record):
+        raise HTTPException(status_code=409, detail='This proof changed or is no longer awaiting review. Refresh before trying again.')
+
+
+async def get_person_contribution_records(user_id: str):
+    """One person-level source for all roles; never use group totals or create records."""
+    # Read active records directly: do not reconcile/create memberships or contributions here.
+    memberships = await db.members.find({'user_id': user_id, 'status': 'active'}).to_list(None)
+    groups = await db.groups.find({'id': {'$in': [m['group_id'] for m in memberships]}, 'status': 'active'}).to_list(None)
+    groups_by_id = {g['id']: g for g in groups}
+    members_by_id = {m['id']: m for m in memberships if m['group_id'] in groups_by_id}
+    records = await db.contributions.aggregate([
+        {'$match': {'member_id': {'$in': list(members_by_id)}}},
+        {'$project': contribution_metadata_projection()},
+    ]).to_list(None)
+    personal = []
+    for record in records:
+        membership = members_by_id.get(record['member_id'])
+        if not membership or record.get('group_id') != membership['group_id']:
+            continue
+        personal.append((record, membership, groups_by_id[record['group_id']]))
+    return personal
+
+
+def personal_contribution_status(record: dict, group: dict) -> str:
+    raw = record['contribution_status']
+    if raw not in ('pending', 'due', 'late', 'proof_uploaded'):
+        return raw
+    if contribution_outstanding(record) == 0:
+        return 'paid'
+    if record.get('proof_of_payment') and record.get('proof_review_status') != 'declined':
+        return 'proof_uploaded'
+    if group.get('contribution_mode') == 'flexible_goal' or group.get('group_type') == 'travel':
+        return raw
+    return calculate_contribution_status(record, group['payment_due_date'])
+
+
+def personal_contribution_view(record: dict, membership: dict, group: dict) -> dict:
+    outstanding = contribution_outstanding(record)
+    if outstanding is None:
+        raise HTTPException(status_code=409, detail='Some contribution amounts could not be verified. Please contact your group administrator.')
+    flexible = group.get('contribution_mode') == 'flexible_goal' or group.get('group_type') == 'travel'
+    return {
+        'contribution_id': record['id'], 'group_id': group['id'], 'group_name': group['group_name'],
+        'amount_due': record['amount_due'], 'amount_paid': record['amount_paid'],
+        'outstanding_amount': outstanding, 'contribution_status': record['contribution_status'],
+        'status': personal_contribution_status(record, group),
+        'proof_uploaded': bool(record.get('proof_of_payment')) or record['contribution_status'] == 'proof_uploaded',
+        'proof_eligible': proof_is_eligible(record), 'month': record['month'], 'year': record['year'],
+        'payment_reference': membership.get('unique_reference_code'),
+        'payment_date': record.get('payment_date'),
+        **proof_review_details(record),
+        'proof_dismissed': (record.get('proof_review_status') == 'declined' and
+                            record.get('proof_dismissed_by_user_id') == membership['user_id'] and
+                            record.get('proof_dismissed_version') == proof_version(record)),
+        'due_date': None if flexible else f"{record['year']}-{record['month']:02d}-{min(group['payment_due_date'], 28):02d}",
+    }
+
+
+@api_router.get('/member/contributions/{user_id}')
+async def get_personal_contributions(user_id: str, authorization: Optional[str] = Header(None)):
+    if authenticated_user_id(authorization) != user_id:
+        raise HTTPException(status_code=403, detail='You can only view your own contributions')
+    records = await get_person_contribution_records(user_id)
+    return {'contributions': [personal_contribution_view(*row) for row in records]}
+
+
+@api_router.get('/member/proof-eligible/{user_id}')
+async def get_proof_eligible_contributions(user_id: str, authorization: Optional[str] = Header(None)):
+    if authenticated_user_id(authorization) != user_id:
+        raise HTTPException(status_code=403, detail='You can only view your own contributions')
+    records = await get_person_contribution_records(user_id)
+    return {'contributions': [personal_contribution_view(*row) for row in records if proof_is_eligible(row[0])]}
+
+
+@api_router.post('/member/contributions/flexible')
+async def record_flexible_contribution(
+    data: RecordFlexibleContribution,
+    authorization: Optional[str] = Header(None)
+):
+    """Explicit member action to record a payment amount for a flexible or Travel group."""
+    user_id = authenticated_user_id(authorization)
+
+    group = await db.groups.find_one({
+        'id': data.group_id,
+        'status': 'active'
+    })
+    if not group:
+        raise HTTPException(status_code=404, detail='Active group not found')
+
+    membership = await db.members.find_one({
+        'user_id': user_id,
+        'group_id': data.group_id,
+        'status': 'active'
+    })
+    if not membership:
+        raise HTTPException(
+            status_code=403,
+            detail='You are not an active member of this group'
+        )
+
+    flexible = (
+        group.get('contribution_mode') == 'flexible_goal'
+        or group.get('group_type') == 'travel'
+    )
+    if not flexible:
+        raise HTTPException(
+            status_code=409,
+            detail='This action is only available for flexible or Travel groups'
+        )
+
+    amount = float(data.amount)
+    if not math.isfinite(amount) or amount <= 0:
+        raise HTTPException(status_code=422, detail='Enter a valid contribution amount')
+
+    now = datetime.utcnow()
+    record = Contribution(
+        member_id=membership['id'],
+        group_id=data.group_id,
+        month=now.month,
+        year=now.year,
+        amount_due=round(amount, 2)
+    ).dict()
+
+    await db.contributions.insert_one(record)
+
+    return {
+        'contribution_id': record['id'],
+        'group_id': data.group_id,
+        'amount_due': record['amount_due'],
+        'status': record['contribution_status']
+    }
+
+
+@api_router.post('/treasurer/contributions/{group_id}/current')
+async def record_monthly_contribution(group_id: str, data: RecordMonthlyContribution,
+                                      authorization: Optional[str] = Header(None)):
+    """Explicit admin action; ordinary reads never establish financial obligations."""
+    if authenticated_user_id(authorization) != data.treasurer_id:
+        raise HTTPException(status_code=403, detail='You can only act as yourself')
+    await verify_user_is_group_treasurer(data.treasurer_id, group_id)
+    group = await db.groups.find_one({'id': group_id, 'status': 'active'})
+    member = await db.members.find_one({'id': data.member_id, 'group_id': group_id, 'status': 'active'})
+    if not group or not member:
+        raise HTTPException(status_code=404, detail='Active group membership not found')
+    amount = group.get('monthly_contribution')
+    if group.get('contribution_mode', 'fixed_monthly') != 'fixed_monthly' or group.get('group_type') == 'travel':
+        raise HTTPException(status_code=409, detail='Flexible or Travel groups do not create automatic monthly obligations')
+    if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not math.isfinite(amount) or amount <= 0:
+        raise HTTPException(status_code=409, detail='No valid monthly contribution amount is configured')
+    now = datetime.utcnow()
+    period = {'member_id': member['id'], 'group_id': group_id, 'month': now.month, 'year': now.year}
+    existing = await db.contributions.find_one(period)
+    if existing:
+        return {'contribution_id': existing['id']}
+    record = Contribution(**period, amount_due=amount).dict()
+    # A deterministic key also prevents duplicate inserts from concurrent requests.
+    record['_id'] = f"monthly:{group_id}:{member['id']}:{now.year}:{now.month}"
+    try:
+        await db.contributions.update_one(period, {'$setOnInsert': record}, upsert=True)
+    except DuplicateKeyError:
+        pass
+    recorded = await db.contributions.find_one(period)
+    if not recorded:
+        raise HTTPException(status_code=409, detail='Could not record this contribution. Please retry.')
+    return {'contribution_id': recorded['id']}
+
 # ==================== AUTHENTICATION ROUTES ====================
 
+auth_otp = AuthOTP(
+    db.auth_otp_challenges, send_otp, get_notification_status, SECRET_KEY,
+    allow_mock=runtime_mock_otp_allowed(os.environ),
+)
+
+
+def auth_phone(phone: str) -> str:
+    try:
+        return normalize_phone(phone)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error))
+
+
+async def find_auth_user(phone: str):
+    matches = await db.users.find(phone_identity_query(auth_phone(phone))).to_list(2)
+    if len(matches) > 1:
+        # Never select or merge two existing identities based on a phone alias.
+        raise HTTPException(status_code=409, detail="Multiple accounts use this phone number. Please contact support.")
+    return matches[0] if matches else None
+
+
+async def issue_auth_code(phone: str, purpose: str, channel: str = "whatsapp"):
+    if channel not in ("whatsapp", "sms"):
+        raise HTTPException(status_code=422, detail="Choose WhatsApp or SMS.")
+    try:
+        return await auth_otp.issue(auth_phone(phone), purpose, channel)
+    except OTPError as error:
+        raise HTTPException(status_code=503, detail=str(error))
+
+
+async def check_auth_code(phone: str, purpose: str, otp: str, consume: bool = False):
+    try:
+        await auth_otp.check(auth_phone(phone), purpose, otp, consume=consume)
+    except OTPError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+
 @api_router.post("/auth/register")
-@limiter.limit("5/minute")  # Limit to 5 registration attempts per minute
+@limiter.limit("5/minute")
 async def register(request: Request, user_data: UserCreate):
-    # Check if phone number already exists
-    existing_user = await db.users.find_one({"phone_number": user_data.phone_number})
-    
-    if existing_user:
-        # Phone exists - check if they're trying to add a different role
-        existing_roles = existing_user.get('roles', [existing_user.get('role', 'member')])
-        requested_role = 'treasurer' if user_data.role == 'treasurer' else 'member'
-        
-        if requested_role in existing_roles:
-            # Already has this role - return success instead of error
-            return {
-                "message": f"This phone number is already registered with {requested_role} role. Please login.",
-                "user_id": existing_user['id'],
-                "roles": existing_roles,
-                "already_registered": True
-            }
-        else:
-            # Add the new role to existing user
-            new_roles = list(set(existing_roles + [requested_role]))
-            await db.users.update_one(
-                {"phone_number": user_data.phone_number},
-                {"$set": {"roles": new_roles}}
-            )
-            
-            return {
-                "message": f"Role '{requested_role}' added to your account. Please login.",
-                "user_id": existing_user['id'],
-                "roles": new_roles,
-                "already_registered": True
-            }
-    
-    # Create new user with default member role for backward compatibility
-    initial_role = user_data.role if user_data.role else 'member'
-    initial_role = 'treasurer' if initial_role == 'treasurer' else 'member'
-    
-    user = User(
-        full_name=user_data.full_name,
-        phone_number=user_data.phone_number,
-        email=user_data.email,
-        password_hash=hash_password(user_data.password),
-        role=initial_role,  # Legacy field - defaults to member
-        roles=[initial_role],  # Legacy field - defaults to [member]
-        stokvel_memberships=[],  # New contextual membership array - populated when joining stokvels
-        otp_verified=False
-    )
-    
-    await db.users.insert_one(user.dict())
-    
-    # Create initial trust score
-    trust_score = TrustScore(user_id=user.id)
-    await db.trust_scores.insert_one(trust_score.dict())
-    
-    # Check for pending invitations and auto-add to clubs
-    pending_invitations = await db.invitations.find({
-        "phone_number": user_data.phone_number,
-        "status": "pending",
-        "expires_at": {"$gt": datetime.utcnow()}
-    }).to_list(10)
-    
-    groups_joined = []
-    for invitation in pending_invitations:
-        # Create member record
-        member = Member(
-            user_id=user.id,
-            group_id=invitation['group_id'],
-            membership_status="active"
-        )
-        await db.members.insert_one(member.dict())
-        
-        # Update invitation status
-        await db.invitations.update_one(
-            {"id": invitation['id']},
-            {"$set": {"status": "accepted", "accepted_at": datetime.utcnow()}}
-        )
-        
-        # Add to user's stokvel_memberships array
-        await db.users.update_one(
-            {"id": user.id},
-            {
-                "$push": {
-                    "stokvel_memberships": {
-                        "stokvel_id": invitation['group_id'],
-                        "role": "member",
-                        "joined_at": datetime.utcnow(),
-                        "status": "active"
-                    }
-                }
-            }
-        )
-        
-        groups_joined.append(invitation['group_name'])
-    
-    # Send OTP via WhatsApp (with SMS fallback)
-    otp_result = await send_otp(user_data.phone_number, preferred_channel='whatsapp')
-    
-    # Get notification status for response
-    notif_status = get_notification_status()
-    
-    response = {
-        "message": "User registered successfully. OTP sent to phone.",
-        "user_id": user.id,
-        "otp_channel": otp_result.get('channel', 'whatsapp'),
-        "notification_mode": notif_status['mode']
-    }
-    
-    # Include groups joined via invitation
-    if groups_joined:
-        response["groups_joined"] = groups_joined
-        response["invitation_note"] = f"You've been automatically added to: {', '.join(groups_joined)}"
-    
-    # Include mock OTP in response if in mock mode
-    if notif_status['mode'] == 'mock':
-        response["mock_otp"] = "1234"
-        response["note"] = "App is in demo mode. Real WhatsApp/SMS will be enabled when Twilio is configured."
-    
-    return response
+    phone = auth_phone(user_data.phone_number)
+    if not user_data.full_name.strip() or len(user_data.password) < 6:
+        raise HTTPException(status_code=422, detail="Enter your name and a password of at least 6 characters.")
+    existing = await find_auth_user(phone)
+    if existing:
+        if existing.get('otp_verified') is not False or not verify_password(user_data.password, existing['password_hash']):
+            return {"message": "This phone number already has a Clubvel account. Please sign in.",
+                    "already_registered": True}
+        # Resume interrupted registration without replacing its password or identity.
+        result = await issue_auth_code(phone, "registration")
+        return {**result, "user_id": existing['id'], "already_registered": False}
+
+    # A sparse unique key protects new registrations against concurrent alias requests.
+    # Legacy records remain untouched and are checked above before insertion.
+    await db.users.create_index("phone_e164", unique=True, sparse=True)
+    user = User(full_name=user_data.full_name.strip(), phone_number=phone, email=user_data.email,
+                password_hash=hash_password(user_data.password), stokvel_memberships=[], otp_verified=False)
+    document = person_document(user)
+    document['phone_e164'] = phone
+    try:
+        await db.users.insert_one(document)
+    except DuplicateKeyError:
+        raise HTTPException(status_code=409, detail="An account was just created for this number. Please sign in.")
+    result = await issue_auth_code(phone, "registration")
+    return {**result, "user_id": user.id, "already_registered": False}
 
 
 @api_router.post("/auth/send-otp")
-@limiter.limit("3/minute")  # Limit to 3 OTP requests per minute
+@limiter.limit("3/minute")
 async def send_otp_endpoint(request: Request, otp_request: SendOTPRequest):
-    """Send or resend OTP to phone number"""
-    # Check if user exists
-    user = await db.users.find_one({"phone_number": otp_request.phone_number})
+    user = await find_auth_user(otp_request.phone_number)
     if not user:
         raise HTTPException(status_code=404, detail="User not found. Please register first.")
-    
-    if user.get('otp_verified'):
-        raise HTTPException(status_code=400, detail="Phone already verified. Please login.")
-    
-    # Send OTP
-    otp_result = await send_otp(otp_request.phone_number, preferred_channel=otp_request.channel)
-    
-    if not otp_result['success']:
-        raise HTTPException(status_code=500, detail=f"Failed to send OTP: {otp_result.get('error', 'Unknown error')}")
-    
-    notif_status = get_notification_status()
-    
-    response = {
-        "message": f"OTP sent via {otp_result['channel']}",
-        "channel": otp_result['channel'],
-        "notification_mode": notif_status['mode']
-    }
-    
-    if notif_status['mode'] == 'mock':
-        response["mock_otp"] = "1234"
-    
-    return response
+    if user.get('otp_verified') is not False:
+        raise HTTPException(status_code=400, detail="Phone already verified. Please sign in.")
+    return await issue_auth_code(otp_request.phone_number, "registration", otp_request.channel)
 
 
 @api_router.post("/auth/verify-otp")
 async def verify_otp(otp_data: OTPVerify):
-    # Verify OTP using notification service
-    verification_result = verify_stored_otp(otp_data.phone_number, otp_data.otp)
-    
-    if not verification_result['valid']:
-        raise HTTPException(status_code=400, detail=verification_result['error'])
-    
-    # Update user verification status
-    result = await db.users.update_one(
-        {"phone_number": otp_data.phone_number},
-        {"$set": {"otp_verified": True}}
-    )
-    
-    if result.modified_count == 0:
+    user = await find_auth_user(otp_data.phone_number)
+    if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    return {
-        "message": "OTP verified successfully",
-        "channel": verification_result.get('channel', 'unknown')
-    }
+    await check_auth_code(otp_data.phone_number, "registration", otp_data.otp, consume=True)
+    await db.users.update_one({"id": user['id']}, {"$set": {"otp_verified": True}})
+    return {"message": "Phone verified. You can now sign in."}
 
 
 @api_router.get("/auth/notification-status")
 async def get_notification_service_status():
-    """Get current notification service configuration status"""
     return get_notification_status()
 
+
 @api_router.post("/auth/login")
-@limiter.limit("10/minute")  # Limit to 10 login attempts per minute
+@limiter.limit("10/minute")
 async def login(request: Request, login_data: UserLogin):
-    # Find user
-    user = await db.users.find_one({"phone_number": login_data.phone_number})
-    if not user:
+    user = await find_auth_user(login_data.phone_number)
+    if not user or not verify_password(login_data.password, user['password_hash']):
         raise HTTPException(status_code=401, detail="Invalid phone number or password")
-    
-    # Verify password
-    if not verify_password(login_data.password, user['password_hash']):
-        raise HTTPException(status_code=401, detail="Invalid phone number or password")
-    
-    # Get user's roles - check old 'roles' field and new 'stokvel_memberships' array
-    user_roles = user.get('roles', [user.get('role', 'member')])
-    primary_role = user.get('role', user_roles[0] if user_roles else 'member')
-    
-    # Check stokvel_memberships for contextual roles (new system)
-    stokvel_memberships = user.get('stokvel_memberships', [])
-    has_treasurer_in_memberships = any(m.get('role') in ['treasurer', 'admin'] for m in stokvel_memberships)
-    has_member_in_memberships = any(m.get('role') == 'member' for m in stokvel_memberships)
-    
-    # Also check legacy group memberships from members collection
-    memberships = await db.members.find({"user_id": user['id'], "status": "active"}).to_list(100)
-    has_admin_membership = any(m.get('role_in_group') in ['admin', 'treasurer'] for m in memberships)
-    has_member_membership = len(memberships) > 0 or has_member_in_memberships  # Any membership counts
-    
-    # Also check if user is admin of any groups
-    admin_groups = await db.groups.find({
-        "$or": [
-            {"treasurer_user_id": user['id']},
-            {"admin_user_ids": user['id']}
-        ],
-        "status": "active"
-    }).to_list(100)
-    
-    if admin_groups or has_treasurer_in_memberships:
-        has_admin_membership = True
-        has_member_membership = True  # Admins can also act as members
-    
-    # Update roles based on actual memberships (including stokvel_memberships)
-    actual_roles = []
-    if has_member_membership or 'member' in user_roles:
-        actual_roles.append('member')
-    if has_admin_membership or 'treasurer' in user_roles or primary_role == 'treasurer':
-        actual_roles.append('treasurer')
-    
-    if not actual_roles:
-        actual_roles = [primary_role]
-    
-    # Create access token
-    access_token = create_access_token(
-        data={"user_id": user['id'], "role": primary_role, "roles": actual_roles, "phone": user['phone_number']}
-    )
-    
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {
-            "id": user['id'],
-            "full_name": user['full_name'],
-            "phone_number": user['phone_number'],
-            "role": primary_role,
-            "roles": actual_roles,
-            "has_multiple_roles": len(actual_roles) > 1,
-            "profile_photo": user.get('profile_photo')
-        }
-    }
+    if user.get('otp_verified') is False:
+        raise HTTPException(status_code=403, detail={"code": "verification_required",
+                            "message": "Please verify your phone number to finish registration."})
+    await reconcile_legacy_admin_memberships(user['id'])
+    access_token = create_access_token(data={"user_id": user['id'], "phone": user['phone_number']})
+    return {"access_token": access_token, "token_type": "bearer", "user": {
+        "id": user['id'], "full_name": user['full_name'], "phone_number": user['phone_number'],
+        "profile_photo": user.get('profile_photo')}}
 
-
-# ==================== FORGOT PASSWORD ENDPOINTS ====================
 
 class ForgotPasswordRequest(BaseModel):
     phone_number: str
 
+
 class VerifyResetOTPRequest(BaseModel):
     phone_number: str
     otp: str
+
 
 class ResetPasswordRequest(BaseModel):
     phone_number: str
     otp: str
     new_password: str
 
+
 @api_router.post("/auth/forgot-password")
 @limiter.limit("3/minute")
 async def forgot_password(request: Request, data: ForgotPasswordRequest):
-    """Send password reset OTP to user's phone"""
-    user = await db.users.find_one({"phone_number": data.phone_number})
+    user = await find_auth_user(data.phone_number)
     if not user:
         raise HTTPException(status_code=404, detail="No account found with this phone number")
-    
-    # Send OTP via WhatsApp/SMS
-    otp_result = await send_otp(data.phone_number, preferred_channel='whatsapp')
-    
-    if not otp_result['success']:
-        raise HTTPException(status_code=500, detail="Failed to send reset code. Please try again.")
-    
-    notif_status = get_notification_status()
-    response = {
-        "message": f"Reset code sent via {otp_result['channel']}",
-        "channel": otp_result['channel']
-    }
-    
-    if notif_status['mode'] == 'mock':
-        response["mock_otp"] = "1234"
-    
-    return response
+    return await issue_auth_code(data.phone_number, "password_reset")
+
 
 @api_router.post("/auth/verify-reset-otp")
 async def verify_reset_otp(data: VerifyResetOTPRequest):
-    """Verify reset OTP before allowing password change"""
-    user = await db.users.find_one({"phone_number": data.phone_number})
+    user = await find_auth_user(data.phone_number)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    verification_result = verify_stored_otp(data.phone_number, data.otp)
-    
-    if not verification_result['valid']:
-        raise HTTPException(status_code=400, detail=verification_result['error'])
-    
-    return {"message": "OTP verified successfully", "can_reset": True}
+    await check_auth_code(data.phone_number, "password_reset", data.otp)
+    return {"message": "Code verified", "can_reset": True}
+
 
 @api_router.post("/auth/reset-password")
 async def reset_password(data: ResetPasswordRequest):
-    """Reset user password after OTP verification"""
-    user = await db.users.find_one({"phone_number": data.phone_number})
+    if len(data.new_password) < 6:
+        raise HTTPException(status_code=422, detail="Password must be at least 6 characters")
+    user = await find_auth_user(data.phone_number)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # Verify OTP again for security
-    verification_result = verify_stored_otp(data.phone_number, data.otp)
-    if not verification_result['valid']:
-        raise HTTPException(status_code=400, detail="Invalid or expired reset code")
-    
-    # Update password
     new_hash = hash_password(data.new_password)
-    await db.users.update_one(
-        {"phone_number": data.phone_number},
-        {"$set": {"password_hash": new_hash}}
-    )
-    
+    await check_auth_code(data.phone_number, "password_reset", data.otp, consume=True)
+    await db.users.update_one({"id": user['id']}, {"$set": {"password_hash": new_hash, "otp_verified": True}})
     return {"message": "Password reset successful"}
 
 
 # ==================== USER STATS ENDPOINTS ====================
 
 @api_router.get("/user/stats/{user_id}")
-async def get_user_stats(user_id: str):
-    """Get user statistics for profile display"""
+async def get_user_stats(user_id: str, authorization: Optional[str] = Header(None)):
+    if authenticated_user_id(authorization) != user_id:
+        raise HTTPException(status_code=403, detail="You may only view your own statistics")
+    """Get truthful profile statistics from authoritative records."""
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # Get all memberships
-    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(100)
-    clubs_count = len(memberships)
-    
-    # Calculate total saved
+    contexts = await get_active_membership_contexts(user_id)
     total_saved = 0.0
     total_contributions = 0
     on_time_contributions = 0
-    
-    for membership in memberships:
-        contributions = await db.contributions.find({
-            "member_id": membership['id'],
-            "contribution_status": "confirmed"
-        }).to_list(1000)
-        
-        for c in contributions:
-            total_saved += c.get('amount_paid', 0)
+    for membership, _group in contexts:
+        contributions = await db.contributions.find({"member_id": membership["id"], "contribution_status": "confirmed"}).to_list(1000)
+        for contribution in contributions:
+            total_saved += contribution.get("amount_paid", 0)
             total_contributions += 1
-            # Check if paid on time (within 2 days of due date)
-            if c.get('payment_date') and c.get('confirmation_date'):
+            if contribution.get("payment_date") and contribution.get("confirmation_date"):
                 on_time_contributions += 1
-    
-    on_time_percentage = int((on_time_contributions / total_contributions * 100) if total_contributions > 0 else 0)
-    
-    # Get trust score
-    trust_score_record = await db.trust_scores.find_one({"user_id": user_id})
-    trust_score = trust_score_record.get('overall_score', 50) if trust_score_record else 50
-    
-    return {
-        "clubs_count": clubs_count,
-        "total_saved": total_saved,
-        "on_time_percentage": on_time_percentage,
-        "trust_score": trust_score
-    }
+    on_time_percentage = int(on_time_contributions / total_contributions * 100) if total_contributions else 0
+    return {"clubs_count": len(contexts), "total_saved": total_saved, "on_time_percentage": on_time_percentage, "trust_score": None, "date_joined": user.get("date_joined")}
 
 @api_router.get("/member/clubs/{user_id}")
-async def get_member_clubs(user_id: str):
-    """Get all clubs a member belongs to"""
-    user = await db.users.find_one({"id": user_id})
-    if not user:
+async def get_member_clubs(user_id: str, authorization: Optional[str] = Header(None)):
+    require_account_owner(user_id, authorization)
+    if not await db.users.find_one({"id": user_id}):
         raise HTTPException(status_code=404, detail="User not found")
-    
-    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(100)
-    
-    clubs = []
-    for membership in memberships:
-        group = await db.groups.find_one({"id": membership['group_id']})
-        if group:
-            clubs.append({
-                "id": group['id'],
-                "name": group['group_name'],
-                "monthly_contribution": group['monthly_contribution']
-            })
-    
+    clubs = [{
+        "id": group["id"],
+        "membership_id": membership["id"],
+        "membership_status": membership["status"],
+        "role": membership.get("role_in_group", "member"),
+        "name": group["group_name"],
+        "monthly_contribution": group["monthly_contribution"],
+        "group_type": group.get("group_type", "savings"),
+        "contribution_mode": group.get("contribution_mode", "fixed_monthly"),
+        "destination": group.get("destination"),
+        "target_amount_per_member": group.get("target_amount_per_member"),
+        "target_date": group.get("target_date"),
+    } for membership, group in await get_active_membership_contexts(user_id)]
     return {"clubs": clubs}
 
 @api_router.get("/member/payout-schedule/{user_id}")
-async def get_member_payout_schedule(user_id: str):
-    """Get payout schedule for a member"""
-    user = await db.users.find_one({"id": user_id})
-    if not user:
+async def get_member_payout_schedule(user_id: str, authorization: Optional[str] = Header(None)):
+    """Return only stored payout/claim records; never manufacture dates or amounts."""
+    require_account_owner(user_id, authorization)
+    if not await db.users.find_one({"id": user_id}):
         raise HTTPException(status_code=404, detail="User not found")
-    
-    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(100)
-    
     schedules = []
-    for membership in memberships:
-        group = await db.groups.find_one({"id": membership['group_id']})
-        if group:
-            # Calculate payout based on position
-            member_count = await db.members.count_documents({"group_id": membership['group_id'], "status": "active"})
-            payout_position = membership.get('payout_position', 1)
-            monthly_contribution = group['monthly_contribution']
-            estimated_payout = monthly_contribution * member_count
-            
-            # Calculate payout date based on position
-            start_date = group.get('start_date', datetime.utcnow())
-            if isinstance(start_date, str):
-                start_date = datetime.fromisoformat(start_date.replace('Z', '+00:00'))
-            
-            payout_month = start_date + timedelta(days=30 * payout_position)
-            
-            schedules.append({
-                "club_name": group['group_name'],
-                "payout_date": payout_month.strftime("%B %Y"),
-                "amount": estimated_payout,
-                "position": payout_position
-            })
-    
+    for membership, group in await get_active_membership_contexts(user_id):
+        claims = await db.claims.find({"member_id": membership["id"], "group_id": group["id"]}).sort("scheduled_claim_date", 1).to_list(100)
+        for claim in claims:
+            scheduled = claim.get("scheduled_claim_date")
+            schedules.append({"club_name": group["group_name"], "payout_date": scheduled.strftime("%B %Y") if scheduled else None, "amount": claim.get("claim_amount"), "position": None})
     return {"schedules": schedules}
+
+
+@api_router.post("/member/claims")
+async def submit_member_claim(data: ClaimSubmission, authorization: Optional[str] = Header(None)):
+    """Submit a claim for the authenticated person's active membership."""
+    user_id = authenticated_user_id(authorization)
+
+    group = await db.groups.find_one({
+        "id": data.group_id,
+        "status": "active"
+    })
+    if not group:
+        raise HTTPException(status_code=404, detail="Active group not found")
+
+    membership = await db.members.find_one({
+        "user_id": user_id,
+        "group_id": data.group_id,
+        "status": "active"
+    })
+    if not membership:
+        raise HTTPException(
+            status_code=403,
+            detail="You must be an active member of this group to submit a claim"
+        )
+
+    amount = data.claim_amount
+    if (
+        isinstance(amount, bool)
+        or not isinstance(amount, (int, float))
+        or not math.isfinite(amount)
+        or amount <= 0
+    ):
+        raise HTTPException(
+            status_code=422,
+            detail="Claim amount must be greater than zero"
+        )
+
+    reason = data.reason.strip()
+    if not reason:
+        raise HTTPException(
+            status_code=422,
+            detail="Please provide a reason for the claim"
+        )
+    if len(reason) > 1000:
+        raise HTTPException(
+            status_code=422,
+            detail="Claim reason must be 1000 characters or fewer"
+        )
+
+    claim = Claim(
+        member_id=membership["id"],
+        group_id=data.group_id,
+        claim_amount=round(float(amount), 2),
+        claim_status="pending_review",
+        reason=reason,
+        submitted_at=datetime.utcnow(),
+    )
+
+    record = claim.dict()
+    source_id = getattr(data, 'resubmitted_from_claim_id', None)
+    if source_id:
+        original = await db.claims.find_one({'id': source_id, 'member_id': membership['id'],
+            'group_id': data.group_id, 'claim_status': 'rejected'})
+        if not original:
+            raise HTTPException(status_code=409, detail='Only your own rejected claim can be resubmitted')
+        record['resubmitted_from_claim_id'] = source_id
+    await db.claims.insert_one(record)
+
+    return {
+        "claim_id": claim.id,
+        "status": claim.claim_status,
+        "message": "Claim submitted for review"
+    }
+
+
+@api_router.get("/member/claims/{user_id}")
+async def get_member_claims(user_id: str, authorization: Optional[str] = Header(None)):
+    """Return claims belonging only to the authenticated person's active memberships."""
+    require_account_owner(user_id, authorization)
+
+    memberships = await db.members.find({
+        "user_id": user_id,
+        "status": "active"
+    }).to_list(None)
+
+    membership_by_id = {membership["id"]: membership for membership in memberships}
+    if not membership_by_id:
+        return {"claims": []}
+
+    groups = await db.groups.find({
+        "id": {"$in": [membership["group_id"] for membership in memberships]},
+        "status": "active"
+    }).to_list(None)
+    groups_by_id = {group["id"]: group for group in groups}
+
+    records = await db.claims.find({
+        "member_id": {"$in": list(membership_by_id)}
+    }).to_list(None)
+
+    claims = []
+    for claim in records:
+        membership = membership_by_id.get(claim.get("member_id"))
+        if not membership:
+            continue
+
+        group = groups_by_id.get(claim.get("group_id"))
+        if not group or membership.get("group_id") != group.get("id"):
+            continue
+
+        if claim.get("dismissed_by_user_id") == user_id and claim.get("claim_status") == "rejected":
+            continue
+        claims.append({
+            "claim_id": claim.get("id"),
+            "group_id": group["id"],
+            "group_name": group["group_name"],
+            "amount": claim.get("claim_amount"),
+            "reason": claim.get("reason"),
+            "status": claim.get("claim_status"),
+            "submitted_at": claim.get("submitted_at"),
+            "scheduled_claim_date": claim.get("scheduled_claim_date"),
+            "actual_amount_paid": claim.get("actual_amount_paid"),
+            "actual_payment_date": claim.get("actual_payment_date"),
+            "rejection_reason": claim.get("rejection_reason"),
+        })
+
+    claims.sort(
+        key=lambda item: item.get("submitted_at")
+        or item.get("scheduled_claim_date")
+        or datetime.min,
+        reverse=True
+    )
+
+    return {"claims": claims}
+
+
+@api_router.post('/member/claims/{claim_id}/dismiss')
+async def dismiss_rejected_claim(claim_id: str, authorization: Optional[str] = Header(None)):
+    actor = authenticated_user_id(authorization)
+    claim = await db.claims.find_one({'id': claim_id})
+    if not claim:
+        raise HTTPException(status_code=404, detail='Claim not found')
+    member = await db.members.find_one({'id': claim['member_id'], 'user_id': actor,
+                                       'group_id': claim['group_id'], 'status': 'active'})
+    if not member:
+        raise HTTPException(status_code=403, detail='You may only dismiss your own rejected claim')
+    if claim.get('claim_status') != 'rejected':
+        raise HTTPException(status_code=409, detail='Only rejected claims can be dismissed')
+    result = await db.claims.update_one({'id': claim_id, 'claim_status': 'rejected'},
+        {'$set': {'dismissed_by_user_id': actor, 'dismissed_at': datetime.utcnow()}})
+    if not result.matched_count:
+        raise HTTPException(status_code=409, detail='Claim changed. Please refresh.')
+    return {'message': 'Claim removed from your view'}
+
+
+@api_router.get("/treasurer/groups/{group_id}/claims")
+async def get_group_claims(group_id: str, authorization: Optional[str] = Header(None)):
+    """Return claims for a group only to an authenticated admin/treasurer."""
+    user_id = authenticated_user_id(authorization)
+    group = await verify_user_is_group_treasurer(user_id, group_id)
+
+    records = await db.claims.find({
+        "group_id": group_id
+    }).to_list(None)
+
+    claims = []
+    for claim in records:
+        member = await db.members.find_one({
+            "id": claim.get("member_id"),
+            "group_id": group_id
+        })
+        person = await db.users.find_one({
+            "id": member.get("user_id")
+        }) if member else None
+
+        claims.append({
+            "claim_id": claim.get("id"),
+            "group_id": group_id,
+            "group_name": group.get("group_name"),
+            "member_name": person.get("full_name") if person else "Member",
+            "amount": claim.get("claim_amount"),
+            "reason": claim.get("reason"),
+            "status": claim.get("claim_status"),
+            "submitted_at": claim.get("submitted_at"),
+            "scheduled_claim_date": claim.get("scheduled_claim_date"),
+            "actual_amount_paid": claim.get("actual_amount_paid"),
+            "actual_payment_date": claim.get("actual_payment_date"),
+            "rejection_reason": claim.get("rejection_reason"),
+        })
+
+    claims.sort(
+        key=lambda item: item.get("submitted_at")
+        or item.get("scheduled_claim_date")
+        or datetime.min,
+        reverse=True
+    )
+
+    return {"claims": claims}
+
+
+@api_router.post("/treasurer/groups/{group_id}/claims/{claim_id}/record-payment")
+async def record_claim_payment(
+    group_id: str,
+    claim_id: str,
+    data: ClaimPaymentRecord,
+    authorization: Optional[str] = Header(None)
+):
+    """Record an externally completed payout; this endpoint never moves money."""
+    user_id = authenticated_user_id(authorization)
+    await verify_user_is_group_treasurer(user_id, group_id)
+    claim = await db.claims.find_one({"id": claim_id, "group_id": group_id})
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+
+    total = Decimal(str(data.actual_amount_paid))
+    expected = Decimal(str(data.expected_actual_amount_paid))
+    if total.as_tuple().exponent < -2 or expected.as_tuple().exponent < -2:
+        raise HTTPException(status_code=422, detail="Payment amounts must have at most two decimal places")
+    if data.actual_payment_date > datetime.now(BUSINESS_TIMEZONE).date():
+        raise HTTPException(status_code=422, detail="Actual payment date cannot be in the future")
+
+    # The same actor/base/total/date identifies one recording, including a lost-response retry.
+    payment_id = str(uuid.uuid5(uuid.NAMESPACE_URL,
+        f"clubvel:claim-payment:{group_id}:{claim_id}:{user_id}:{expected:.2f}:{total:.2f}:{data.actual_payment_date.isoformat()}"))
+    if any(payment.get('id') == payment_id for payment in (claim.get('payout_payments') or [])):
+        return {"claim_id": claim_id, "status": claim['claim_status'],
+                "actual_amount_paid": claim['actual_amount_paid'],
+                "actual_payment_date": claim['actual_payment_date'], "already_recorded": True}
+
+    if claim.get('claim_status') != 'approved':
+        raise HTTPException(status_code=409, detail="Only approved claims awaiting payout can have payment recorded")
+    previous = Decimal(str(claim.get('actual_amount_paid') or 0))
+    approved = Decimal(str(claim['claim_amount']))
+    if previous != expected:
+        raise HTTPException(status_code=409, detail="The recorded payment changed. Refresh before recording payment.")
+    if total <= previous or total > approved:
+        raise HTTPException(status_code=422, detail="Total paid must exceed the amount already recorded and cannot exceed the approved amount")
+
+    now = datetime.utcnow()
+    paid_on = datetime.combine(data.actual_payment_date, datetime.min.time())
+    new_status = 'paid' if total == approved else 'approved'
+    payment = {"id": payment_id, "recorded_by_user_id": user_id, "recorded_at": now,
+               "amount": float(total - previous), "previous_amount_paid": float(previous),
+               "total_amount_paid": float(total), "actual_payment_date": paid_on}
+    result = await db.claims.update_one(
+        {"id": claim_id, "group_id": group_id, "claim_status": "approved",
+         "claim_amount": claim['claim_amount'], "actual_amount_paid": claim.get('actual_amount_paid')},
+        {"$set": {"actual_amount_paid": float(total), "actual_payment_date": paid_on, "claim_status": new_status},
+         "$push": {"payout_payments": payment}}
+    )
+    if result.modified_count != 1:
+        # If an identical concurrent request won, return its receipt without another write.
+        current = await db.claims.find_one({"id": claim_id, "group_id": group_id})
+        if current and any(p.get('id') == payment_id for p in (current.get('payout_payments') or [])):
+            return {"claim_id": claim_id, "status": current['claim_status'],
+                    "actual_amount_paid": current['actual_amount_paid'],
+                    "actual_payment_date": current['actual_payment_date'], "already_recorded": True}
+        raise HTTPException(status_code=409, detail="This claim changed. Refresh before recording payment.")
+    return {"claim_id": claim_id, "status": new_status, "actual_amount_paid": float(total),
+            "actual_payment_date": paid_on, "already_recorded": False}
+
+
+@api_router.post("/treasurer/groups/{group_id}/claims/{claim_id}/payout-date")
+async def set_claim_payout_date(
+    group_id: str,
+    claim_id: str,
+    data: ClaimPayoutDate,
+    authorization: Optional[str] = Header(None)
+):
+    """Schedule an approved claim without recording payment or changing its amount."""
+    user_id = authenticated_user_id(authorization)
+    await verify_user_is_group_treasurer(user_id, group_id)
+    claim = await db.claims.find_one({"id": claim_id, "group_id": group_id})
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+    if claim.get("claim_status") != "approved" or (claim.get("actual_amount_paid") or 0) >= claim["claim_amount"]:
+        raise HTTPException(status_code=409, detail="Only approved claims awaiting payout can be scheduled")
+
+    scheduled = datetime.combine(data.scheduled_claim_date, datetime.min.time())
+    result = await db.claims.update_one(
+        {"id": claim_id, "group_id": group_id, "claim_status": "approved",
+         "actual_amount_paid": claim.get("actual_amount_paid")},
+        {"$set": {"scheduled_claim_date": scheduled,
+                  "payout_scheduled_by_user_id": user_id, "payout_scheduled_at": datetime.utcnow()}}
+    )
+    if result.modified_count != 1:
+        raise HTTPException(status_code=409, detail="This claim changed. Please refresh before scheduling.")
+    return {"claim_id": claim_id, "scheduled_claim_date": scheduled}
+
+
+@api_router.post("/treasurer/groups/{group_id}/claims/{claim_id}/review")
+async def review_group_claim(
+    group_id: str,
+    claim_id: str,
+    data: ClaimReview,
+    authorization: Optional[str] = Header(None)
+):
+    """Approve or reject a pending member claim."""
+    user_id = authenticated_user_id(authorization)
+    await verify_user_is_group_treasurer(user_id, group_id)
+
+    action = data.action.strip().lower()
+    if action not in ("approve", "reject"):
+        raise HTTPException(
+            status_code=422,
+            detail="Action must be approve or reject"
+        )
+
+    claim = await db.claims.find_one({
+        "id": claim_id,
+        "group_id": group_id
+    })
+    if not claim:
+        raise HTTPException(status_code=404, detail="Claim not found")
+
+    retry_rejection = (data.action.strip().lower() == "reject" and claim.get("claim_status") == "rejected"
+                       and claim.get("reviewed_by_treasurer_id") == user_id
+                       and claim.get("rejection_reason") == (data.rejection_reason or "").strip())
+    if claim.get("claim_status") != "pending_review" and not retry_rejection:
+        raise HTTPException(
+            status_code=409,
+            detail="Only pending claims can be reviewed"
+        )
+
+    rejection_reason = (
+        data.rejection_reason.strip()
+        if data.rejection_reason else ""
+    )
+
+    if action == "reject" and not rejection_reason:
+        raise HTTPException(
+            status_code=422,
+            detail="Please provide a reason for rejecting the claim"
+        )
+
+    if len(rejection_reason) > 1000:
+        raise HTTPException(
+            status_code=422,
+            detail="Rejection reason must be 1000 characters or fewer"
+        )
+
+    new_status = "approved" if action == "approve" else "rejected"
+    now = datetime.utcnow()
+
+    result = await db.claims.update_one(
+        {
+            "id": claim_id,
+            "group_id": group_id,
+            "claim_status": "pending_review"
+        },
+        {
+            "$set": {
+                "claim_status": new_status,
+                "reviewed_at": now,
+                "reviewed_by_treasurer_id": user_id,
+                "rejection_reason": rejection_reason if action == "reject" else None,
+            }
+        }
+    )
+
+    if result.modified_count != 1 and not retry_rejection:
+        raise HTTPException(status_code=409, detail="This claim has already been reviewed. Please refresh.")
+    if action == 'reject':
+        member = await db.members.find_one({'id': claim['member_id'], 'group_id': group_id})
+        group = await db.groups.find_one({'id': group_id})
+        if member and group:
+            alert_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f'clubvel:claim-rejected:{claim_id}'))
+            alert = Alert(id=alert_id, user_id=member['user_id'], group_id=group_id,
+                          alert_type='claim_rejected', claim_id=claim_id,
+                          alert_message=f"Your R{claim['claim_amount']:,.2f} claim for {group['group_name']} was rejected. Reason: {rejection_reason}",
+                          action_url='/(member)/claims')
+            await db.alerts.update_one({'_id': alert_id}, {'$setOnInsert': alert.dict()}, upsert=True)
+
+    return {
+        "claim_id": claim_id,
+        "status": new_status,
+        "message": "Claim approved" if action == "approve" else "Claim rejected"
+    }
 
 
 # ==================== ADMIN ENDPOINTS ====================
 
 @api_router.get("/admin/stats/{user_id}")
-async def get_admin_stats(user_id: str):
+async def get_admin_stats(user_id: str, authorization: str | None = Header(None)):
     """Get admin statistics for profile display"""
+    require_account_owner(user_id, authorization)
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
     # Get all groups managed by this admin
-    groups = await db.groups.find({
-        "$or": [
-            {"treasurer_user_id": user_id},
-            {"admin_user_ids": user_id}
-        ],
-        "status": "active"
-    }).to_list(100)
+    groups = await verify_treasurer_owns_groups(user_id)
     
     clubs_managed = len(groups)
     total_members = 0
@@ -915,19 +1526,14 @@ async def get_admin_stats(user_id: str):
     }
 
 @api_router.get("/admin/clubs/{user_id}")
-async def get_admin_clubs(user_id: str):
+async def get_admin_clubs(user_id: str, authorization: str | None = Header(None)):
     """Get all clubs managed by an admin"""
+    require_account_owner(user_id, authorization)
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    groups = await db.groups.find({
-        "$or": [
-            {"treasurer_user_id": user_id},
-            {"admin_user_ids": user_id}
-        ],
-        "status": "active"
-    }).to_list(100)
+    groups = await verify_treasurer_owns_groups(user_id)
     
     clubs = []
     for group in groups:
@@ -942,58 +1548,43 @@ async def get_admin_clubs(user_id: str):
     return {"clubs": clubs}
 
 @api_router.get("/admin/payout-schedules/{user_id}")
-async def get_admin_payout_schedules(user_id: str):
+async def get_admin_payout_schedules(user_id: str, authorization: str | None = Header(None)):
     """Get payout schedules for all clubs managed by an admin"""
+    require_account_owner(user_id, authorization)
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    groups = await db.groups.find({
-        "$or": [
-            {"treasurer_user_id": user_id},
-            {"admin_user_ids": user_id}
-        ],
-        "status": "active"
-    }).to_list(100)
+    groups = await verify_treasurer_owns_groups(user_id)
     
+    # Only explicitly stored claims support a schedule. Membership ordering and
+    # contribution configuration never establish a recipient, amount or date.
     schedules = []
     for group in groups:
-        # Find next member to receive payout
-        members = await db.members.find({
-            "group_id": group['id'],
-            "status": "active"
-        }).sort("payout_position", 1).to_list(100)
-        
-        if members:
-            next_member = members[0]
-            next_user = await db.users.find_one({"id": next_member['user_id']})
-            member_count = len(members)
-            estimated_payout = group['monthly_contribution'] * member_count
-            
+        claims = await db.claims.find({'group_id': group['id']}).sort('scheduled_claim_date', 1).to_list(None)
+        for claim in claims:
+            member = await db.members.find_one({'id': claim['member_id'], 'group_id': group['id']})
+            recipient = await db.users.find_one({'id': member['user_id']}) if member else None
+            scheduled = claim.get('scheduled_claim_date')
             schedules.append({
-                "club_name": group['group_name'],
-                "next_payout_member": next_user['full_name'] if next_user else "Unknown",
-                "payout_date": "Next Month",
-                "amount": estimated_payout
+                'claim_id': claim['id'], 'club_name': group['group_name'],
+                'recipient': recipient.get('full_name') if recipient else None,
+                'payout_date': scheduled.strftime('%Y-%m-%d') if scheduled else None,
+                'amount': claim.get('claim_amount'), 'status': claim.get('claim_status'),
             })
-    
+
     return {"schedules": schedules}
 
 @api_router.get("/admin/dashboard/{user_id}")
-async def get_admin_dashboard(user_id: str):
+async def get_admin_dashboard(user_id: str, authorization: str | None = Header(None)):
     """Get admin/treasurer dashboard data"""
+    require_account_owner(user_id, authorization)
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
     # Get all groups managed by this admin
-    groups = await db.groups.find({
-        "$or": [
-            {"treasurer_user_id": user_id},
-            {"admin_user_ids": user_id}
-        ],
-        "status": "active"
-    }).to_list(100)
+    groups = await verify_treasurer_owns_groups(user_id)
     
     total_clubs = len(groups)
     total_members = 0
@@ -1040,6 +1631,8 @@ async def get_admin_dashboard(user_id: str):
                         if member_user and len(urgent_alerts) < 5:
                             days_late = (now - due_date).days
                             urgent_alerts.append({
+                                "contribution_id": contribution['id'],
+                                "user_id": member['user_id'],
                                 "member_name": member_user['full_name'],
                                 "group_name": group['group_name'],
                                 "days_late": days_late,
@@ -1076,7 +1669,11 @@ async def get_admin_dashboard(user_id: str):
 class CreateGroupRequest(BaseModel):
     group_name: str
     group_type: str = "savings"
-    monthly_contribution: float
+    contribution_mode: str = "fixed_monthly"
+    monthly_contribution: float = 0
+    destination: Optional[str] = None
+    target_amount_per_member: Optional[float] = None
+    target_date: Optional[str] = None
     payment_due_date: int = 25
     bank_name: Optional[str] = None
     bank_account_number: Optional[str] = None
@@ -1087,7 +1684,9 @@ class CreateGroupRequest(BaseModel):
     description: Optional[str] = None
 
 @api_router.post("/groups/create")
-async def create_group(data: CreateGroupRequest):
+async def create_group(data: CreateGroupRequest, authorization: Optional[str] = Header(None)):
+    if authenticated_user_id(authorization) != data.admin_user_id:
+        raise HTTPException(status_code=403, detail="You may only create a group for yourself")
     """Create a new club/group"""
     # Verify admin user exists
     admin_user = await db.users.find_one({"id": data.admin_user_id})
@@ -1102,7 +1701,11 @@ async def create_group(data: CreateGroupRequest):
         "id": group_id,
         "group_name": data.group_name,
         "group_type": data.group_type,
+        "contribution_mode": data.contribution_mode,
         "monthly_contribution": data.monthly_contribution,
+        "destination": data.destination,
+        "target_amount_per_member": data.target_amount_per_member,
+        "target_date": data.target_date,
         "payment_due_date": data.payment_due_date,
         "bank_name": encrypt_sensitive_field(data.bank_name) if data.bank_name else None,
         "bank_account_number": encrypt_sensitive_field(data.bank_account_number) if data.bank_account_number else None,
@@ -1137,15 +1740,14 @@ async def create_group(data: CreateGroupRequest):
     await db.users.update_one(
         {"id": data.admin_user_id},
         {
-            "$push": {
+            "$addToSet": {
                 "stokvel_memberships": {
                     "stokvel_id": group_id,
-                    "role": "treasurer",  # Creator becomes treasurer/admin
+                    "role": "admin",
                     "joined_at": datetime.utcnow(),
                     "status": "active"
                 }
-            },
-            "$addToSet": {"roles": "treasurer"}  # Also update legacy roles field
+            }
         }
     )
     
@@ -1172,21 +1774,15 @@ class UpdateGroupRequest(BaseModel):
     description: Optional[str] = None
 
 @api_router.put("/groups/update")
-async def update_group(data: UpdateGroupRequest):
+async def update_group(data: UpdateGroupRequest, authorization: str | None = Header(None)):
     """Update an existing club/group"""
+    require_account_owner(data.admin_user_id, authorization)
     # Find the group
     group = await db.groups.find_one({"id": data.group_id})
     if not group:
         raise HTTPException(status_code=404, detail="Club not found")
     
-    # Verify user is admin of this group
-    is_admin = (
-        group.get('treasurer_user_id') == data.admin_user_id or 
-        data.admin_user_id in group.get('admin_user_ids', [])
-    )
-    
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only admins can update club details")
+    await verify_user_is_group_treasurer(data.admin_user_id, data.group_id)
     
     # Build update dict with only provided fields
     update_fields = {}
@@ -1232,28 +1828,37 @@ class DeleteClubRequest(BaseModel):
     confirmation: str = "DELETE"
 
 @api_router.delete("/groups/delete")
-async def delete_club(data: DeleteClubRequest):
+async def delete_club(data: DeleteClubRequest, authorization: str | None = Header(None)):
     """Delete a club/group (admin only)"""
+    require_account_owner(data.admin_user_id, authorization)
     # Find the group
     group = await db.groups.find_one({"id": data.group_id})
     if not group:
         raise HTTPException(status_code=404, detail="Club not found")
     
-    # Verify user is admin of this group
-    admin_user_ids = group.get('admin_user_ids', [])
-    is_admin = (
-        group.get('treasurer_user_id') == data.admin_user_id or 
-        data.admin_user_id in admin_user_ids
-    )
-    
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only admins can delete the club")
+    await verify_user_is_group_treasurer(data.admin_user_id, data.group_id)
     
     if data.confirmation != "DELETE":
         raise HTTPException(status_code=400, detail="Confirmation required")
     
-    # Delete all members of this group
-    await db.members.delete_many({"group_id": data.group_id})
+    # Close new reservations first. Every eligible issuer is now an existing
+    # row; revoke those issuers before the separate prepared-recipient sweep.
+    await db.groups.update_one({"id": data.group_id}, {"$set": {"admin_invitations_closed": True}})
+    await db.members.update_many(
+        {"group_id": data.group_id, "role_in_group": {"$in": ["admin", "treasurer"]}},
+        {"$set": {"status": "removed"}})
+    # Any receipt that won before issuer revocation already has its recipient
+    # row. This sweep fences projection before the Club becomes inactive.
+    await db.members.update_many({"group_id": data.group_id}, {"$set": {"status": "removed"}})
+    await db.groups.update_one({"id": data.group_id}, {"$set": {"status": "deleting"}})
+    # Keep Admin/grant and explicit legacy-owner tombstones. Historical owner
+    # metadata must not recreate a demoted membership during Club deletion.
+    await db.members.delete_many({
+        "group_id": data.group_id, "role_in_group": {"$nin": ["admin", "treasurer"]},
+        "user_id": {"$nin": list(set(group.get('admin_user_ids', [])) | {group.get('treasurer_user_id')})},
+        "admin_invitation_decisions": {"$exists": False},
+        "admin_invitation_id": {"$exists": False}, "admin_grant_applied": {"$exists": False}
+    })
     
     # Delete all contributions for this group
     await db.contributions.delete_many({"group_id": data.group_id})
@@ -1274,22 +1879,16 @@ class DeleteMemberRequest(BaseModel):
     reason: Optional[str] = None
 
 @api_router.delete("/groups/member/delete")
-async def delete_member(data: DeleteMemberRequest):
+async def delete_member(data: DeleteMemberRequest, authorization: str | None = Header(None)):
     """Remove a member from a club (admin only, notifies the member)"""
+    require_account_owner(data.admin_user_id, authorization)
     # Find the group
     group = await db.groups.find_one({"id": data.group_id})
     if not group:
         raise HTTPException(status_code=404, detail="Club not found")
     
-    # Verify requester is admin
+    await verify_user_is_group_treasurer(data.admin_user_id, data.group_id)
     admin_user_ids = group.get('admin_user_ids', [])
-    is_admin = (
-        group.get('treasurer_user_id') == data.admin_user_id or 
-        data.admin_user_id in admin_user_ids
-    )
-    
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only admins can remove members")
     
     # Can't delete self if you're the only admin
     if data.member_user_id == data.admin_user_id:
@@ -1305,17 +1904,23 @@ async def delete_member(data: DeleteMemberRequest):
     if not member:
         raise HTTPException(status_code=404, detail="Member not found in this club")
     
-    await db.members.delete_one({
-        "group_id": data.group_id,
-        "user_id": data.member_user_id
+    # Ordinary Member removal retains its old behavior; any possible Admin
+    # grant keeps the exact membership as a revocation/receipt tombstone.
+    deleted = await db.members.delete_one({
+        "id": member['id'], "role_in_group": {"$nin": ["admin", "treasurer"]},
+        "admin_invitation_id": {"$exists": False},
+        "admin_invitation_decisions": {"$exists": False}
     })
+    if not deleted.deleted_count:
+        await db.members.update_one(
+            {"id": member['id']},
+            {"$set": {"status": "removed", "removed_at": datetime.now(UTC).replace(tzinfo=None)}})
     
     # Remove from admin list if they were an admin
     if data.member_user_id in admin_user_ids:
-        admin_user_ids.remove(data.member_user_id)
         await db.groups.update_one(
             {"id": data.group_id},
-            {"$set": {"admin_user_ids": admin_user_ids}}
+            {"$pull": {"admin_user_ids": data.member_user_id}}
         )
     
     # Get member details for notification
@@ -1335,112 +1940,74 @@ async def delete_member(data: DeleteMemberRequest):
 
 class InviteAdminRequest(BaseModel):
     group_id: str
-    admin_user_id: str  # Current admin making the invitation
+    admin_user_id: str | None = None  # Compatibility only; never authorization.
     new_admin_phone: str
+    channel: Literal["whatsapp", "sms"] = "whatsapp"
+
 
 @api_router.post("/groups/admin/invite")
-async def invite_admin(data: InviteAdminRequest):
-    """Invite a new admin to the club (max 5 admins)"""
-    # Find the group
-    group = await db.groups.find_one({"id": data.group_id})
-    if not group:
-        raise HTTPException(status_code=404, detail="Club not found")
-    
-    # Verify requester is admin
-    admin_user_ids = group.get('admin_user_ids', [])
-    is_admin = (
-        group.get('treasurer_user_id') == data.admin_user_id or 
-        data.admin_user_id in admin_user_ids
-    )
-    
-    if not is_admin:
-        raise HTTPException(status_code=403, detail="Only admins can invite new admins")
-    
-    # Check max admins limit (5)
-    max_admins = group.get('max_admins', 5)
-    if len(admin_user_ids) >= max_admins:
-        raise HTTPException(status_code=400, detail=f"Maximum {max_admins} admins allowed per club")
-    
-    # Find the user by phone number
-    new_admin = await db.users.find_one({"phone_number": data.new_admin_phone})
-    if not new_admin:
-        raise HTTPException(status_code=404, detail="User not found. They must register first.")
-    
-    new_admin_id = new_admin['id']
-    
-    # Check if already an admin
-    if new_admin_id in admin_user_ids:
-        raise HTTPException(status_code=400, detail="This user is already an admin")
-    
-    # Check if already a member
-    existing_member = await db.members.find_one({
-        "group_id": data.group_id,
-        "user_id": new_admin_id
-    })
-    
-    if not existing_member:
-        # Add as member first
-        member = {
-            "id": str(uuid.uuid4()),
-            "user_id": new_admin_id,
-            "group_id": data.group_id,
-            "unique_reference_code": f"{group.get('payment_reference_prefix', 'CLB')}{str(len(admin_user_ids) + 1).zfill(3)}",
-            "date_joined_group": datetime.utcnow(),
-            "status": "active",
-            "role_in_group": "admin",
-            "payout_position": await db.members.count_documents({"group_id": data.group_id}) + 1
-        }
-        await db.members.insert_one(member)
-    else:
-        # Update existing member to admin role
-        await db.members.update_one(
-            {"group_id": data.group_id, "user_id": new_admin_id},
-            {"$set": {"role_in_group": "admin"}}
-        )
-    
-    # Add to admin list
-    admin_user_ids.append(new_admin_id)
-    await db.groups.update_one(
-        {"id": data.group_id},
-        {"$set": {"admin_user_ids": admin_user_ids}}
-    )
-    
-    # Update new admin's stokvel_memberships array
-    await db.users.update_one(
-        {"id": new_admin_id},
-        {
-            "$push": {
-                "stokvel_memberships": {
-                    "stokvel_id": data.group_id,
-                    "role": "admin",
-                    "joined_at": datetime.utcnow(),
-                    "status": "active"
-                }
-            },
-            "$addToSet": {"roles": "treasurer"}  # Also update legacy roles field
-        }
-    )
-    
-    logging.info(f"New admin {new_admin_id} added to club {data.group_id} by admin {data.admin_user_id}")
-    
-    return {
-        "message": "Admin added successfully",
-        "new_admin_name": new_admin.get('full_name', 'Unknown'),
-        "total_admins": len(admin_user_ids)
-    }
+async def invite_admin(data: InviteAdminRequest, authorization: str | None = Header(None)):
+    """Invite an addressed person; no role or membership is granted here."""
+    actor = authenticated_user_id(authorization)
+    inviter = await verify_user_exists(actor)
+    group = await verify_user_is_group_treasurer(actor, data.group_id)
+    if group.get('status') != 'active':
+        raise HTTPException(403, 'An active group is required')
+    try:
+        phone = format_phone_number(data.new_admin_phone)
+        aliases = phone_variants(data.new_admin_phone)
+    except ValueError as error:
+        raise HTTPException(422, str(error))
+    recipient = await db.users.find_one({'phone_number': {'$in': aliases}})
+    if recipient:
+        membership = await db.members.find_one({'group_id': data.group_id, 'user_id': recipient['id']})
+        if membership and membership.get('status') == 'invitation_accepting':
+            previous = await db.invitations.find_one({'id': membership.get('admin_invitation_id')})
+            if previous and previous.get('intended_role') == 'admin' and previous.get('status') in ('declined', 'expired'):
+                decision = await grant_decision(db, previous)
+                if decision and decision['decision'] == 'cancelled':
+                    await cancel_admin_grant(db, previous, previous['status'])
+                    membership = await db.members.find_one({'group_id': data.group_id, 'user_id': recipient['id']})
+        if membership and membership.get('status') != 'active':
+            raise HTTPException(400, 'This person has an inactive or removed membership; it cannot be reactivated by an invitation')
+        if ((membership and membership.get('role_in_group') in ('admin', 'treasurer')) or
+                (not membership and recipient['id'] in set(group.get('admin_user_ids', [])) | {group.get('treasurer_user_id')})):
+            raise HTTPException(400, 'This person is already an Admin of this club')
+    invitation, group, reused = await reserve_invitation(
+        db, data.group_id, phone, aliases, 'admin', inviter)
+    if recipient:
+        alert_id = str(uuid.uuid5(uuid.NAMESPACE_URL, 'clubvel:admin-invitation:' + invitation['id']))
+        alert = Alert(id=alert_id, user_id=recipient['id'], group_id=group['id'],
+                      alert_type='admin_invitation',
+                      alert_message=f"{invitation['treasurer_name']} invited you to become an Admin of {group['group_name']}. Open My Clubvel → Join Group to review and accept or decline.")
+        await db.alerts.update_one({'_id': alert_id}, {'$setOnInsert': alert.dict()}, upsert=True)
+    validity = f"Your invitation expires on {invitation['expires_at'].strftime('%d %b %Y')} (UTC)."
+    message = (f"{invitation['treasurer_name']} invited you to become an Admin of {group['group_name']} on Clubvel. "
+               "Sign in or register with this mobile number, then open My Clubvel → Join Group to review and accept. " + validity)
+    delivery_status = 'ready'
+    if data.channel == 'sms':
+        from services.notification_service import send_invitation_sms
+        try:
+            result = await send_invitation_sms(phone, message)
+            delivery_status = 'mock' if result.get('mock') else 'submitted' if result.get('success') else 'failed'
+        except Exception:  # noqa: BLE001 - Delivery failure must preserve the invitation.
+            delivery_status = 'failed'
+    return {'message': 'Admin invitation created', 'invitation_id': invitation['id'],
+            'phone_number': phone, 'invitation_message': message,
+            'intended_role': 'admin', 'reused': reused,
+            'expires_at': invitation['expires_at'].isoformat(), 'delivery_status': delivery_status}
+
 
 @api_router.get("/groups/{group_id}")
-async def get_group_details(group_id: str, user_id: str):
+async def get_group_details(group_id: str, user_id: str, authorization: str | None = Header(None)):
     """Get details of a specific group"""
+    require_account_owner(user_id, authorization)
     group = await db.groups.find_one({"id": group_id})
     if not group:
         raise HTTPException(status_code=404, detail="Club not found")
     
-    # Decrypt sensitive fields for authorized users
-    is_admin = (
-        group.get('treasurer_user_id') == user_id or 
-        user_id in group.get('admin_user_ids', [])
-    )
+    membership = await verify_user_is_group_member(user_id, group_id)
+    is_admin = membership.get('role_in_group') in ['admin', 'treasurer']
     
     # Get member count
     member_count = await db.members.count_documents({"group_id": group_id, "status": "active"})
@@ -1471,8 +2038,10 @@ class ProfilePhotoUpdate(BaseModel):
     profile_photo: str  # base64 encoded image
 
 @api_router.post("/user/profile-photo")
-async def update_profile_photo(data: ProfilePhotoUpdate):
+async def update_profile_photo(data: ProfilePhotoUpdate, authorization: Optional[str] = Header(None)):
     """Update user's profile photo"""
+    if authenticated_user_id(authorization) != data.user_id:
+        raise HTTPException(status_code=403, detail="You may only update your own profile")
     user = await db.users.find_one({"id": data.user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1486,11 +2055,31 @@ async def update_profile_photo(data: ProfilePhotoUpdate):
     return {"message": "Profile photo updated successfully"}
 
 
+@api_router.get("/alerts/{user_id}")
+async def get_user_alerts(user_id: str, authorization: Optional[str] = Header(None)):
+    if authenticated_user_id(authorization) != user_id:
+        raise HTTPException(status_code=403, detail="You may only view your own alerts")
+    records = await db.alerts.find({"user_id": user_id, "dismissed": {"$ne": True}}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    return {"alerts": records}
+
+
+@api_router.post('/alerts/{alert_id}/dismiss')
+async def dismiss_alert(alert_id: str, authorization: Optional[str] = Header(None)):
+    actor = authenticated_user_id(authorization)
+    result = await db.alerts.update_one({'id': alert_id, 'user_id': actor},
+        {'$set': {'dismissed': True, 'dismissed_at': datetime.utcnow()}})
+    if not result.matched_count:
+        raise HTTPException(status_code=404, detail='Alert not found')
+    return {'message': 'Alert dismissed'}
+
+
 # ==================== NOTIFICATION PREFERENCES ====================
 
 @api_router.get("/user/notification-preferences/{user_id}")
-async def get_notification_preferences(user_id: str):
+async def get_notification_preferences(user_id: str, authorization: Optional[str] = Header(None)):
     """Get user's notification preferences. Creates default (all OFF) if not exists."""
+    if authenticated_user_id(authorization) != user_id:
+        raise HTTPException(status_code=403, detail="You may only view your own notification preferences")
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1514,8 +2103,10 @@ async def get_notification_preferences(user_id: str):
 
 
 @api_router.put("/user/notification-preferences")
-async def update_notification_preferences(prefs_update: NotificationPreferencesUpdate):
+async def update_notification_preferences(prefs_update: NotificationPreferencesUpdate, authorization: Optional[str] = Header(None)):
     """Update user's notification preferences"""
+    if authenticated_user_id(authorization) != prefs_update.user_id:
+        raise HTTPException(status_code=403, detail="You may only update your own notification preferences")
     user = await db.users.find_one({"id": prefs_update.user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
@@ -1594,7 +2185,9 @@ class DeleteAccountRequest(BaseModel):
 
 
 @api_router.delete("/user/delete-account")
-async def delete_user_account(data: DeleteAccountRequest):
+async def delete_user_account(data: DeleteAccountRequest, authorization: Optional[str] = Header(None)):
+    if authenticated_user_id(authorization) != data.user_id:
+        raise HTTPException(status_code=403, detail="You may only delete your own account")
     """
     POPIA-compliant account deletion.
     - Deletes personal information (name, contact details, login credentials)
@@ -1624,8 +2217,10 @@ async def delete_user_account(data: DeleteAccountRequest):
     }
     await db.deletion_logs.insert_one(deletion_log)
     
-    # 2. Get all memberships for this user
-    memberships = await db.members.find({"user_id": data.user_id}).to_list(100)
+    # Fence new Admin preparation before enumerating every membership.
+    await db.users.update_one({"id": data.user_id}, {"$set": {"account_deletion_started": True}})
+    # 2. Get all memberships for this user (including Admins beyond the first 100).
+    memberships = await db.members.find({"user_id": data.user_id}).to_list(None)
     member_ids = [m["id"] for m in memberships]
     
     # 3. Update contribution records - replace with "Deleted Member" identifier
@@ -1672,25 +2267,24 @@ async def delete_user_account(data: DeleteAccountRequest):
 
 
 @api_router.get("/member/dashboard/{user_id}")
-async def get_member_dashboard(user_id: str):
+async def get_member_dashboard(user_id: str, authorization: str | None = Header(None)):
+    require_account_owner(user_id, authorization)
     # Get user
     user = await db.users.find_one({"id": user_id})
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # Get all groups this user is a member of
-    memberships = await db.members.find({"user_id": user_id, "status": "active"}).to_list(100)
+
+    contexts = await get_active_membership_contexts(user_id)
+    memberships = [membership for membership, _group in contexts]
     
     total_saved = 0.0
     clubs = []
     overdue_count = 0
+    upcoming_payments = 0
+    upcoming_payout_amount = 0.0
     days_until_next_claim = None
     
-    for membership in memberships:
-        # Get group details
-        group = await db.groups.find_one({"id": membership['group_id']})
-        if not group:
-            continue
+    for membership, group in contexts:
         
         # Get current month contribution
         now = datetime.utcnow()
@@ -1701,8 +2295,10 @@ async def get_member_dashboard(user_id: str):
             "year": now.year
         })
         
-        # Calculate status
-        if current_contribution:
+        # Flexible goal groups do not have a monthly payment status.
+        if group.get('contribution_mode') == 'flexible_goal':
+            status = None
+        elif current_contribution:
             status = calculate_contribution_status(current_contribution, group['payment_due_date'])
             current_contribution['contribution_status'] = status
             
@@ -1713,11 +2309,22 @@ async def get_member_dashboard(user_id: str):
                     {"$set": {"contribution_status": status}}
                 )
         else:
-            status = "pending"
+            status = None
         
         if status == "late":
             overdue_count += 1
+        elif status in ("pending", "due", "proof_uploaded"):
+            upcoming_payments += 1
         
+        # Approval is not payment. Only approved outstanding claims contribute to this total.
+        approved_claims = await db.claims.find({
+            "member_id": membership["id"], "group_id": group["id"], "claim_status": "approved"
+        }).to_list(None)
+        upcoming_payout_amount += math.fsum(
+            max(claim["claim_amount"] - (claim.get("actual_amount_paid") or 0), 0)
+            for claim in approved_claims
+        )
+
         # Get all confirmed contributions for this member
         confirmed_contributions = await db.contributions.find({
             "member_id": membership['id'],
@@ -1734,15 +2341,21 @@ async def get_member_dashboard(user_id: str):
             "id": group['id'],
             "name": group['group_name'],
             "member_count": member_count,
-            "monthly_contribution": group['monthly_contribution'],
+            "monthly_contribution": group.get('monthly_contribution', 0),
+            "group_type": group.get('group_type', 'savings'),
+            "contribution_mode": group.get('contribution_mode', 'fixed_monthly'),
+            "destination": group.get('destination'),
+            "target_amount_per_member": group.get('target_amount_per_member'),
+            "target_date": group.get('target_date'),
+            "role": membership.get('role_in_group', 'member'),
             "status": status,
             "status_label": {
                 "confirmed": "Paid",
-                "pending": "Upcoming",
+                "pending": "Pending",
                 "due": "Due Today",
                 "late": "Late",
                 "proof_uploaded": "Pending Confirmation"
-            }.get(status, "Pending")
+            }.get(status, "Goal based" if group.get('contribution_mode') == 'flexible_goal' else "No contribution recorded")
         })
     
     # Get next claim
@@ -1753,6 +2366,10 @@ async def get_member_dashboard(user_id: str):
     
     if next_claim:
         days_until_next_claim = (next_claim['scheduled_claim_date'] - datetime.utcnow()).days
+
+    claims_count = await db.claims.count_documents({
+        "member_id": {"$in": [m['id'] for m in memberships]}
+    })
     
     return {
         "user": {
@@ -1764,6 +2381,9 @@ async def get_member_dashboard(user_id: str):
         "summary": {
             "total_saved": total_saved,
             "active_clubs": len(clubs),
+            "upcoming_payments": upcoming_payments,
+            "upcoming_payout_amount": round(upcoming_payout_amount, 2),
+            "claims_count": claims_count,
             "days_until_next_claim": days_until_next_claim,
             "overdue_contributions": overdue_count
         },
@@ -1771,14 +2391,15 @@ async def get_member_dashboard(user_id: str):
     }
 
 @api_router.get("/member/club/{group_id}/user/{user_id}")
-async def get_member_club_details(group_id: str, user_id: str):
+async def get_member_club_details(group_id: str, user_id: str, authorization: str | None = Header(None)):
+    require_account_owner(user_id, authorization)
     # Get group
-    group = await db.groups.find_one({"id": group_id})
+    group = await db.groups.find_one({"id": group_id, "status": "active"})
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     
     # Get membership
-    membership = await db.members.find_one({"user_id": user_id, "group_id": group_id})
+    membership = await db.members.find_one({"user_id": user_id, "group_id": group_id, "status": "active"})
     if not membership:
         raise HTTPException(status_code=404, detail="Not a member of this group")
     
@@ -1789,35 +2410,24 @@ async def get_member_club_details(group_id: str, user_id: str):
         "group_id": group_id,
         "month": now.month,
         "year": now.year
-    })
+    }, contribution_metadata_projection())
     
-    # If no contribution exists for current month, create one
-    if not current_contribution:
-        contribution = Contribution(
-            member_id=membership['id'],
-            group_id=group_id,
-            month=now.month,
-            year=now.year,
-            amount_due=group['monthly_contribution'],
-            contribution_status="pending"
-        )
-        await db.contributions.insert_one(contribution.dict())
-        current_contribution = contribution.dict()
-    
-    # Calculate status
-    status = calculate_contribution_status(current_contribution, group['payment_due_date'])
+    # Absence is explicit. Reading a screen never creates a contribution.
+    flexible = group.get('contribution_mode') == 'flexible_goal' or group.get('group_type') == 'travel'
+    status = personal_contribution_status(current_contribution, group) if current_contribution else None
     
     # Get payment history (last 6 months)
     payment_history = await db.contributions.find({
         "member_id": membership['id'],
         "group_id": group_id
-    }).sort("year", -1).sort("month", -1).limit(6).to_list(6)
+    }, contribution_metadata_projection()).sort("year", -1).sort("month", -1).limit(6).to_list(6)
     
     return {
         "group": {
             "id": group['id'],
             "name": group['group_name'],
             "type": group['group_type'],
+            "contribution_mode": group.get('contribution_mode', 'fixed_monthly'),
             "monthly_contribution": group['monthly_contribution'],
             "payment_due_date": group['payment_due_date'],
             "bank_name": group['bank_name'],
@@ -1827,23 +2437,27 @@ async def get_member_club_details(group_id: str, user_id: str):
         "current_contribution": {
             "id": current_contribution['id'],
             "amount_due": current_contribution['amount_due'],
+            "amount_paid": current_contribution.get('amount_paid'),
+            "outstanding_amount": contribution_outstanding(current_contribution),
+            "proof_eligible": proof_is_eligible(current_contribution),
+            **proof_review_details(current_contribution),
             "status": status,
-            "due_date": f"{now.year}-{now.month:02d}-{min(group['payment_due_date'], 28):02d}",
-            "proof_uploaded": current_contribution.get('proof_of_payment') is not None,
+            "due_date": None if flexible else f"{now.year}-{now.month:02d}-{min(group['payment_due_date'], 28):02d}",
+            "proof_uploaded": bool(current_contribution.get('proof_of_payment')),
             "payment_date": current_contribution.get('payment_date')
-        },
+        } if current_contribution else None,
         "payment_reference": {
             "reference_code": membership['unique_reference_code'],
             "bank_name": group['bank_name'],
             "account_number": decrypt_sensitive_field(group['bank_account_number']),  # Decrypted for display
-            "amount": group['monthly_contribution']
+            "amount": contribution_outstanding(current_contribution) if current_contribution else None
         },
         "payment_history": [
             {
                 "month": p['month'],
                 "year": p['year'],
                 "amount": p['amount_paid'],
-                "status": p['contribution_status'],
+                "status": personal_contribution_status(p, group),
                 "payment_date": p.get('payment_date')
             }
             for p in payment_history
@@ -1851,7 +2465,10 @@ async def get_member_club_details(group_id: str, user_id: str):
     }
 
 @api_router.post("/contributions/upload-proof")
-async def upload_proof_of_payment(proof_data: ProofUpload):
+async def upload_proof_of_payment(proof_data: ProofUpload, authorization: Optional[str] = Header(None)):
+    actor_id = authenticated_user_id(authorization)
+    if actor_id != proof_data.user_id:
+        raise HTTPException(status_code=403, detail='You can only upload your own proof of payment')
     # DATA ACCESS CONTROL: Verify user can only upload proof for their own contribution
     contribution = await db.contributions.find_one({"id": proof_data.contribution_id})
     if not contribution:
@@ -1868,17 +2485,33 @@ async def upload_proof_of_payment(proof_data: ProofUpload):
             status_code=403, 
             detail="Access denied: You can only upload proof for your own contributions"
         )
+
+    group = await db.groups.find_one({'id': contribution['group_id'], 'status': 'active'})
+    if member.get('status') != 'active' or member.get('group_id') != contribution['group_id'] or not group:
+        raise HTTPException(status_code=403, detail='An active group membership is required')
+    if not proof_is_eligible(contribution):
+        raise HTTPException(status_code=409, detail='This contribution no longer needs a new proof. Refresh your contributions.')
     
     # Update contribution with proof
-    await db.contributions.update_one(
-        {"id": proof_data.contribution_id},
+    updated = await db.contributions.update_one(
+        proof_update_filter(contribution),
         {"$set": {
             "proof_of_payment": proof_data.proof_image,
+            "proof_mime_type": proof_data.proof_mime_type,
+            "proof_file_name": proof_data.proof_file_name,
             "reference_number": proof_data.reference_number,
             "contribution_status": "proof_uploaded",
-            "payment_date": datetime.utcnow()
+            "payment_date": datetime.utcnow(),
+            "proof_version": str(uuid.uuid4()),
+            "proof_review_status": "pending",
+            "proof_uploaded_by_user_id": actor_id
+        }, "$unset": {
+            "proof_decline_reason": "", "proof_declined_by": "", "proof_declined_at": "",
+            "uploaded_by_admin": "", "proof_deleted_at": ""
         }}
     )
+    if updated.modified_count != 1:
+        raise HTTPException(status_code=409, detail='This contribution changed. Refresh before uploading proof.')
     
     # Get group info for alert
     group = await db.groups.find_one({"id": contribution['group_id']})
@@ -1901,8 +2534,9 @@ async def upload_proof_of_payment(proof_data: ProofUpload):
 
 
 @api_router.get("/contributions/{contribution_id}/proof")
-async def get_contribution_proof(contribution_id: str, user_id: str):
+async def get_contribution_proof(contribution_id: str, user_id: str, authorization: str | None = Header(None)):
     """Get proof of payment image for a contribution"""
+    require_account_owner(user_id, authorization)
     contribution = await db.contributions.find_one({"id": contribution_id})
     if not contribution:
         raise HTTPException(status_code=404, detail="Contribution not found")
@@ -1912,17 +2546,19 @@ async def get_contribution_proof(contribution_id: str, user_id: str):
     if not member:
         raise HTTPException(status_code=404, detail="Member record not found")
     
-    # Get the group to check if user is admin/treasurer
-    group = await db.groups.find_one({"id": contribution['group_id']})
-    
     # AUTHORIZATION CHECK: User must be either:
     # 1. The member who made this contribution
     # 2. An admin/treasurer of this group
-    is_owner = member['user_id'] == user_id
-    is_admin = group and (
-        group.get('treasurer_user_id') == user_id or 
-        user_id in group.get('admin_user_ids', [])
-    )
+    group = await db.groups.find_one({"id": contribution['group_id'], "status": "active"})
+    if not group:
+        raise HTTPException(status_code=403, detail="Access denied: Club is not active")
+    is_owner = (member['user_id'] == user_id and member.get('status') == 'active'
+                and member.get('group_id') == contribution['group_id'])
+    admin_membership = await db.members.find_one({
+        "user_id": user_id, "group_id": contribution['group_id'], "status": "active",
+        "role_in_group": {"$in": ["admin", "treasurer"]}
+    })
+    is_admin = bool(admin_membership)
     
     if not is_owner and not is_admin:
         raise HTTPException(
@@ -1937,15 +2573,120 @@ async def get_contribution_proof(contribution_id: str, user_id: str):
     return {
         "contribution_id": contribution_id,
         "proof_image": proof_image,
+        **proof_review_details(contribution),
+        "proof_mime_type": contribution.get('proof_mime_type') or (
+            'application/pdf' if proof_image.startswith('data:application/pdf')
+            else 'image/jpeg'
+        ),
+        "proof_file_name": contribution.get('proof_file_name'),
         "reference_number": contribution.get('reference_number'),
         "upload_date": contribution.get('payment_date'),
         "status": contribution.get('contribution_status')
     }
 
 
+@api_router.post('/contributions/{contribution_id}/decline-proof')
+async def decline_contribution_proof(contribution_id: str, review: ProofReviewRequest,
+                                     authorization: Optional[str] = Header(None)):
+    actor_id = authenticated_user_id(authorization)
+    contribution = await db.contributions.find_one({'id': contribution_id})
+    if not contribution:
+        raise HTTPException(status_code=404, detail='Contribution not found')
+    group = await verify_user_is_group_treasurer(actor_id, contribution['group_id'])
+    if group.get('status') != 'active':
+        raise HTTPException(status_code=403, detail='An active group is required')
+    member = await db.members.find_one({'id': contribution['member_id'], 'group_id': contribution['group_id']})
+    if not member:
+        raise HTTPException(status_code=404, detail='Contribution owner not found')
+    # A retry of the same completed review can repair alert persistence, never
+    # decline a replacement proof or overwrite the original review reason.
+    already_declined = (contribution.get('contribution_status') in ('pending', 'due', 'late') and
+                        contribution_outstanding(contribution) is not None and
+                        contribution_outstanding(contribution) > 0 and
+                        contribution.get('proof_review_status') == 'declined' and
+                        contribution.get('proof_declined_by') == actor_id and
+                        review.proof_version is not None and
+                        proof_version(contribution) == review.proof_version)
+    reason = contribution.get('proof_decline_reason') if already_declined else (review.reason or '').strip() or None
+    if not already_declined:
+        require_pending_proof(contribution, review.proof_version)
+        updated = await db.contributions.update_one(proof_update_filter(contribution), {'$set': {
+            'contribution_status': 'pending', 'proof_review_status': 'declined',
+            'proof_decline_reason': reason,
+            'proof_declined_by': actor_id, 'proof_declined_at': datetime.utcnow(),
+        }})
+        if updated.modified_count != 1:
+            raise HTTPException(status_code=409, detail='This proof changed. Refresh before declining it.')
+    alert_id = str(uuid.uuid5(uuid.NAMESPACE_URL, f"clubvel:proof-declined:{contribution_id}:{review.proof_version}"))
+    message = (f"Your proof for {group['group_name']} — R{contribution['amount_due']:.2f}, "
+               f"{contribution['month']:02d}/{contribution['year']} — was declined.")
+    if reason:
+        message += f" Decline reason: {reason}"
+    alert = Alert(id=alert_id, user_id=member['user_id'], group_id=group['id'],
+                  alert_type='payment_proof_declined', alert_message=message,
+                  contribution_id=contribution_id, proof_version=review.proof_version,
+                  action_url='/(member)/proofs')
+    # Mongo's existing unique _id guarantees one alert per reviewed proof version.
+    await db.alerts.update_one({'_id': alert_id}, {'$setOnInsert': alert.dict()}, upsert=True)
+    return {'message': 'Proof declined', 'contribution_id': contribution_id, 'proof_review_status': 'declined'}
+
+
+@api_router.post('/contributions/{contribution_id}/proof/dismiss')
+async def dismiss_declined_proof(contribution_id: str, review: ProofReviewRequest,
+                                 authorization: Optional[str] = Header(None)):
+    actor = authenticated_user_id(authorization)
+    record = await db.contributions.find_one({'id': contribution_id})
+    if not record:
+        raise HTTPException(status_code=404, detail='Contribution not found')
+    member = await db.members.find_one({'id': record['member_id'], 'user_id': actor,
+                                       'group_id': record['group_id'], 'status': 'active'})
+    if not member:
+        raise HTTPException(status_code=403, detail='You may only dismiss your own declined proof')
+    if (record.get('proof_review_status') != 'declined' or not proof_is_eligible(record)
+            or not review.proof_version or proof_version(record) != review.proof_version):
+        raise HTTPException(status_code=409, detail='Only the current declined unpaid proof can be dismissed')
+    result = await db.contributions.update_one(proof_update_filter(record), {'$set': {
+        'proof_dismissed_by_user_id': actor, 'proof_dismissed_version': review.proof_version,
+        'proof_dismissed_at': datetime.utcnow(),
+    }})
+    if not result.matched_count:
+        raise HTTPException(status_code=409, detail='Proof changed. Please refresh.')
+    return {'message': 'Declined proof removed from your view'}
+
+
+@api_router.delete('/contributions/{contribution_id}/proof')
+async def delete_contribution_proof(contribution_id: str, review: ProofReviewRequest,
+                                    authorization: Optional[str] = Header(None)):
+    actor_id = authenticated_user_id(authorization)
+    contribution = await db.contributions.find_one({'id': contribution_id})
+    if not contribution:
+        raise HTTPException(status_code=404, detail='Contribution not found')
+    member = await db.members.find_one({'id': contribution['member_id']})
+    group = await db.groups.find_one({'id': contribution['group_id'], 'status': 'active'})
+    if (not member or member.get('user_id') != actor_id or member.get('status') != 'active'
+            or member.get('group_id') != contribution['group_id'] or not group):
+        raise HTTPException(status_code=403, detail='You can only delete proof for your own active contribution')
+    # Old member uploads lack an uploader field; Admin uploads have their own marker.
+    if (contribution.get('uploaded_by_admin') or
+            contribution.get('proof_uploaded_by_user_id') not in (None, actor_id)):
+        raise HTTPException(status_code=403, detail='You can only delete a proof you uploaded')
+    require_pending_proof(contribution, review.proof_version)
+    updated = await db.contributions.update_one(proof_update_filter(contribution), {
+        '$set': {'contribution_status': 'pending', 'proof_deleted_at': datetime.utcnow()},
+        '$unset': {key: '' for key in (
+            'proof_of_payment', 'proof_mime_type', 'proof_file_name', 'reference_number',
+            'payment_date', 'proof_version', 'proof_review_status', 'proof_uploaded_by_user_id',
+            'proof_decline_reason', 'proof_declined_by', 'proof_declined_at')},
+    })
+    if updated.modified_count != 1:
+        raise HTTPException(status_code=409, detail='This proof changed. Refresh before deleting it.')
+    return {'message': 'Pending proof deleted', 'contribution_id': contribution_id}
+
+
 @api_router.post("/contributions/admin-upload-proof")
-async def admin_upload_proof_of_payment(proof_data: ProofUpload):
+async def admin_upload_proof_of_payment(proof_data: ProofUpload, authorization: str | None = Header(None)):
     """Allow admin/treasurer to upload proof for any contribution in their managed groups"""
+    require_account_owner(proof_data.user_id, authorization)
     contribution = await db.contributions.find_one({"id": proof_data.contribution_id})
     if not contribution:
         raise HTTPException(status_code=404, detail="Contribution not found")
@@ -1955,27 +2696,24 @@ async def admin_upload_proof_of_payment(proof_data: ProofUpload):
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     
-    # AUTHORIZATION CHECK: User must be admin/treasurer of this group
-    is_admin = (
-        group.get('treasurer_user_id') == proof_data.user_id or 
-        proof_data.user_id in group.get('admin_user_ids', [])
-    )
-    
-    if not is_admin:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access denied: Only admins can upload proof on behalf of members"
-        )
+    await verify_user_is_group_treasurer(proof_data.user_id, contribution['group_id'])
     
     # Update contribution with proof
     await db.contributions.update_one(
         {"id": proof_data.contribution_id},
         {"$set": {
             "proof_of_payment": proof_data.proof_image,
+            "proof_mime_type": proof_data.proof_mime_type,
+            "proof_file_name": proof_data.proof_file_name,
             "reference_number": proof_data.reference_number,
             "contribution_status": "proof_uploaded",
             "payment_date": datetime.utcnow(),
-            "uploaded_by_admin": proof_data.user_id
+            "uploaded_by_admin": proof_data.user_id,
+            "proof_version": str(uuid.uuid4()),
+            "proof_review_status": "pending"
+        }, "$unset": {
+            "proof_decline_reason": "", "proof_declined_by": "", "proof_declined_at": "",
+            "proof_uploaded_by_user_id": "", "proof_deleted_at": ""
         }}
     )
     
@@ -1986,12 +2724,184 @@ async def admin_upload_proof_of_payment(proof_data: ProofUpload):
 
 
 
+def contribution_report(group: dict, records: list, memberships: list, users: list,
+                        year: int, month: Optional[int]) -> dict:
+    """Normalize recorded obligations once for both display and export. Never write data."""
+    members = {m['id']: m for m in memberships if m.get('group_id') == group['id']}
+    people = {u['id']: u for u in users}
+    rows, seen, late_people = [], set(), set()
+    collected = expected = applied = outstanding = awaiting = 0
+    for record in records:
+        if record.get('group_id') != group['id'] or record.get('year') != year or (month and record.get('month') != month):
+            continue
+        identity = record.get('id')
+        member = members.get(record.get('member_id'))
+        raw = record.get('contribution_status')
+        balance = contribution_outstanding(record)
+        if (not identity or identity in seen or not member or not member.get('user_id') or balance is None or
+                raw not in ('pending', 'due', 'late', 'proof_uploaded', 'confirmed', 'paid', 'excused') or
+                type(record.get('month')) is not int or not 1 <= record['month'] <= 12):
+            raise HTTPException(status_code=409, detail='Report records could not be verified. Ask your group administrator to review them.')
+        seen.add(identity)
+        due, paid = round(record['amount_due'] * 100), round(record['amount_paid'] * 100)
+        status = personal_contribution_status(record, group)
+        # Phase 2 settled/excused rules apply. Uploaded proof is awaiting review, not a payment request.
+        remaining = round(balance * 100)
+        pending_review = remaining if status == 'proof_uploaded' else 0
+        payable = remaining if status in ('pending', 'due', 'late') else 0
+        collected += paid
+        if raw != 'excused':
+            expected += due
+            applied += min(due, paid)
+        outstanding += payable
+        awaiting += pending_review
+        if status == 'late' and payable > 0:
+            late_people.add(member['user_id'])
+        person = people.get(member['user_id'], {})
+        date = record.get('payment_date')
+        rows.append({
+            'contribution_id': identity, 'member_id': member['id'], 'person_id': member['user_id'],
+            'member_name': person.get('full_name'), 'month': record['month'], 'year': record['year'],
+            'amount_due': due / 100, 'amount_paid': paid / 100, 'outstanding': payable / 100,
+            'awaiting_verification': pending_review / 100, 'status': status, 'recorded_status': raw,
+            'payment_date': date.isoformat() if isinstance(date, datetime) else date,
+        })
+    rows.sort(key=lambda r: (r['month'], r['member_name'] or '', r['contribution_id']))
+    return {
+        'schema_version': 1, 'group_id': group['id'], 'group_name': group['group_name'],
+        'year': year, 'month': month, 'generated_at': datetime.utcnow().isoformat() + 'Z',
+        'rows': rows, 'summary': {
+            'total_collected': collected / 100, 'recorded_obligations': expected / 100,
+            'collection_rate': round(applied / expected * 100, 2) if expected > 0 else None,
+            'outstanding': outstanding / 100, 'awaiting_verification': awaiting / 100,
+            'late_members': len(late_people),
+        },
+    }
+
+
+@api_router.get('/treasurer/reports/{group_id}')
+async def get_group_report(group_id: str, year: int, month: Optional[int] = None,
+                           authorization: Optional[str] = Header(None)):
+    person = authenticated_user_id(authorization)
+    # Strict active contextual authorization; reporting never reconciles or creates memberships.
+    membership = await db.members.find_one({'user_id': person, 'group_id': group_id, 'status': 'active',
+                                           'role_in_group': {'$in': ['admin', 'treasurer']}})
+    if not membership:
+        raise HTTPException(status_code=403, detail='Active group administration membership required')
+    if not 1 <= year <= 9999 or (month is not None and not 1 <= month <= 12):
+        raise HTTPException(status_code=422, detail='Invalid report period')
+    group = await db.groups.find_one({'id': group_id, 'status': 'active'})
+    if not group:
+        raise HTTPException(status_code=404, detail='Active group not found')
+    query = {'group_id': group_id, 'year': year}
+    if month is not None:
+        query['month'] = month
+    records = await db.contributions.find(query, {'proof_of_payment': 0}).to_list(None)
+    # Include former members' historical records, but never unrelated-group records.
+    members = await db.members.find({'group_id': group_id, 'id': {'$in': [r.get('member_id') for r in records]}}).to_list(None)
+    users = await db.users.find({'id': {'$in': [m.get('user_id') for m in members]}}).to_list(None)
+    return contribution_report(group, records, members, users, year, month)
+
+
+@api_router.get('/treasurer/reports/{group_id}/monthly')
+async def get_monthly_group_report(group_id: str, year: int, month: int,
+                                   authorization: str | None = Header(None)):
+    person = authenticated_user_id(authorization)
+    membership = await db.members.find_one({'user_id': person, 'group_id': group_id, 'status': 'active',
+                                           'role_in_group': {'$in': ['admin', 'treasurer']}})
+    if not membership:
+        raise HTTPException(status_code=403, detail='Active group administration membership required')
+    if not 1 <= year <= 9999 or not 1 <= month <= 12:
+        raise HTTPException(status_code=422, detail='Invalid report period')
+    group = await db.groups.find_one({'id': group_id, 'status': 'active'})
+    if not group:
+        raise HTTPException(status_code=404, detail='Active group not found')
+    # Read-only: no reconciliation, obligation generation or proof content retrieval.
+    records = await db.contributions.find({'group_id': group_id, 'year': year, 'month': month},
+                                         {'proof_of_payment': 0}).to_list(None)
+    claims = await db.claims.find({'group_id': group_id}).to_list(None)
+    member_ids = [r.get('member_id') for r in records + claims]
+    members = await db.members.find({'group_id': group_id, 'id': {'$in': member_ids}}).to_list(None)
+    users = await db.users.find({'id': {'$in': [m.get('user_id') for m in members]}},
+                               {'id': 1, 'full_name': 1, '_id': 0}).to_list(None)
+    try:
+        return monthly_report(group, records, claims, members, users, year, month, contribution_outstanding)
+    except ValueError as error:
+        raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@api_router.get('/intelligence/{group_id}/summary', response_model=SummaryContext)
+async def get_intelligence_summary(group_id: str, year: int, month: int,
+                                   authorization: str | None = Header(None)):
+    """Admin-only aggregate facts. Explicit reads never reconcile or update records."""
+    person = authenticated_user_id(authorization)
+    account = await db.users.find_one({'id': person, 'status': 'active'}, {'id': 1, '_id': 0})
+    if not account:
+        raise HTTPException(status_code=403, detail='Active account required')
+    if not 1 <= year <= 9999 or not 1 <= month <= 12:
+        raise HTTPException(status_code=422, detail='Invalid summary period')
+    group = await db.groups.find_one({'id': group_id, 'status': 'active'},
+                                     {'id': 1, 'group_name': 1, '_id': 0})
+    if not group:
+        raise HTTPException(status_code=404, detail='Active group not found')
+    membership = await db.members.find_one({'user_id': person, 'group_id': group_id, 'status': 'active',
+                                           'role_in_group': {'$in': ['admin', 'treasurer']}}, {'id': 1, '_id': 0})
+    if not membership:
+        raise HTTPException(status_code=403, detail='Active group administration membership required')
+    active_members = await db.members.find({'group_id': group_id, 'status': 'active'},
+                                           {'group_id': 1, 'status': 1, '_id': 0}).to_list(None)
+    records = await db.contributions.find({'group_id': group_id, 'year': year, 'month': month}, {
+        'id': 1, 'group_id': 1, 'year': 1, 'month': 1, 'amount_due': 1, 'amount_paid': 1,
+        'contribution_status': 1, 'proof_review_status': 1, 'confirmation_date': 1, '_id': 0,
+    }).to_list(None)
+    claims = await db.claims.find({'group_id': group_id}, {
+        'id': 1, 'group_id': 1, 'claim_amount': 1, 'claim_status': 1, 'submitted_at': 1,
+        'reviewed_at': 1, 'scheduled_claim_date': 1, 'actual_amount_paid': 1,
+        'payout_payments.id': 1, 'payout_payments.amount': 1,
+        'payout_payments.actual_payment_date': 1, '_id': 0,
+    }).to_list(None)
+    return summary_context(group, records, claims, active_members, year, month, contribution_outstanding)
+
+
+@api_router.get('/treasurer/contributions/{contribution_id}/reminder')
+async def get_contribution_reminder(contribution_id: str, group_id: str,
+                                   authorization: Optional[str] = Header(None)):
+    """Read-only reminder preparation; never send, record a send, or create an obligation."""
+    person = authenticated_user_id(authorization)
+    admin = await db.members.find_one({'user_id': person, 'group_id': group_id, 'status': 'active',
+                                       'role_in_group': {'$in': ['admin', 'treasurer']}})
+    if not admin:
+        raise HTTPException(status_code=403, detail='Active group administration membership required')
+    group = await db.groups.find_one({'id': group_id, 'status': 'active'})
+    record = await db.contributions.find_one({'id': contribution_id, 'group_id': group_id})
+    if not group or not record:
+        raise HTTPException(status_code=404, detail='Recorded contribution unavailable')
+    if not proof_is_eligible(record):
+        raise HTTPException(status_code=409, detail='This contribution does not require a payment reminder. Refresh its payment details.')
+    member = await db.members.find_one({'id': record['member_id'], 'group_id': group_id, 'status': 'active'})
+    if not member:
+        raise HTTPException(status_code=409, detail='Active recipient membership unavailable')
+    recipient = await db.users.find_one({'id': member['user_id']})
+    if not recipient:
+        raise HTTPException(status_code=409, detail='Recipient details unavailable')
+    return {
+        'contribution_id': record['id'], 'member_id': member['id'],
+        'group_id': group_id, 'group_name': group['group_name'],
+        'member_name': recipient.get('full_name'), 'phone': recipient.get('phone_number'),
+        'amount_due': record['amount_due'], 'amount_paid': record['amount_paid'],
+        'contribution_status': record['contribution_status'],
+        'status': personal_contribution_status(record, group), 'proof_uploaded': False,
+        'month': record['month'], 'year': record['year'],
+    }
+
+
 # ==================== TREASURER ROUTES ====================
 
 @api_router.get("/treasurer/dashboard/{user_id}")
-async def get_treasurer_dashboard(user_id: str):
+async def get_treasurer_dashboard(user_id: str, authorization: str | None = Header(None)):
+    require_account_owner(user_id, authorization)
     # Get all groups where user is treasurer
-    groups = await db.groups.find({"treasurer_user_id": user_id, "status": "active"}).to_list(100)
+    groups = await verify_treasurer_owns_groups(user_id)
     
     total_members = 0
     total_collected_this_month = 0.0
@@ -2058,8 +2968,9 @@ async def get_treasurer_dashboard(user_id: str):
         })
     
     # Get next upcoming claim
+    managed_group_ids = [group['id'] for group in groups]
     next_claim = await db.claims.find_one(
-        {"claim_status": "upcoming"},
+        {"group_id": {"$in": managed_group_ids}, "claim_status": "upcoming"},
         sort=[("scheduled_claim_date", 1)]
     )
     
@@ -2089,75 +3000,66 @@ async def get_treasurer_dashboard(user_id: str):
     }
 
 @api_router.get("/treasurer/contributions/{group_id}/month/{month}/year/{year}")
-async def get_group_contributions(group_id: str, month: int, year: int, treasurer_id: str):
+async def get_group_contributions(group_id: str, month: int, year: int, treasurer_id: str, authorization: str | None = Header(None)):
+    require_account_owner(treasurer_id, authorization)
     # DATA ACCESS CONTROL: Verify treasurer owns this group
     group = await db.groups.find_one({"id": group_id})
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     
-    # AUTHORIZATION CHECK: Only the treasurer of this group can view all contributions
-    if group.get('treasurer_user_id') != treasurer_id:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access denied: You are not the treasurer of this group"
-        )
+    await verify_user_is_group_treasurer(treasurer_id, group_id)
     
     # Get all members
-    members = await db.members.find({"group_id": group_id, "status": "active"}).to_list(1000)
+    members = await db.members.find({"group_id": group_id, "status": "active"}).to_list(None)
     
     contributions_list = []
     collected = 0.0
     outstanding = 0.0
+    expected = 0.0
     
+    by_member, users = await get_group_payment_records(group_id, month, year, members)
     for member in members:
-        # Get contribution for this month
-        contribution = await db.contributions.find_one({
-            "member_id": member['id'],
-            "group_id": group_id,
-            "month": month,
-            "year": year
-        })
-        
-        # Get user info
-        user = await db.users.find_one({"id": member['user_id']})
-        
-        if contribution:
-            status = calculate_contribution_status(contribution, group['payment_due_date'])
-            
-            if status == "confirmed":
-                collected += contribution['amount_paid']
+        user = users.get(member['user_id'], {'full_name': 'Unknown member'})
+        for contribution in by_member.get(member['id'], [None]):
+            if contribution:
+                status = (contribution['contribution_status'] if group.get('contribution_mode') == 'flexible_goal' or group.get('group_type') == 'travel'
+                          else calculate_contribution_status(contribution, group['payment_due_date']))
+
+                remaining = contribution_outstanding(contribution)
+                if remaining is not None and status != 'excused':
+                    expected += contribution['amount_due']
+                    collected += contribution['amount_paid']
+                    outstanding += remaining
+
+                contributions_list.append({
+                    "id": contribution['id'],
+                    "member_id": member['id'],
+                    "member_name": user['full_name'],
+                    "reference_code": member['unique_reference_code'],
+                    "amount_due": contribution['amount_due'],
+                    "amount_paid": contribution['amount_paid'],
+                    "status": status,
+                    "contribution_status": contribution['contribution_status'],
+                    "proof_uploaded": bool(contribution.get('proof_of_payment')),
+                    **proof_review_details(contribution),
+                    "payment_date": contribution.get('payment_date'),
+                    "reference_number": contribution.get('reference_number')
+                })
             else:
-                outstanding += contribution['amount_due']
-            
-            contributions_list.append({
-                "id": contribution['id'],
-                "member_id": member['id'],
-                "member_name": user['full_name'],
-                "reference_code": member['unique_reference_code'],
-                "amount_due": contribution['amount_due'],
-                "amount_paid": contribution['amount_paid'],
-                "status": status,
-                "proof_uploaded": contribution.get('proof_of_payment') is not None,
-                "proof_of_payment": contribution.get('proof_of_payment'),
-                "payment_date": contribution.get('payment_date'),
-                "reference_number": contribution.get('reference_number')
-            })
-        else:
-            outstanding += group['monthly_contribution']
-            contributions_list.append({
-                "id": None,
-                "member_id": member['id'],
-                "member_name": user['full_name'],
-                "reference_code": member['unique_reference_code'],
-                "amount_due": group['monthly_contribution'],
-                "amount_paid": 0.0,
-                "status": "pending",
-                "proof_uploaded": False,
-                "proof_of_payment": None,
-                "payment_date": None,
-                "reference_number": None
-            })
-    
+                contributions_list.append({
+                    "id": None,
+                    "member_id": member['id'],
+                    "member_name": user['full_name'],
+                    "reference_code": member['unique_reference_code'],
+                    "amount_due": None,
+                    "amount_paid": 0.0,
+                    "status": "unrecorded",
+                    "contribution_status": None,
+                    "proof_uploaded": False,
+                    "payment_date": None,
+                    "reference_number": None
+                })
+
     # Sort: confirmed last, proof_uploaded first, then late, then pending
     status_order = {"late": 0, "proof_uploaded": 1, "due": 2, "pending": 3, "confirmed": 4}
     contributions_list.sort(key=lambda x: status_order.get(x['status'], 99))
@@ -2172,74 +3074,86 @@ async def get_group_contributions(group_id: str, month: int, year: int, treasure
         "summary": {
             "collected": collected,
             "outstanding": outstanding,
-            "total_expected": collected + outstanding,
-            "collection_rate": round((collected / (collected + outstanding) * 100) if (collected + outstanding) > 0 else 0, 1)
+            "total_expected": expected,
+            "collection_rate": round((collected / expected * 100) if expected > 0 else 0, 1)
         },
         "contributions": contributions_list
     }
 
 @api_router.get("/treasurer/club/{group_id}")
-async def get_club_detail(group_id: str, treasurer_id: str):
+async def get_club_detail(group_id: str, treasurer_id: str, authorization: str | None = Header(None)):
     """Get detailed information about a specific club for the treasurer"""
+    require_account_owner(treasurer_id, authorization)
     # DATA ACCESS CONTROL: Verify treasurer owns this group
     group = await db.groups.find_one({"id": group_id})
     if not group:
         raise HTTPException(status_code=404, detail="Club not found")
     
-    # AUTHORIZATION CHECK: Only the treasurer of this group can view club details
-    if group.get('treasurer_user_id') != treasurer_id:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access denied: You are not the treasurer of this group"
-        )
+    await verify_user_is_group_treasurer(treasurer_id, group_id)
     
-    # Get all members of this club
-    members = await db.members.find({"group_id": group_id}).to_list(100)
+    # A group's member count and roster include active memberships only. Pending
+    # invitations do not have member records and therefore never appear here.
+    members = await db.members.find({
+        "group_id": group_id,
+        "status": "active"
+    }).to_list(None)
     
     now = datetime.now()
     month = now.month
     year = now.year
     
     collected = 0.0
-    expected = len(members) * group['monthly_contribution']
+    expected = 0.0
     
+    by_member, users = await get_group_payment_records(group_id, month, year, members)
     members_list = []
-    for member in members:
-        user = await db.users.find_one({"id": member['user_id']})
-        
-        # Get contribution for this month
-        contribution = await db.contributions.find_one({
-            "member_id": member['id'],
-            "group_id": group_id,
-            "month": month,
-            "year": year
-        })
-        
-        status = "pending"
+    payment_rows = []
+
+    def payment_row(member, contribution):
+        user = users.get(member['user_id'], {'full_name': 'Unknown member', 'phone_number': ''})
+        status = "unrecorded"
+        amount_due = None
         amount_paid = 0.0
         has_proof = False
-        
         if contribution:
-            status = calculate_contribution_status(contribution, group['payment_due_date'])
+            status = (contribution['contribution_status'] if group.get('contribution_mode') == 'flexible_goal' or group.get('group_type') == 'travel'
+                      else calculate_contribution_status(contribution, group['payment_due_date']))
+            amount_due = contribution.get('amount_due')
             amount_paid = contribution.get('amount_paid', 0)
-            has_proof = contribution.get('proof_of_payment') is not None
-            if status == "confirmed":
-                collected += amount_paid
-        
-        members_list.append({
+            has_proof = bool(contribution.get('proof_of_payment'))
+        return {
             "id": member['id'],
+            "contribution_id": contribution['id'] if contribution else None,
+            "user_id": member['user_id'],
             "name": user['full_name'],
             "phone": user['phone_number'],
+            "reference": member['unique_reference_code'],
+            "membership_status": member['status'],
+            "role_in_group": member.get('role_in_group', 'member'),
+            # Payment status is intentionally separate from membership status.
+            # A new active admin may not have a contribution yet.
             "status": status,
             "amount_paid": amount_paid,
-            "amount_due": group['monthly_contribution'],
-            "has_proof": has_proof
-        })
-    
+            "amount_due": amount_due,
+            "has_proof": has_proof,
+            **(proof_review_details(contribution) if contribution else {})
+        }
+
+    for member in members:
+        records = by_member.get(member['id'], [])
+        # Preserve the membership roster; Payments has one row per financial record.
+        members_list.append(payment_row(member, records[0] if records else None))
+        for contribution in records:
+            payment_rows.append(payment_row(member, contribution))
+            if contribution_outstanding(contribution) is not None and contribution.get('contribution_status') != 'excused':
+                expected += contribution['amount_due']
+                collected += contribution['amount_paid']
+
     return {
         "id": group['id'],
         "name": group['group_name'],
         "type": group.get('group_type', 'savings'),
+        "contribution_mode": group.get('contribution_mode', 'fixed_monthly'),
         "monthly_contribution": group['monthly_contribution'],
         "due_date": group['payment_due_date'],
         "bank_name": group.get('bank_name', 'N/A'),
@@ -2247,11 +3161,13 @@ async def get_club_detail(group_id: str, treasurer_id: str):
         "member_count": len(members),
         "collected": collected,
         "expected": expected,
-        "members": members_list
+        "members": members_list,
+        "contributions": payment_rows
     }
 
 @api_router.post("/treasurer/confirm-payment")
-async def confirm_payment(confirm_data: ConfirmPayment):
+async def confirm_payment(confirm_data: ConfirmPayment, authorization: str | None = Header(None)):
+    require_account_owner(confirm_data.treasurer_id, authorization)
     # DATA ACCESS CONTROL: Verify treasurer owns the group for this contribution
     contribution = await db.contributions.find_one({"id": confirm_data.contribution_id})
     if not contribution:
@@ -2262,24 +3178,33 @@ async def confirm_payment(confirm_data: ConfirmPayment):
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
     
-    # AUTHORIZATION CHECK: Only the treasurer of this group can confirm payments
-    if group.get('treasurer_user_id') != confirm_data.treasurer_id:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access denied: You are not the treasurer of this group"
-        )
+    await verify_user_is_group_treasurer(confirm_data.treasurer_id, contribution['group_id'])
+
+    outstanding = contribution_outstanding(contribution)
+    if (contribution.get('contribution_status') not in ('pending', 'due', 'late', 'proof_uploaded') or
+            outstanding is None or outstanding <= 0):
+        raise HTTPException(status_code=409, detail='This contribution is not awaiting payment confirmation. Refresh the group.')
     
+    # A versioned review cannot approve a deleted, declined, or replacement proof.
+    if confirm_data.proof_version is not None or contribution.get('proof_of_payment'):
+        require_pending_proof(contribution, confirm_data.proof_version)
+    if contribution.get('proof_review_status') == 'declined' or contribution.get('proof_deleted_at'):
+        raise HTTPException(status_code=409, detail='A declined or deleted proof must be replaced before approval')
+
     # Update contribution
-    await db.contributions.update_one(
-        {"id": confirm_data.contribution_id},
+    updated = await db.contributions.update_one(
+        proof_update_filter(contribution),
         {"$set": {
             "contribution_status": "confirmed",
+            "proof_review_status": "approved" if contribution.get('proof_of_payment') else None,
             "amount_paid": contribution['amount_due'],
             "confirmation_date": datetime.utcnow(),
             "confirmed_by_treasurer_id": confirm_data.treasurer_id,
             "notes": confirm_data.notes
         }}
     )
+    if updated.modified_count != 1:
+        raise HTTPException(status_code=409, detail='This contribution changed. Refresh before confirming payment.')
     
     # Get member and user info
     member = await db.members.find_one({"id": contribution['member_id']})
@@ -2329,161 +3254,397 @@ class InviteMemberRequest(BaseModel):
     phone_number: str
     name: Optional[str] = None
     group_id: str
-    group_name: str
-    invited_by: str
-    treasurer_name: str
+    # Retained for request compatibility; display names and identity come from records/session.
+    group_name: Optional[str] = None
+    invited_by: Optional[str] = None
+    treasurer_name: Optional[str] = None
+    channel: Literal["whatsapp", "sms"] = "sms"
 
 
 @api_router.post("/treasurer/invite-member")
-async def invite_member(request: InviteMemberRequest):
-    """Invite a new member to join a club via SMS"""
-    
-    # DATA ACCESS CONTROL: Verify treasurer owns this group
-    group = await db.groups.find_one({"id": request.group_id})
+async def invite_member(request: InviteMemberRequest, authorization: Optional[str] = Header(None)):
+    """Create/reuse one pending invitation; delivery never creates membership."""
+    inviter_id = authenticated_user_id(authorization)
+    group = await verify_user_is_group_treasurer(inviter_id, request.group_id)
+    inviter = await verify_user_exists(inviter_id)
+    try:
+        invited_phone = format_phone_number(request.phone_number)
+        aliases = phone_variants(request.phone_number)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error))
+
+    existing_user = await db.users.find_one({"phone_number": {"$in": aliases}})
+    if existing_user and await db.members.find_one({
+        "user_id": existing_user['id'], "group_id": request.group_id
+    }):
+        raise HTTPException(status_code=400, detail="This person is already a member of this club")
+
+    invitation, group, reused = await reserve_invitation(
+        db, request.group_id, invited_phone, aliases, 'member', inviter, request.name)
+
+    # A retry retains the original expiry; do not promise a fresh seven days.
+    validity = ("Your invitation is valid for 7 days." if not reused else
+                f"Your invitation expires on {invitation['expires_at'].strftime('%d %b %Y')} (UTC).")
+    invite_message = (
+        f"Hi! {inviter['full_name']} has invited you to join {group['group_name']} on Clubvel. "
+        "Sign in or register using this phone number, then open My Clubvel → Join Group and accept. "
+        + validity
+    )
+    delivery_status = "ready"
+    if request.channel == "sms":
+        from services.notification_service import send_invitation_sms
+        try:
+            result = await send_invitation_sms(invited_phone, invite_message)
+            delivery_status = "mock" if result.get('mock') else "submitted" if result.get('success') else "failed"
+        except Exception:
+            delivery_status = "failed"
+
+    return {
+        "message": "Pending invitation ready",
+        "invitation_id": invitation['id'], "phone_number": invited_phone,
+        "group_name": group['group_name'], "invitation_message": invite_message,
+        "expires_at": invitation['expires_at'].isoformat(), "reused": reused,
+        "channel": request.channel, "delivery_status": delivery_status
+    }
+
+
+class AcceptInvitationRequest(BaseModel):
+    invitation_id: str
+    user_id: str
+
+
+@api_router.get("/invitations/pending/{user_id}")
+async def get_pending_invitations(user_id: str, authorization: Optional[str] = Header(None)):
+    """Return active invitations addressed to this person's account phone."""
+    if authenticated_user_id(authorization) != user_id:
+        raise HTTPException(status_code=403, detail="You can only view your own invitations")
+    user = await verify_user_exists(user_id)
+    invitations = await db.invitations.find({
+        "phone_number": {"$in": phone_variants(user['phone_number'])},
+        "status": "pending",
+        "expires_at": {"$gt": datetime.utcnow()}
+    }).to_list(100)
+    # Interrupted Admin acceptance stays discoverable for the same recipient;
+    # ordinary Member discovery remains pending and unexpired only.
+    accepting = await db.invitations.find({
+        'phone_number': {'$in': phone_variants(user['phone_number'])},
+        'status': 'accepting', 'intended_role': 'admin', 'accepting_by': user_id,
+    }).to_list(100)
+    invitations.extend(accepting)
+    result = []
+    for invitation in invitations:
+        group = await db.groups.find_one({'id': invitation['group_id'], 'status': 'active'})
+        if group:
+            result.append({'id': invitation['id'], 'group_id': group['id'],
+                           'group_name': group['group_name'],
+                           'intended_role': invitation.get('intended_role', 'member'),
+                           'status': invitation['status'],
+                           'invited_by_name': invitation.get('treasurer_name'),
+                           'expires_at': invitation['expires_at'].isoformat()})
+    return {'invitations': result}
+
+
+@api_router.post("/invitations/accept")
+async def accept_invitation(request: AcceptInvitationRequest, authorization: Optional[str] = Header(None)):
+    """Create contextual membership only after the addressed person accepts."""
+    if authenticated_user_id(authorization) != request.user_id:
+        raise HTTPException(status_code=403, detail="You can only accept your own invitations")
+    user = await verify_user_exists(request.user_id)
+    invitation = await db.invitations.find_one({
+        'id': request.invitation_id,
+        'phone_number': {'$in': phone_variants(user['phone_number'])},
+    })
+    resumable = (invitation and invitation.get('intended_role') == 'admin' and
+                 invitation.get('status') in ('accepting', 'accepted') and
+                 invitation.get('accepting_by', invitation.get('accepted_by')) == user['id'])
+    if not invitation or (not resumable and
+                          (invitation['status'] != 'pending' or invitation['expires_at'] <= datetime.now(UTC).replace(tzinfo=None))):
+        raise HTTPException(404, 'Pending invitation not found or expired')
+    if invitation.get('intended_role') == 'admin' and user.get('otp_verified') is False:
+        raise HTTPException(403, 'Verify your mobile number before accepting an Admin invitation')
+    if resumable and invitation['status'] == 'accepted':
+        await release_slot(db, invitation)
+        return await admin_invitation_result(invitation, user, 'already_granted')
+
+    role = invitation.get('intended_role', 'member')
+    if role not in ('member', 'admin'):
+        raise HTTPException(409, 'Invalid invitation role')
+    if role == 'admin':
+        return await accept_admin_invitation(invitation, user)
+
+    existing_member = await db.members.find_one({
+        "user_id": request.user_id,
+        "group_id": invitation['group_id']
+    })
+    if existing_member:
+        raise HTTPException(status_code=400, detail="You already belong to this group")
+
+    group = await db.groups.find_one({"id": invitation['group_id'], "status": "active"})
     if not group:
         raise HTTPException(status_code=404, detail="Group not found")
-    
-    # AUTHORIZATION CHECK: Only the treasurer of this group can invite members
-    if group.get('treasurer_user_id') != request.invited_by:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access denied: You are not the treasurer of this group"
-        )
-    
-    # Check if user already exists
-    existing_user = await db.users.find_one({"phone_number": request.phone_number})
-    if existing_user:
-        # Check if already a member of this group
-        existing_member = await db.members.find_one({
-            "user_id": existing_user['id'],
-            "group_id": request.group_id
-        })
-        if existing_member:
-            raise HTTPException(status_code=400, detail="This person is already a member of this club")
-    
-    # Store the invitation
-    invitation = {
-        "id": f"inv_{datetime.utcnow().strftime('%Y%m%d%H%M%S')}_{request.phone_number[-4:]}",
-        "phone_number": request.phone_number,
-        "name": request.name,
-        "group_id": request.group_id,
-        "group_name": request.group_name,
-        "invited_by": request.invited_by,
-        "treasurer_name": request.treasurer_name,
-        "status": "pending",
-        "created_at": datetime.utcnow(),
-        "expires_at": datetime.utcnow() + timedelta(days=7)
-    }
-    
-    await db.invitations.insert_one(invitation)
-    
-    # Send SMS invitation
-    invite_message = f"Hi{' ' + request.name if request.name else ''}! You've been invited by {request.treasurer_name} to join {request.group_name} on Clubvel - the smart stokvel app. Download Clubvel and register with this number ({request.phone_number}) to join automatically. https://clubvel.co.za/download"
-    
-    # Use the notification service to send SMS
+
+    # Claim the invitation before creating membership so repeated taps cannot
+    # create duplicate contextual memberships.
+    claimed = await db.invitations.update_one(
+        {"id": invitation['id'], "status": "pending"},
+        {"$set": {"status": "accepting", "accepting_by": request.user_id}}
+    )
+    if claimed.modified_count != 1:
+        raise HTTPException(status_code=409, detail="Invitation is already being accepted")
+
+    member_count = await db.members.count_documents({"group_id": invitation['group_id']})
+    member = Member(
+        user_id=request.user_id,
+        group_id=invitation['group_id'],
+        unique_reference_code=generate_reference_code(
+            group.get('payment_reference_prefix', 'CLB'), member_count + 1
+        ),
+        status="active",
+        role_in_group="member",
+        payout_position=member_count + 1
+    )
     try:
-        from services.notification_service import send_sms_otp
-        sms_result = await send_sms_otp(request.phone_number, "0000")  # We're just using the SMS functionality
-        print(f"[INVITE SMS] To: {request.phone_number}")
-        print(f"[INVITE SMS] Message: {invite_message}")
-    except Exception as e:
-        print(f"[INVITE SMS MOCK] To: {request.phone_number}")
-        print(f"[INVITE SMS MOCK] Message: {invite_message}")
-    
-    return {
-        "message": "Invitation sent successfully",
-        "invitation_id": invitation['id'],
-        "phone_number": request.phone_number,
-        "group_name": request.group_name,
-        "expires_at": invitation['expires_at'].isoformat()
-    }
+        member_document = member.dict()
+        # A deterministic Mongo key closes the race between two invitations for
+        # the same person and group, while the lookup above handles legacy rows.
+        member_document["_id"] = f"membership:{request.user_id}:{invitation['group_id']}"
+        await db.members.insert_one(member_document)
+        await db.users.update_one(
+            {"id": request.user_id},
+            {"$addToSet": {"stokvel_memberships": {
+                "stokvel_id": invitation['group_id'],
+                "role": "member",
+                "status": "active"
+            }}}
+        )
+        await db.invitations.update_one(
+            {"id": invitation['id'], "status": "accepting",
+             "accepting_by": request.user_id},
+            {"$set": {"status": "accepted", "accepted_at": datetime.utcnow(),
+                      "accepted_by": request.user_id},
+             "$unset": {"accepting_by": ""}}
+        )
+    except Exception as error:
+        await db.invitations.update_one(
+            {"id": invitation['id'], "status": "accepting",
+             "accepting_by": request.user_id},
+            {"$set": {"status": "pending"}, "$unset": {"accepting_by": ""}}
+        )
+        if isinstance(error, DuplicateKeyError):
+            raise HTTPException(status_code=400, detail="You already belong to this group")
+        await db.members.delete_one({"id": member.id,
+                                     "role_in_group": "member",
+                                     "admin_invitation_id": {"$exists": False},
+                                     "admin_grant_applied": {"$exists": False}})
+        await db.users.update_one(
+            {"id": request.user_id},
+            {"$pull": {"stokvel_memberships": {
+                "stokvel_id": invitation['group_id'],
+                "role": "member"
+            }}}
+        )
+        raise
+    await release_slot(db, invitation)
+    return {"message": "Invitation accepted", "group_id": invitation['group_id']}
+
+
+async def admin_invitation_result(invitation, user, outcome):
+    """Report current access separately from the immutable invitation receipt."""
+    decision = await grant_decision(db, invitation)
+    membership = None
+    if decision and decision['decision'] == 'granted' and decision['recipient_user_id'] == user['id']:
+        membership = await db.members.find_one({
+            'id': decision['recipient_membership_id'], 'user_id': user['id'],
+            'group_id': invitation['group_id'], 'status': 'active',
+            'role_in_group': {'$in': ['admin', 'treasurer']},
+        })
+    group = await db.groups.find_one({'id': invitation['group_id'], 'status': 'active'})
+    active = bool(membership and group)
+    return {'message': 'Admin invitation accepted' if active else 'Invitation processed; Admin access is no longer active',
+            'group_id': invitation['group_id'], 'intended_role': 'admin',
+            'admin_access': active, 'acceptance_outcome': outcome if active else 'access_revoked'}
+
+
+async def accept_admin_invitation(invitation, user):
+    """An immutable issuer decision precedes resumable membership projection."""
+    group = await db.groups.find_one({'id': invitation['group_id'], 'status': 'active'})
+    if not group:
+        raise HTTPException(404, 'Active group not found')
+    decision = await grant_decision(db, invitation)
+    outcome = 'recovered' if decision else 'newly_granted'
+    if decision and decision['decision'] == 'cancelled':
+        await cancel_admin_grant(db, invitation, 'declined')
+        raise HTTPException(409, 'Invitation was cancelled')
+    if not decision:
+        if invitation['expires_at'] <= datetime.now(UTC).replace(tzinfo=None):
+            await cancel_admin_grant(db, invitation, 'expired')
+            raise HTTPException(404, 'Invitation expired before grant')
+        try:
+            await verify_user_is_group_treasurer(invitation['invited_by'], group['id'])
+            await verify_user_exists(invitation['invited_by'])
+        except HTTPException:
+            await cancel_admin_grant(db, invitation, 'declined')
+            raise
+        membership = await db.members.find_one({'user_id': user['id'], 'group_id': group['id']})
+        if membership and (membership.get('status') not in ('active', 'invitation_accepting') or
+                           (membership.get('status') == 'invitation_accepting' and membership.get('admin_invitation_id') != invitation['id'])):
+            raise HTTPException(400, 'Inactive or removed memberships cannot accept this invitation')
+        if membership and membership.get('role_in_group') in ('admin', 'treasurer'):
+            # Another device may have committed and projected since our first read.
+            decision = await grant_decision(db, invitation)
+            if not decision or decision['decision'] != 'granted':
+                raise HTTPException(400, 'You are already an Admin of this club')
+        if not decision:
+            claimed = await db.invitations.update_one(
+                {'id': invitation['id'], 'status': 'pending', 'expires_at': {'$gt': datetime.now(UTC).replace(tzinfo=None)}},
+                {'$set': {'status': 'accepting', 'accepting_by': user['id']}})
+            if not claimed.modified_count:
+                current = await db.invitations.find_one({'id': invitation['id']})
+                if current.get('status') != 'accepting' or current.get('accepting_by') != user['id']:
+                    raise HTTPException(409, 'Invitation changed. Please refresh')
+            await accepting_slot(db, invitation, user['id'])
+            if not membership:
+                count = await db.members.count_documents({'group_id': group['id']})
+                member = Member(user_id=user['id'], group_id=group['id'], status='invitation_accepting',
+                                role_in_group='member', payout_position=count + 1,
+                                unique_reference_code=generate_reference_code(group.get('payment_reference_prefix', 'CLB'), count + 1))
+                document = member.dict()
+                document.update(_id=f"membership:{user['id']}:{group['id']}", admin_invitation_id=invitation['id'])
+                await db.members.update_one({'_id': document['_id']}, {'$setOnInsert': document}, upsert=True)
+                membership = await db.members.find_one({'user_id': user['id'], 'group_id': group['id']})
+            else:
+                await db.members.update_one(
+                    {'id': membership['id'], 'status': 'active', 'role_in_group': 'member'},
+                    {'$set': {'admin_invitation_id': invitation['id']}})
+            # Account deletion fences new preparation before enumerating memberships.
+            try:
+                current_user = await verify_user_exists(user['id'])
+            except HTTPException:
+                await cancel_admin_grant(db, invitation, 'declined')
+                raise
+            if current_user.get('account_deletion_started'):
+                await cancel_admin_grant(db, invitation, 'declined')
+                raise HTTPException(403, 'Account deletion prevents acceptance')
+            decision = await commit_admin_grant(db, invitation, user['id'], membership['id'])
+    if decision['recipient_user_id'] != user['id']:
+        raise HTTPException(403, 'Invitation grant belongs to another recipient')
+    # Never upsert on recovery. Removal or deletion of this exact row must win.
+    await db.members.update_one(
+        {'id': decision['recipient_membership_id'], 'user_id': user['id'], 'group_id': group['id'],
+         'status': {'$in': ['active', 'invitation_accepting']}, 'role_in_group': 'member',
+         'admin_invitation_id': invitation['id'], 'admin_grant_applied': {'$ne': invitation['id']}},
+        {'$set': {'status': 'active', 'role_in_group': 'admin', 'admin_grant_applied': invitation['id']}})
+    membership = await db.members.find_one({'id': decision['recipient_membership_id']})
+    active = bool(membership and membership.get('status') == 'active' and
+                  membership.get('role_in_group') == 'admin' and membership.get('admin_grant_applied') == invitation['id'])
+    if active:
+        await db.groups.update_one({'id': group['id'], 'status': 'active'}, {'$addToSet': {'admin_user_ids': user['id']}})
+        for _ in range(20):
+            current = await db.users.find_one({'id': user['id']})
+            if not current or current.get('account_deletion_started'):
+                break
+            previous = current.get('stokvel_memberships', [])
+            entries = [dict(entry) for entry in previous]
+            if not any(item.get('stokvel_id') == group['id'] for item in entries):
+                entries.append({'stokvel_id': group['id'], 'role': 'admin', 'status': 'active'})
+            else:
+                for item in entries:
+                    if item.get('stokvel_id') == group['id']:
+                        item.update(role='admin', status='active')
+            result = await db.users.update_one(
+                {'id': user['id'], 'account_deletion_started': {'$ne': True},
+                 'stokvel_memberships': current.get('stokvel_memberships')},
+                {'$set': {'stokvel_memberships': entries}})
+            if result.modified_count or previous == entries:
+                break
+        else:
+            raise HTTPException(409, 'Account changed. Retry accepting this invitation')
+    elif membership and membership.get('status') in ('active', 'invitation_accepting') and not membership.get('admin_grant_applied'):
+        raise HTTPException(409, 'Membership changed before projection')
+    await db.invitations.update_one(
+        {'id': invitation['id'], 'status': 'accepting', 'accepting_by': user['id']},
+        {'$set': {'status': 'accepted', 'accepted_by': user['id'], 'accepted_at': datetime.now(UTC).replace(tzinfo=None)},
+         '$unset': {'accepting_by': ''}})
+    await release_slot(db, invitation)
+    return await admin_invitation_result(invitation, user, outcome)
+
+@api_router.post('/invitations/decline')
+async def decline_invitation(request: AcceptInvitationRequest, authorization: str | None = Header(None)):
+    if authenticated_user_id(authorization) != request.user_id:
+        raise HTTPException(403, 'You can only decline your own invitations')
+    user = await verify_user_exists(request.user_id)
+    invitation = await db.invitations.find_one({'id': request.invitation_id,
+                                               'phone_number': {'$in': phone_variants(user['phone_number'])}})
+    if not invitation:
+        raise HTTPException(404, 'Invitation not found')
+    if invitation.get('intended_role') == 'admin':
+        if not await cancel_admin_grant(db, invitation, 'declined'):
+            raise HTTPException(409, 'The Admin grant is already committed')
+        return {'message': 'Invitation declined'}
+    if invitation['status'] != 'declined':
+        result = await db.invitations.update_one({'id': invitation['id'], 'status': 'pending'},
+                                                {'$set': {'status': 'declined', 'declined_by': user['id'], 'declined_at': datetime.now(UTC).replace(tzinfo=None)}})
+        if result.modified_count != 1:
+            current = await db.invitations.find_one({'id': invitation['id']})
+            if current.get('status') != 'declined' or current.get('declined_by') != user['id']:
+                raise HTTPException(409, 'Invitation can no longer be declined')
+    await release_slot(db, invitation)
+    return {'message': 'Invitation declined'}
 
 
 class SendReminderRequest(BaseModel):
-    member_id: str
-    group_id: str
-    treasurer_id: str  # Requesting treasurer - for authorization
+    contribution_id: str
 
 
 @api_router.post("/treasurer/send-reminder")
-async def send_payment_reminder_endpoint(request: SendReminderRequest):
-    """Send payment reminder to a member via WhatsApp"""
-    # DATA ACCESS CONTROL: Verify treasurer owns this group
-    group = await db.groups.find_one({"id": request.group_id})
-    if not group:
-        raise HTTPException(status_code=404, detail="Group not found")
-    
-    # AUTHORIZATION CHECK: Only the treasurer of this group can send reminders
-    if group.get('treasurer_user_id') != request.treasurer_id:
-        raise HTTPException(
-            status_code=403, 
-            detail="Access denied: You are not the treasurer of this group"
-        )
-    
-    # Get member and user info
-    member = await db.members.find_one({"id": request.member_id})
+async def send_payment_reminder_endpoint(request: SendReminderRequest,
+                                         authorization: Optional[str] = Header(None)):
+    """Persist an in-app reminder for one recorded outstanding contribution."""
+    actor_id = authenticated_user_id(authorization)
+    contribution = await db.contributions.find_one({'id': request.contribution_id})
+    if not contribution:
+        raise HTTPException(status_code=404, detail='Contribution not found')
+    group = await verify_user_is_group_treasurer(actor_id, contribution['group_id'])
+    if group.get('status') != 'active':
+        raise HTTPException(status_code=403, detail='An active group is required')
+    if not proof_is_eligible(contribution):
+        raise HTTPException(status_code=409, detail='This contribution does not require a payment reminder. Refresh its payment details.')
+    member = await db.members.find_one({'id': contribution['member_id'],
+                                      'group_id': contribution['group_id'], 'status': 'active'})
     if not member:
-        raise HTTPException(status_code=404, detail="Member not found")
-    
-    # Verify member belongs to this group
-    if member['group_id'] != request.group_id:
-        raise HTTPException(
-            status_code=403,
-            detail="Access denied: This member does not belong to your group"
-        )
-    
-    user = await db.users.find_one({"id": member['user_id']})
-    if not user:
-        raise HTTPException(status_code=404, detail="User not found")
-    
-    # CHECK NOTIFICATION PREFERENCE - Respect user's opt-in choice
-    has_opted_in = await check_user_notification_preference(user['id'], "payment_reminder")
-    if not has_opted_in:
-        return {
-            "message": f"Notification not sent - {user['full_name']} has not opted in for contribution reminders",
-            "opted_in": False,
-            "channel": "none"
-        }
-    
-    # Calculate due date
-    now = datetime.utcnow()
-    due_date = f"{now.year}-{now.month:02d}-{min(group['payment_due_date'], 28):02d}"
-    
-    # Send WhatsApp reminder
-    notification_result = await send_payment_reminder(
-        phone=user['phone_number'],
-        member_name=user['full_name'].split()[0],
-        group_name=group['group_name'],
-        amount=group['monthly_contribution'],
-        due_date=due_date
-    )
-    
-    # Create alert record
-    alert = Alert(
-        user_id=user['id'],
-        group_id=group['id'],
-        alert_type="payment_reminder",
-        alert_message=f"Reminder: Your {group['group_name']} payment of R{group['monthly_contribution']:.2f} is due on {due_date}",
-        action_url=f"/member/club/{group['id']}"
-    )
+        raise HTTPException(status_code=409, detail='Active recipient membership unavailable')
+    if member['user_id'] == actor_id:
+        raise HTTPException(status_code=400, detail='You cannot send yourself a payment reminder')
+    recipient = await db.users.find_one({'id': member['user_id']})
+    if not recipient:
+        raise HTTPException(status_code=404, detail='Recipient not found')
+    try:
+        phone = format_phone_number(recipient['phone_number'])
+    except ValueError:
+        phone = None
+    outstanding = contribution_outstanding(contribution)
+    message = (f"Reminder: Your {group['group_name']} contribution for "
+               f"{contribution['month']:02d}/{contribution['year']} is R{contribution['amount_due']:.2f}, "
+               f"with R{outstanding:.2f} outstanding. Please pay and upload proof in Clubvel.")
+    alert = Alert(user_id=member['user_id'], group_id=group['id'],
+                  contribution_id=contribution['id'], alert_type='payment_reminder',
+                  alert_message=message, action_url='/(member)/proofs')
     await db.alerts.insert_one(alert.dict())
-    
-    return {
-        "message": f"Payment reminder sent to {user['full_name']}",
-        "channel": notification_result.get('channel', 'whatsapp'),
-        "mock": notification_result.get('mock', True),
-        "success": notification_result.get('success', False)
-    }
+    return {'message': 'Reminder added to member Alerts', 'contribution_id': contribution['id'],
+            'phone_number': phone,
+            'reminder_message': message}
 
 
 @api_router.post("/treasurer/send-late-alert/{member_id}")
-async def send_late_payment_alert_endpoint(member_id: str):
+async def send_late_payment_alert_endpoint(member_id: str, authorization: str | None = Header(None)):
     """Send late payment alert to a member via WhatsApp"""
+    actor_id = authenticated_user_id(authorization)
     # Get member and user info
     member = await db.members.find_one({"id": member_id})
     if not member:
         raise HTTPException(status_code=404, detail="Member not found")
     
+    await verify_user_is_group_treasurer(actor_id, member['group_id'])
     user = await db.users.find_one({"id": member['user_id']})
     group = await db.groups.find_one({"id": member['group_id']})
     
@@ -2628,7 +3789,6 @@ async def seed_demo_data():
         full_name="Thabo Mokoena",
         phone_number="0821234567",
         password_hash=hash_password("Pass&Word76"),
-        role="member",
         otp_verified=True
     )
     
@@ -2637,7 +3797,6 @@ async def seed_demo_data():
         full_name="Lerato Nkosi",
         phone_number="0827654321",
         password_hash=hash_password("Pass&Word76"),
-        role="member",
         otp_verified=True
     )
     
@@ -2646,11 +3805,12 @@ async def seed_demo_data():
         full_name="Sipho Dlamini",
         phone_number="0829876543",
         password_hash=hash_password("Pass&Word76"),
-        role="treasurer",
         otp_verified=True
     )
     
-    await db.users.insert_many([member1.dict(), member2.dict(), treasurer1.dict()])
+    await db.users.insert_many([
+        person_document(member1), person_document(member2), person_document(treasurer1)
+    ])
     
     # Create trust scores
     trust1 = TrustScore(user_id="member1", overall_score=87)
@@ -2714,8 +3874,29 @@ async def seed_demo_data():
         unique_reference_code="SSH002",
         payout_position=2
     )
+
+    admin_membership1 = Member(
+        id="admin-membership1",
+        user_id="treasurer1",
+        group_id="group1",
+        unique_reference_code="SSH003",
+        role_in_group="admin",
+        payout_position=3
+    )
+
+    admin_membership2 = Member(
+        id="admin-membership2",
+        user_id="treasurer1",
+        group_id="group2",
+        unique_reference_code="MBS002",
+        role_in_group="admin",
+        payout_position=2
+    )
     
-    await db.members.insert_many([membership1.dict(), membership2.dict(), membership3.dict()])
+    await db.members.insert_many([
+        membership1.dict(), membership2.dict(), membership3.dict(),
+        admin_membership1.dict(), admin_membership2.dict()
+    ])
     
     # Create some contributions
     now = datetime.utcnow()
@@ -2783,9 +3964,9 @@ async def seed_demo_data():
     return {
         "message": "Demo data seeded successfully",
         "demo_accounts": [
-            {"phone": "0821234567", "password": "Pass&Word76", "role": "member", "name": "Thabo Mokoena"},
-            {"phone": "0827654321", "password": "Pass&Word76", "role": "member", "name": "Lerato Nkosi"},
-            {"phone": "0829876543", "password": "Pass&Word76", "role": "treasurer", "name": "Sipho Dlamini"}
+            {"phone": "0821234567", "password": "Pass&Word76", "name": "Thabo Mokoena"},
+            {"phone": "0827654321", "password": "Pass&Word76", "name": "Lerato Nkosi"},
+            {"phone": "0829876543", "password": "Pass&Word76", "name": "Sipho Dlamini"}
         ]
     }
 
@@ -3430,1035 +4611,10 @@ async def get_app_page():
 
 @app.get("/", response_class=HTMLResponse)
 async def clubvel_website():
-    """Main Clubvel website landing page"""
-    html_content = """
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-        <meta charset="UTF-8">
-        <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Clubvel - Stokvel Management Made Simple</title>
-        <meta name="description" content="Manage your stokvel with ease. Track contributions, upload proof of payment, and build your financial reputation with Clubvel.">
-        <meta name="keywords" content="stokvel, savings club, South Africa, money management, contributions, financial app">
-        <meta property="og:title" content="Clubvel - Stokvel Management Made Simple">
-        <meta property="og:description" content="Your club. Your money. Your rules. Download Clubvel today.">
-        <meta property="og:type" content="website">
-        <link rel="preconnect" href="https://fonts.googleapis.com">
-        <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-        <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
-        <style>
-            :root {
-                --dark-green: #0E2318;
-                --medium-green: #16603A;
-                --gold: #C8880A;
-                --light-gold: #D4A528;
-                --white: #FFFFFF;
-                --light-bg: #F3F7F4;
-                --text-primary: #1F2937;
-                --text-secondary: #6B7280;
-            }
-            
-            * {
-                margin: 0;
-                padding: 0;
-                box-sizing: border-box;
-            }
-            
-            html {
-                scroll-behavior: smooth;
-            }
-            
-            body {
-                font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
-                color: var(--text-primary);
-                line-height: 1.6;
-            }
-            
-            /* Navigation */
-            .navbar {
-                position: fixed;
-                top: 0;
-                left: 0;
-                right: 0;
-                background: var(--dark-green);
-                padding: 16px 24px;
-                z-index: 1000;
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-            }
-            
-            .nav-logo {
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                text-decoration: none;
-            }
-            
-            .nav-logo-icon {
-                width: 40px;
-                height: 40px;
-                background: var(--gold);
-                border-radius: 10px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            
-            .nav-logo-icon span {
-                font-size: 18px;
-                font-weight: 700;
-                color: var(--white);
-            }
-            
-            .nav-logo-text {
-                font-size: 22px;
-                font-weight: 700;
-                color: var(--white);
-            }
-            
-            .nav-links {
-                display: flex;
-                gap: 32px;
-                align-items: center;
-            }
-            
-            .nav-links a {
-                color: rgba(255, 255, 255, 0.8);
-                text-decoration: none;
-                font-weight: 500;
-                transition: color 0.3s;
-            }
-            
-            .nav-links a:hover {
-                color: var(--gold);
-            }
-            
-            .nav-cta {
-                background: var(--gold) !important;
-                color: var(--dark-green) !important;
-                padding: 10px 20px;
-                border-radius: 8px;
-                font-weight: 600;
-            }
-            
-            .mobile-menu-btn {
-                display: none;
-                background: none;
-                border: none;
-                color: var(--white);
-                font-size: 24px;
-                cursor: pointer;
-            }
-            
-            /* Hero Section */
-            .hero {
-                background: var(--dark-green);
-                min-height: 100vh;
-                display: flex;
-                align-items: center;
-                padding: 120px 24px 80px;
-                position: relative;
-                overflow: hidden;
-            }
-            
-            .hero::before {
-                content: '';
-                position: absolute;
-                top: -50%;
-                right: -20%;
-                width: 80%;
-                height: 150%;
-                background: radial-gradient(ellipse, rgba(200, 136, 10, 0.1) 0%, transparent 70%);
-                pointer-events: none;
-            }
-            
-            .hero-container {
-                max-width: 1200px;
-                margin: 0 auto;
-                display: grid;
-                grid-template-columns: 1fr 1fr;
-                gap: 60px;
-                align-items: center;
-            }
-            
-            .hero-content {
-                z-index: 1;
-            }
-            
-            .hero-badge {
-                display: inline-flex;
-                align-items: center;
-                gap: 8px;
-                background: rgba(200, 136, 10, 0.15);
-                padding: 8px 16px;
-                border-radius: 50px;
-                margin-bottom: 24px;
-            }
-            
-            .hero-badge span {
-                color: var(--gold);
-                font-size: 14px;
-                font-weight: 500;
-            }
-            
-            .hero h1 {
-                font-size: 56px;
-                font-weight: 800;
-                color: var(--white);
-                line-height: 1.1;
-                margin-bottom: 24px;
-            }
-            
-            .hero h1 .highlight {
-                color: var(--gold);
-            }
-            
-            .hero-subtitle {
-                font-size: 20px;
-                color: rgba(255, 255, 255, 0.7);
-                margin-bottom: 40px;
-                max-width: 500px;
-            }
-            
-            .hero-buttons {
-                display: flex;
-                gap: 16px;
-                flex-wrap: wrap;
-            }
-            
-            .btn {
-                display: inline-flex;
-                align-items: center;
-                gap: 10px;
-                padding: 16px 32px;
-                border-radius: 12px;
-                font-size: 16px;
-                font-weight: 600;
-                text-decoration: none;
-                transition: all 0.3s ease;
-                cursor: pointer;
-                border: none;
-            }
-            
-            .btn-primary {
-                background: var(--gold);
-                color: var(--dark-green);
-            }
-            
-            .btn-primary:hover {
-                background: #daa520;
-                transform: translateY(-2px);
-                box-shadow: 0 8px 24px rgba(200, 136, 10, 0.4);
-            }
-            
-            .btn-secondary {
-                background: transparent;
-                color: var(--white);
-                border: 2px solid rgba(255, 255, 255, 0.3);
-            }
-            
-            .btn-secondary:hover {
-                border-color: var(--white);
-                background: rgba(255, 255, 255, 0.1);
-            }
-            
-            .hero-visual {
-                position: relative;
-                display: flex;
-                justify-content: center;
-                align-items: center;
-            }
-            
-            .phone-mockup {
-                width: 280px;
-                height: 570px;
-                background: #1a1a1a;
-                border-radius: 40px;
-                padding: 12px;
-                box-shadow: 0 50px 100px rgba(0, 0, 0, 0.5);
-                position: relative;
-            }
-            
-            .phone-screen {
-                width: 100%;
-                height: 100%;
-                background: var(--dark-green);
-                border-radius: 32px;
-                overflow: hidden;
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-                justify-content: center;
-                padding: 40px 20px;
-            }
-            
-            .phone-logo {
-                width: 80px;
-                height: 80px;
-                background: var(--gold);
-                border-radius: 20px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                margin-bottom: 20px;
-            }
-            
-            .phone-logo span {
-                font-size: 36px;
-                font-weight: 700;
-                color: var(--white);
-            }
-            
-            .phone-title {
-                font-size: 28px;
-                font-weight: 700;
-                color: var(--white);
-                margin-bottom: 8px;
-            }
-            
-            .phone-tagline {
-                font-size: 12px;
-                color: rgba(255, 255, 255, 0.7);
-                text-align: center;
-            }
-            
-            /* Features Section */
-            .features {
-                padding: 100px 24px;
-                background: var(--light-bg);
-            }
-            
-            .container {
-                max-width: 1200px;
-                margin: 0 auto;
-            }
-            
-            .section-header {
-                text-align: center;
-                margin-bottom: 60px;
-            }
-            
-            .section-label {
-                display: inline-block;
-                color: var(--gold);
-                font-size: 14px;
-                font-weight: 600;
-                text-transform: uppercase;
-                letter-spacing: 2px;
-                margin-bottom: 16px;
-            }
-            
-            .section-title {
-                font-size: 42px;
-                font-weight: 700;
-                color: var(--dark-green);
-                margin-bottom: 16px;
-            }
-            
-            .section-subtitle {
-                font-size: 18px;
-                color: var(--text-secondary);
-                max-width: 600px;
-                margin: 0 auto;
-            }
-            
-            .features-grid {
-                display: grid;
-                grid-template-columns: repeat(3, 1fr);
-                gap: 32px;
-            }
-            
-            .feature-card {
-                background: var(--white);
-                padding: 32px;
-                border-radius: 20px;
-                box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
-                transition: all 0.3s ease;
-            }
-            
-            .feature-card:hover {
-                transform: translateY(-8px);
-                box-shadow: 0 12px 40px rgba(0, 0, 0, 0.1);
-            }
-            
-            .feature-icon {
-                width: 64px;
-                height: 64px;
-                background: linear-gradient(135deg, rgba(200, 136, 10, 0.15) 0%, rgba(200, 136, 10, 0.05) 100%);
-                border-radius: 16px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                font-size: 28px;
-                margin-bottom: 20px;
-            }
-            
-            .feature-card h3 {
-                font-size: 20px;
-                font-weight: 600;
-                color: var(--dark-green);
-                margin-bottom: 12px;
-            }
-            
-            .feature-card p {
-                font-size: 15px;
-                color: var(--text-secondary);
-                line-height: 1.7;
-            }
-            
-            /* How It Works */
-            .how-it-works {
-                padding: 100px 24px;
-                background: var(--white);
-            }
-            
-            .steps-container {
-                display: grid;
-                grid-template-columns: repeat(4, 1fr);
-                gap: 40px;
-                margin-top: 60px;
-            }
-            
-            .step {
-                text-align: center;
-                position: relative;
-            }
-            
-            .step:not(:last-child)::after {
-                content: '';
-                position: absolute;
-                top: 40px;
-                right: -20px;
-                width: 40px;
-                height: 2px;
-                background: linear-gradient(90deg, var(--gold), transparent);
-            }
-            
-            .step-number {
-                width: 80px;
-                height: 80px;
-                background: var(--dark-green);
-                border-radius: 50%;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-                margin: 0 auto 20px;
-                font-size: 32px;
-                font-weight: 700;
-                color: var(--gold);
-            }
-            
-            .step h3 {
-                font-size: 18px;
-                font-weight: 600;
-                color: var(--dark-green);
-                margin-bottom: 8px;
-            }
-            
-            .step p {
-                font-size: 14px;
-                color: var(--text-secondary);
-            }
-            
-            /* Download Section */
-            .download {
-                padding: 100px 24px;
-                background: var(--dark-green);
-                position: relative;
-                overflow: hidden;
-            }
-            
-            .download::before {
-                content: '';
-                position: absolute;
-                top: 0;
-                left: 0;
-                right: 0;
-                bottom: 0;
-                background: radial-gradient(ellipse at center, rgba(200, 136, 10, 0.1) 0%, transparent 60%);
-                pointer-events: none;
-            }
-            
-            .download-container {
-                max-width: 800px;
-                margin: 0 auto;
-                text-align: center;
-                position: relative;
-                z-index: 1;
-            }
-            
-            .download .section-label {
-                color: var(--gold);
-            }
-            
-            .download .section-title {
-                color: var(--white);
-            }
-            
-            .download .section-subtitle {
-                color: rgba(255, 255, 255, 0.7);
-            }
-            
-            .download-cards {
-                display: grid;
-                grid-template-columns: repeat(2, 1fr);
-                gap: 24px;
-                margin-top: 48px;
-            }
-            
-            .download-card {
-                background: rgba(255, 255, 255, 0.05);
-                border: 1px solid rgba(255, 255, 255, 0.1);
-                border-radius: 20px;
-                padding: 40px 32px;
-                text-align: center;
-                transition: all 0.3s ease;
-            }
-            
-            .download-card:hover {
-                background: rgba(255, 255, 255, 0.08);
-                border-color: rgba(255, 255, 255, 0.2);
-            }
-            
-            .download-card-icon {
-                font-size: 48px;
-                margin-bottom: 20px;
-            }
-            
-            .download-card h3 {
-                font-size: 22px;
-                font-weight: 600;
-                color: var(--white);
-                margin-bottom: 12px;
-            }
-            
-            .download-card p {
-                font-size: 14px;
-                color: rgba(255, 255, 255, 0.6);
-                margin-bottom: 24px;
-            }
-            
-            .download-card .btn {
-                width: 100%;
-                justify-content: center;
-            }
-            
-            .ios-instructions {
-                margin-top: 16px;
-                padding: 16px;
-                background: rgba(255, 255, 255, 0.05);
-                border-radius: 12px;
-                text-align: left;
-            }
-            
-            .ios-instructions p {
-                font-size: 13px;
-                color: rgba(255, 255, 255, 0.7);
-                margin-bottom: 0;
-                display: flex;
-                align-items: flex-start;
-                gap: 8px;
-            }
-            
-            .ios-instructions p span {
-                color: var(--gold);
-            }
-            
-            /* Trust Section */
-            .trust {
-                padding: 80px 24px;
-                background: var(--light-bg);
-            }
-            
-            .trust-container {
-                max-width: 1000px;
-                margin: 0 auto;
-                display: grid;
-                grid-template-columns: repeat(4, 1fr);
-                gap: 40px;
-                text-align: center;
-            }
-            
-            .trust-item {
-                display: flex;
-                flex-direction: column;
-                align-items: center;
-            }
-            
-            .trust-icon {
-                font-size: 32px;
-                margin-bottom: 12px;
-            }
-            
-            .trust-item h4 {
-                font-size: 14px;
-                font-weight: 600;
-                color: var(--dark-green);
-            }
-            
-            /* Footer */
-            .footer {
-                background: #0a1810;
-                padding: 60px 24px 30px;
-            }
-            
-            .footer-container {
-                max-width: 1200px;
-                margin: 0 auto;
-            }
-            
-            .footer-top {
-                display: flex;
-                justify-content: space-between;
-                align-items: flex-start;
-                margin-bottom: 40px;
-                padding-bottom: 40px;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            }
-            
-            .footer-brand {
-                max-width: 300px;
-            }
-            
-            .footer-logo {
-                display: flex;
-                align-items: center;
-                gap: 12px;
-                margin-bottom: 16px;
-            }
-            
-            .footer-logo-icon {
-                width: 40px;
-                height: 40px;
-                background: var(--gold);
-                border-radius: 10px;
-                display: flex;
-                align-items: center;
-                justify-content: center;
-            }
-            
-            .footer-logo-icon span {
-                font-size: 18px;
-                font-weight: 700;
-                color: var(--white);
-            }
-            
-            .footer-logo-text {
-                font-size: 22px;
-                font-weight: 700;
-                color: var(--white);
-            }
-            
-            .footer-brand p {
-                font-size: 14px;
-                color: rgba(255, 255, 255, 0.6);
-                line-height: 1.7;
-            }
-            
-            .footer-links {
-                display: flex;
-                gap: 60px;
-            }
-            
-            .footer-column h4 {
-                font-size: 14px;
-                font-weight: 600;
-                color: var(--white);
-                margin-bottom: 20px;
-                text-transform: uppercase;
-                letter-spacing: 1px;
-            }
-            
-            .footer-column a {
-                display: block;
-                color: rgba(255, 255, 255, 0.6);
-                text-decoration: none;
-                font-size: 14px;
-                margin-bottom: 12px;
-                transition: color 0.3s;
-            }
-            
-            .footer-column a:hover {
-                color: var(--gold);
-            }
-            
-            .footer-bottom {
-                display: flex;
-                justify-content: space-between;
-                align-items: center;
-            }
-            
-            .footer-bottom p {
-                font-size: 13px;
-                color: rgba(255, 255, 255, 0.5);
-            }
-            
-            /* Responsive */
-            @media (max-width: 1024px) {
-                .hero-container {
-                    grid-template-columns: 1fr;
-                    text-align: center;
-                }
-                
-                .hero h1 {
-                    font-size: 42px;
-                }
-                
-                .hero-subtitle {
-                    margin: 0 auto 40px;
-                }
-                
-                .hero-buttons {
-                    justify-content: center;
-                }
-                
-                .hero-visual {
-                    display: none;
-                }
-                
-                .features-grid {
-                    grid-template-columns: repeat(2, 1fr);
-                }
-                
-                .steps-container {
-                    grid-template-columns: repeat(2, 1fr);
-                }
-                
-                .step:not(:last-child)::after {
-                    display: none;
-                }
-            }
-            
-            @media (max-width: 768px) {
-                .nav-links {
-                    display: none;
-                }
-                
-                .mobile-menu-btn {
-                    display: block;
-                }
-                
-                .hero {
-                    padding: 100px 20px 60px;
-                }
-                
-                .hero h1 {
-                    font-size: 32px;
-                }
-                
-                .hero-subtitle {
-                    font-size: 16px;
-                }
-                
-                .section-title {
-                    font-size: 32px;
-                }
-                
-                .features-grid {
-                    grid-template-columns: 1fr;
-                }
-                
-                .steps-container {
-                    grid-template-columns: 1fr;
-                    gap: 32px;
-                }
-                
-                .download-cards {
-                    grid-template-columns: 1fr;
-                }
-                
-                .trust-container {
-                    grid-template-columns: repeat(2, 1fr);
-                }
-                
-                .footer-top {
-                    flex-direction: column;
-                    gap: 40px;
-                }
-                
-                .footer-links {
-                    flex-wrap: wrap;
-                    gap: 40px;
-                }
-                
-                .footer-bottom {
-                    flex-direction: column;
-                    gap: 16px;
-                    text-align: center;
-                }
-            }
-            
-            /* Mobile Menu */
-            .mobile-nav {
-                display: none;
-                position: fixed;
-                top: 72px;
-                left: 0;
-                right: 0;
-                background: var(--dark-green);
-                padding: 20px;
-                border-top: 1px solid rgba(255, 255, 255, 0.1);
-                z-index: 999;
-            }
-            
-            .mobile-nav.active {
-                display: block;
-            }
-            
-            .mobile-nav a {
-                display: block;
-                color: var(--white);
-                text-decoration: none;
-                padding: 12px 0;
-                border-bottom: 1px solid rgba(255, 255, 255, 0.1);
-            }
-        </style>
-    </head>
-    <body>
-        <!-- Navigation -->
-        <nav class="navbar">
-            <a href="#" class="nav-logo">
-                <div class="nav-logo-icon"><span>CV</span></div>
-                <span class="nav-logo-text">Clubvel</span>
-            </a>
-            <div class="nav-links">
-                <a href="#features">Features</a>
-                <a href="#how-it-works">How It Works</a>
-                <a href="#download">Download</a>
-                <a href="#download" class="nav-cta">Get the App</a>
-            </div>
-            <button class="mobile-menu-btn" onclick="toggleMobileMenu()">☰</button>
-        </nav>
-        
-        <div class="mobile-nav" id="mobileNav">
-            <a href="#features" onclick="toggleMobileMenu()">Features</a>
-            <a href="#how-it-works" onclick="toggleMobileMenu()">How It Works</a>
-            <a href="#download" onclick="toggleMobileMenu()">Download</a>
-        </div>
-
-        <!-- Hero Section -->
-        <section class="hero">
-            <div class="hero-container">
-                <div class="hero-content">
-                    <div class="hero-badge">
-                        <span>🇿🇦 Made for South African Stokvels</span>
-                    </div>
-                    <h1>Your Club.<br><span class="highlight">Your Money.</span><br>Your Rules.</h1>
-                    <p class="hero-subtitle">Manage your stokvel with ease. Track contributions, upload proof of payment, and build your financial reputation — all in one app.</p>
-                    <div class="hero-buttons">
-                        <a href="#download" class="btn btn-primary">
-                            <span>📱</span> Download Now
-                        </a>
-                        <a href="#features" class="btn btn-secondary">
-                            <span>✨</span> See Features
-                        </a>
-                    </div>
-                </div>
-                <div class="hero-visual">
-                    <div class="phone-mockup">
-                        <div class="phone-screen">
-                            <div class="phone-logo"><span>CV</span></div>
-                            <div class="phone-title">Clubvel</div>
-                            <div class="phone-tagline">Your club. Your money. Your rules.</div>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Features Section -->
-        <section class="features" id="features">
-            <div class="container">
-                <div class="section-header">
-                    <span class="section-label">Features</span>
-                    <h2 class="section-title">Everything You Need</h2>
-                    <p class="section-subtitle">Powerful tools designed specifically for stokvel management</p>
-                </div>
-                <div class="features-grid">
-                    <div class="feature-card">
-                        <div class="feature-icon">💰</div>
-                        <h3>Track Contributions</h3>
-                        <p>See who's paid and who hasn't. Real-time updates keep everyone accountable.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">📸</div>
-                        <h3>Upload Proof of Payment</h3>
-                        <p>Snap a photo of your receipt or bank confirmation. No more WhatsApp confusion.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">🔔</div>
-                        <h3>Smart Reminders</h3>
-                        <p>Get notified before due dates. Never be the one who forgot to pay.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">📊</div>
-                        <h3>Treasurer Reports</h3>
-                        <p>Generate reports instantly. Track group finances with professional summaries.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">🏆</div>
-                        <h3>Trust Score</h3>
-                        <p>Build your financial reputation with every on-time payment you make.</p>
-                    </div>
-                    <div class="feature-card">
-                        <div class="feature-icon">🔒</div>
-                        <h3>POPIA Compliant</h3>
-                        <p>Your data is encrypted and protected. We take privacy seriously.</p>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- How It Works -->
-        <section class="how-it-works" id="how-it-works">
-            <div class="container">
-                <div class="section-header">
-                    <span class="section-label">How It Works</span>
-                    <h2 class="section-title">Get Started in Minutes</h2>
-                    <p class="section-subtitle">Simple steps to transform how your stokvel operates</p>
-                </div>
-                <div class="steps-container">
-                    <div class="step">
-                        <div class="step-number">1</div>
-                        <h3>Download the App</h3>
-                        <p>Get Clubvel on your Android phone or add to home screen on iPhone</p>
-                    </div>
-                    <div class="step">
-                        <div class="step-number">2</div>
-                        <h3>Create Your Club</h3>
-                        <p>Set up your stokvel with contribution amounts and payout dates</p>
-                    </div>
-                    <div class="step">
-                        <div class="step-number">3</div>
-                        <h3>Invite Members</h3>
-                        <p>Share your club link with members via WhatsApp or SMS</p>
-                    </div>
-                    <div class="step">
-                        <div class="step-number">4</div>
-                        <h3>Start Saving</h3>
-                        <p>Track payments, upload proofs, and watch your savings grow</p>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Download Section -->
-        <section class="download" id="download">
-            <div class="download-container">
-                <span class="section-label">Get the App</span>
-                <h2 class="section-title">Download Clubvel Today</h2>
-                <p class="section-subtitle">Available for Android devices. iPhone users can use the web app.</p>
-                
-                <div class="download-cards">
-                    <!-- Android Card -->
-                    <div class="download-card">
-                        <h3>Android</h3>
-                        <p>Download the APK directly to your Android phone</p>
-                        <a href="https://expo.dev/accounts/modjadji/projects/clubvel/builds/2a2f4803-0de5-4f8e-be8e-1b1161a42011" 
-                           class="btn btn-primary" 
-                           target="_blank">
-                            <span>⬇️</span> Download for Android
-                        </a>
-                    </div>
-                    
-                    <!-- iPhone Card -->
-                    <div class="download-card">
-                        <h3>iPhone</h3>
-                        <p>Use Clubvel as a web app on your iPhone</p>
-                        <a href="/get-app" class="btn btn-secondary">
-                            <span>📱</span> Open Web App
-                        </a>
-                        <div class="ios-instructions">
-                            <p><span>💡</span> For the best experience: Tap the Share icon in Safari, then select "Add to Home Screen" to use Clubvel like a native app.</p>
-                        </div>
-                    </div>
-                </div>
-            </div>
-        </section>
-
-        <!-- Trust Section -->
-        <section class="trust">
-            <div class="trust-container">
-                <div class="trust-item">
-                    <div class="trust-icon">🔐</div>
-                    <h4>Bank-Level Security</h4>
-                </div>
-                <div class="trust-item">
-                    <div class="trust-icon">🇿🇦</div>
-                    <h4>Made in South Africa</h4>
-                </div>
-                <div class="trust-item">
-                    <div class="trust-icon">✅</div>
-                    <h4>POPIA Compliant</h4>
-                </div>
-                <div class="trust-item">
-                    <div class="trust-icon">💚</div>
-                    <h4>Free to Use</h4>
-                </div>
-            </div>
-        </section>
-
-        <!-- Footer -->
-        <footer class="footer">
-            <div class="footer-container">
-                <div class="footer-top">
-                    <div class="footer-brand">
-                        <div class="footer-logo">
-                            <div class="footer-logo-icon"><span>CV</span></div>
-                            <span class="footer-logo-text">Clubvel</span>
-                        </div>
-                        <p>Empowering South African stokvels with modern technology. Manage your club, track contributions, and build financial trust.</p>
-                    </div>
-                    <div class="footer-links">
-                        <div class="footer-column">
-                            <h4>Product</h4>
-                            <a href="#features">Features</a>
-                            <a href="#how-it-works">How It Works</a>
-                            <a href="#download">Download</a>
-                        </div>
-                        <div class="footer-column">
-                            <h4>Legal</h4>
-                            <a href="/privacy-policy">Privacy Policy</a>
-                            <a href="/delete-account">Delete Account</a>
-                        </div>
-                        <div class="footer-column">
-                            <h4>Support</h4>
-                            <a href="mailto:support@clubvel.co.za">Contact Us</a>
-                        </div>
-                    </div>
-                </div>
-                <div class="footer-bottom">
-                    <p>&copy; 2025 Clubvel. All rights reserved.</p>
-                    <p>Made with 💚 in South Africa</p>
-                </div>
-            </div>
-        </footer>
-
-        <script>
-            function toggleMobileMenu() {
-                const nav = document.getElementById('mobileNav');
-                nav.classList.toggle('active');
-            }
-            
-            // Smooth scroll for anchor links
-            document.querySelectorAll('a[href^="#"]').forEach(anchor => {
-                anchor.addEventListener('click', function (e) {
-                    e.preventDefault();
-                    const target = document.querySelector(this.getAttribute('href'));
-                    if (target) {
-                        target.scrollIntoView({
-                            behavior: 'smooth',
-                            block: 'start'
-                        });
-                    }
-                });
-            });
-        </script>
-    </body>
-    </html>
-    """
-    return HTMLResponse(content=html_content)
+    """Serve the current Clubvel landing page from the canonical website file."""
+    # Railway deploys this service from the backend directory, so keep the
+    # public landing page self-contained in the running backend.
+    return HTMLResponse(content="<!DOCTYPE html>\n<html lang=\"en\">\n<head>\n<meta charset=\"UTF-8\"><meta name=\"viewport\" content=\"width=device-width,initial-scale=1\">\n<title>clubvel — stokvels, organised</title>\n<meta name=\"description\" content=\"Clubvel helps South African stokvels organise groups, contributions, payment proofs, claims and member records in one place.\">\n<style>\n:root{--charcoal:#3F4145;--ink:#242629;--orange:#F97316;--white:#fff;--soft:#F7F7F6;--muted:#6B6E73}\n*{box-sizing:border-box}html{scroll-behavior:smooth}body{margin:0;font-family:Inter,Arial,sans-serif;color:var(--ink);background:var(--white)}a{text-decoration:none;color:inherit}\nnav{height:76px;padding:0 6vw;display:flex;align-items:center;justify-content:space-between;border-bottom:1px solid #ececea;background:#fff;position:sticky;top:0;z-index:10}\n.brand{display:flex;align-items:center;gap:12px;font-size:25px;font-weight:800;color:var(--charcoal)}.leafmark{width:42px;height:42px;position:relative}.leaf{position:absolute;width:23px;height:31px;border-radius:100% 0 100% 0;transform:rotate(-28deg);top:5px}.leaf.a{left:3px;background:var(--charcoal)}.leaf.b{right:3px;background:var(--orange);transform:scaleX(-1) rotate(-28deg)}\n.links{display:flex;gap:28px;align-items:center;font-weight:600}.cta{background:var(--orange);color:#fff;padding:12px 20px;border-radius:10px}\n.hero{min-height:640px;padding:90px 7vw;display:grid;grid-template-columns:1.1fr .9fr;gap:70px;align-items:center;background:linear-gradient(135deg,#fff 0%,#fff 62%,#fff5ed 100%)}.eyebrow{color:var(--orange);font-weight:800;margin-bottom:16px}.hero h1{font-size:clamp(48px,6vw,82px);line-height:.98;margin:0 0 24px;color:var(--charcoal);letter-spacing:-3px}.hero h1 span{color:var(--orange)}.hero p{font-size:20px;line-height:1.65;color:var(--muted);max-width:650px}.actions{display:flex;gap:14px;margin-top:34px;flex-wrap:wrap}.button{padding:15px 23px;border-radius:10px;font-weight:750;border:2px solid var(--charcoal)}.primary{background:var(--orange);border-color:var(--orange);color:#fff}\n.visual{background:var(--charcoal);border-radius:28px;padding:48px;color:#fff;min-height:390px;display:flex;flex-direction:column;justify-content:center}.visual .leafmark{transform:scale(1.8);margin:0 0 35px 15px}.visual h2{font-size:36px;margin:0 0 12px}.visual p{color:#ddd;font-size:17px}.orange-line{width:74px;height:5px;background:var(--orange);border-radius:4px;margin-top:24px}\nsection{padding:90px 7vw}.sectionhead{max-width:700px;margin-bottom:45px}.sectionhead h2{font-size:40px;margin:0 0 12px;color:var(--charcoal)}.sectionhead p{color:var(--muted);font-size:17px;line-height:1.6}.grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}.card{border:1px solid #e7e7e5;border-radius:16px;padding:28px;background:#fff;border-top:4px solid var(--orange)}.card h3{margin:0 0 10px;font-size:20px}.card p{margin:0;color:var(--muted);line-height:1.6}.how{background:var(--soft)}.steps{display:grid;grid-template-columns:repeat(3,1fr);gap:28px}.num{width:42px;height:42px;border-radius:50%;display:grid;place-items:center;background:var(--orange);color:#fff;font-weight:800;margin-bottom:18px}\n.notice{background:var(--charcoal);color:#fff;border-radius:20px;padding:40px;display:flex;justify-content:space-between;align-items:center;gap:25px}.notice h2{margin:0 0 8px;font-size:30px}.notice p{margin:0;color:#d7d7d7;max-width:700px}\nfooter{padding:40px 7vw;background:#292b2e;color:#d7d7d7;display:flex;justify-content:space-between;gap:30px;flex-wrap:wrap}.footbrand{color:#fff;font-weight:800}\n@media(max-width:800px){.links a:not(.cta){display:none}.hero{grid-template-columns:1fr;padding-top:60px}.visual{min-height:300px}.grid,.steps{grid-template-columns:1fr}.notice{align-items:flex-start;flex-direction:column}.hero h1{letter-spacing:-2px}}\n</style></head>\n<body>\n<nav><a class=\"brand\" href=\"#\"><span class=\"leafmark\"><i class=\"leaf a\"></i><i class=\"leaf b\"></i></span><span>clubvel</span></a><div class=\"links\"><a href=\"#features\">Features</a><a href=\"#how\">How it works</a><a class=\"cta\" href=\"#status\">Get Clubvel</a></div></nav>\n<main>\n<div class=\"hero\"><div><div class=\"eyebrow\">Built for South African stokvels</div><h1>Your group.<br>Your records.<br><span>Together.</span></h1><p>Clubvel gives stokvel members one place to organise groups, keep contribution records, upload payment proofs and see the information recorded for their group.</p><div class=\"actions\"><a class=\"button primary\" href=\"#features\">Explore Clubvel</a><a class=\"button\" href=\"#how\">How it works</a></div></div><div class=\"visual\"><span class=\"leafmark\"><i class=\"leaf a\"></i><i class=\"leaf b\"></i></span><h2>save, plan, grow together</h2><p>One person. One Clubvel account. Different roles in different groups.</p><div class=\"orange-line\"></div></div></div>\n<section id=\"features\"><div class=\"sectionhead\"><h2>What Clubvel helps you manage</h2><p>Clear group records without inventing financial scores, balances or payment states that are not supported by recorded activity.</p></div><div class=\"grid\">\n<div class=\"card\"><h3>Contributions</h3><p>See recorded contribution information for each group and period, including confirmed and outstanding states where the group has recorded them.</p></div>\n<div class=\"card\"><h3>Payment proofs</h3><p>Upload proof against the relevant group contribution so the record stays connected to the payment it belongs to.</p></div>\n<div class=\"card\"><h3>Groups & roles</h3><p>Create a group or accept an invitation. Your role belongs to that group, not to your whole Clubvel account.</p></div>\n<div class=\"card\"><h3>Claims & payouts</h3><p>See claim and payout information only when it has actually been recorded for you and your group.</p></div>\n<div class=\"card\"><h3>Invitations</h3><p>Invited members choose whether to accept. Membership is created only after acceptance.</p></div>\n<div class=\"card\"><h3>Your history</h3><p>Clubvel builds a record from verifiable activity in your groups rather than displaying a made-up Trust Score.</p></div>\n</div></section>\n<section class=\"how\" id=\"how\"><div class=\"sectionhead\"><h2>Simple by design</h2></div><div class=\"steps\"><div><div class=\"num\">1</div><h3>Create your account</h3><p>Register as a person. You do not choose an account-wide admin, treasurer or member role.</p></div><div><div class=\"num\">2</div><h3>Create or join a group</h3><p>Create your own group or accept an invitation to a group you know.</p></div><div><div class=\"num\">3</div><h3>Keep the group record current</h3><p>Record contributions, proofs and group activity so members can see what has actually happened.</p></div></div></section>\n<section id=\"status\"><div class=\"notice\"><div><h2>Clubvel is being prepared for release.</h2><p>We are validating the app before publishing public download links. We will not send you to an old APK or promise an app-store release that is not yet available.</p></div><a class=\"button primary\" href=\"mailto:support@clubvel.co.za\">Contact Clubvel</a></div></section>\n</main>\n<footer><div><span class=\"footbrand\">clubvel</span><br>South Africa</div><div>© 2026 Clubvel. Group records made clearer.</div></footer>\n</body></html>")
 
 # Catch-all route to prevent 404 errors - redirects to main website
 @app.get("/{path:path}", response_class=HTMLResponse)

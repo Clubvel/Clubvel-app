@@ -1,23 +1,189 @@
-import React, { useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator } from 'react-native';
+import React, { useCallback, useRef, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, RefreshControl, Image } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
-import { useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import MonthlyReport from '../../components/MonthlyReport';
 import { AdBanner } from '../../components/AdBanner';
+import axios, { isAxiosError } from 'axios';
 import { 
   generatePDFReport, 
   sharePDFReport, 
   printPDFReport,
-  generateSampleReportData,
   ReportData 
 } from '../../services/pdfReportService';
 
 export default function ReportsScreen() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const router = useRouter();
+  const { group_id, clubId } = useLocalSearchParams<{ group_id?: string; clubId?: string }>();
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingType, setGeneratingType] = useState<string | null>(null);
+  const [showExports, setShowExports] = useState(false);
+  const [dashboardData, setDashboardData] = useState<any>(null);
+  const [loadingReports, setLoadingReports] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [reportError, setReportError] = useState<string | null>(null);
+  const request = useRef(0);
+  const [reportRefreshKey, setReportRefreshKey] = useState(0);
+
+  const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+
+  const fetchReportData = useCallback(async (pullToRefresh = false) => {
+    const ticket = ++request.current;
+    setRefreshing(pullToRefresh);
+    setReportError(null);
+    try {
+      if (!user?.id || !token) throw new Error('Please sign in again to load reports.');
+      const response = await axios.get(`${API_URL}/api/admin/dashboard/${user.id}`, {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 20000,
+      });
+      if (!Array.isArray(response.data?.clubs)) throw new Error('Invalid report data received.');
+      if (ticket === request.current) { setDashboardData(response.data); setReportRefreshKey(value => value + 1); }
+    } catch (error) {
+      if (ticket === request.current) {
+        setDashboardData(null);
+        setReportError(error instanceof Error && !isAxiosError(error)
+          ? error.message : 'Unable to load reports. Check your connection and try again.');
+      }
+    } finally {
+      if (ticket === request.current) { setLoadingReports(false); setRefreshing(false); }
+    }
+  }, [API_URL, user?.id, token]);
+
+  useFocusEffect(useCallback(() => {
+    setDashboardData(null);
+    setLoadingReports(true);
+    void fetchReportData();
+    return () => { request.current += 1; };
+  }, [fetchReportData]));
+
+  // Bound native PDF generation too: an Android print failure must release the controls.
+  const generatePDF = async (data: ReportData) => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    try {
+      return await Promise.race([
+        generatePDFReport(data),
+        new Promise<never>((_, reject) => {
+          timer = setTimeout(() => reject(new Error('PDF generation timed out. Please try again.')), 45000);
+        }),
+      ]);
+    } finally { if (timer) clearTimeout(timer); }
+  };
+
+  const buildReportData = async (
+    reportType: 'monthly' | 'annual'
+  ): Promise<ReportData> => {
+    if (!token) {
+      throw new Error('Authentication session is not available.');
+    }
+
+    const managedClubs = (dashboardData?.clubs || []).filter(
+      (club: any) => club?.id
+    );
+
+    if (managedClubs.length === 0) {
+      throw new Error('No managed groups are available for this report.');
+    }
+
+    const now = new Date();
+    const year = now.getFullYear();
+    const month = now.getMonth() + 1;
+    const monthNames = [
+      'January', 'February', 'March', 'April', 'May', 'June',
+      'July', 'August', 'September', 'October', 'November', 'December'
+    ];
+
+    const responses = await Promise.all(
+      managedClubs.map((club: any) =>
+        axios.get(`${API_URL}/api/treasurer/reports/${club.id}`, {
+          timeout: 20000,
+          params: reportType === 'monthly'
+            ? { year, month }
+            : { year },
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        })
+      )
+    );
+
+    const reports = responses.map((response) => response.data);
+    const rows = reports.flatMap((report: any) => report.rows || []);
+
+    const totalCollected = reports.reduce(
+      (sum: number, report: any) =>
+        sum + Number(report.summary?.total_collected || 0),
+      0
+    );
+
+    const totalExpected = reports.reduce(
+      (sum: number, report: any) =>
+        sum + Number(report.summary?.recorded_obligations || 0),
+      0
+    );
+
+    const appliedToObligations = rows.reduce(
+      (sum: number, row: any) => {
+        if (row.recorded_status === 'excused') {
+          return sum;
+        }
+
+        return sum + Math.min(
+          Number(row.amount_due || 0),
+          Number(row.amount_paid || 0)
+        );
+      },
+      0
+    );
+
+    const memberIds = new Set(
+      rows.map((row: any) => row.person_id).filter(Boolean)
+    );
+
+    const lateMemberIds = new Set(
+      rows
+        .filter(
+          (row: any) =>
+            row.status === 'late' &&
+            Number(row.outstanding || 0) > 0
+        )
+        .map((row: any) => row.person_id)
+        .filter(Boolean)
+    );
+
+    return {
+      reportType,
+      treasurerName: user?.full_name || 'Treasurer',
+      generatedDate: now.toLocaleString('en-ZA'),
+      period: reportType === 'monthly'
+        ? `${monthNames[now.getMonth()]} ${year}`
+        : `${year}`,
+      clubs: reports.map((report: any) => ({
+        id: report.group_id,
+        name: report.group_name,
+        member_count: new Set(
+          (report.rows || [])
+            .map((row: any) => row.person_id)
+            .filter(Boolean)
+        ).size,
+        collected: Number(report.summary?.total_collected || 0),
+        expected: Number(report.summary?.recorded_obligations || 0),
+        late_count: Number(report.summary?.late_members || 0),
+      })),
+      summary: {
+        totalCollected,
+        totalExpected,
+        collectionRate:
+          totalExpected > 0
+            ? (appliedToObligations / totalExpected) * 100
+            : 0,
+        totalMembers: memberIds.size,
+        latePayments: lateMemberIds.size,
+      },
+    };
+  };
 
   const handleExportPDF = async (reportType: 'monthly' | 'quarterly' | 'annual' | 'member') => {
     setIsGenerating(true);
@@ -25,10 +191,20 @@ export default function ReportsScreen() {
 
     try {
       // Generate report data (in production, fetch from API)
-      const reportData: ReportData = {
-        ...generateSampleReportData(user?.full_name || 'Treasurer'),
-        reportType,
-      };
+      if (!dashboardData) {
+        Alert.alert('Report Not Ready', 'Please wait for the latest financial data to load.');
+        return;
+      }
+
+      if (reportType !== 'monthly' && reportType !== 'annual') {
+        Alert.alert(
+          'Report Not Available',
+          'This report requires its own member or historical selection and will not be generated from unrelated financial data.'
+        );
+        return;
+      }
+
+      const reportData = await buildReportData(reportType);
 
       // Update period based on report type
       const now = new Date();
@@ -39,20 +215,13 @@ export default function ReportsScreen() {
         case 'monthly':
           reportData.period = `${monthNames[now.getMonth()]} ${now.getFullYear()}`;
           break;
-        case 'quarterly':
-          const quarter = Math.floor(now.getMonth() / 3) + 1;
-          reportData.period = `Q${quarter} ${now.getFullYear()}`;
-          break;
         case 'annual':
           reportData.period = `${now.getFullYear()}`;
-          break;
-        case 'member':
-          reportData.period = `Jan - ${monthNames[now.getMonth()]} ${now.getFullYear()}`;
           break;
       }
 
       // Generate PDF
-      const result = await generatePDFReport(reportData);
+      const result = await generatePDF(reportData);
 
       if (result.success && result.uri) {
         Alert.alert(
@@ -67,22 +236,35 @@ export default function ReportsScreen() {
         Alert.alert('Error', result.message);
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to generate report. Please try again.');
+      Alert.alert('Unable to generate report', error instanceof Error ? error.message : 'Please try again.', [
+        { text: 'Cancel', style: 'cancel' }, { text: 'Retry', onPress: () => void handleExportPDF(reportType) },
+      ]);
     } finally {
       setIsGenerating(false);
       setGeneratingType(null);
     }
   };
 
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- Preserve the report handler while removing only Quick Actions.
   const handlePrintReport = async (reportType: 'monthly' | 'quarterly' | 'annual' | 'member') => {
     setIsGenerating(true);
     setGeneratingType(reportType);
 
     try {
-      const reportData: ReportData = {
-        ...generateSampleReportData(user?.full_name || 'Treasurer'),
-        reportType,
-      };
+      if (!dashboardData) {
+        Alert.alert('Report Not Ready', 'Please wait for the latest financial data to load.');
+        return;
+      }
+
+      if (reportType !== 'monthly' && reportType !== 'annual') {
+        Alert.alert(
+          'Report Not Available',
+          'This report requires its own member or historical selection and will not be generated from unrelated financial data.'
+        );
+        return;
+      }
+
+      const reportData = await buildReportData(reportType);
 
       const result = await printPDFReport(reportData);
 
@@ -102,12 +284,22 @@ export default function ReportsScreen() {
     setGeneratingType(reportType);
 
     try {
-      const reportData: ReportData = {
-        ...generateSampleReportData(user?.full_name || 'Treasurer'),
-        reportType,
-      };
+      if (!dashboardData) {
+        Alert.alert('Report Not Ready', 'Please wait for the latest financial data to load.');
+        return;
+      }
 
-      const result = await generatePDFReport(reportData);
+      if (reportType !== 'monthly' && reportType !== 'annual') {
+        Alert.alert(
+          'Report Not Available',
+          'This report requires its own member or historical selection and will not be generated from unrelated financial data.'
+        );
+        return;
+      }
+
+      const reportData = await buildReportData(reportType);
+
+      const result = await generatePDF(reportData);
 
       if (result.success && result.uri) {
         await sharePDFReport(result.uri);
@@ -115,7 +307,9 @@ export default function ReportsScreen() {
         Alert.alert('Error', result.message);
       }
     } catch (error) {
-      Alert.alert('Error', 'Failed to share report. Please try again.');
+      Alert.alert('Unable to share report', error instanceof Error ? error.message : 'Please try again.', [
+        { text: 'Cancel', style: 'cancel' }, { text: 'Retry', onPress: () => void handleShareWhatsApp(reportType) },
+      ]);
     } finally {
       setIsGenerating(false);
       setGeneratingType(null);
@@ -132,6 +326,8 @@ export default function ReportsScreen() {
     
     return (
       <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel={`${icon === 'download' ? 'Download' : 'Share'} ${reportType === 'monthly' ? 'current-month' : 'current-year'} contribution export`}
         style={styles.actionButton}
         onPress={onPress}
         disabled={isGenerating}
@@ -152,140 +348,68 @@ export default function ReportsScreen() {
         <TouchableOpacity onPress={() => router.push('/(treasurer)/profile')} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={Colors.white} />
         </TouchableOpacity>
-        <View>
+        <View style={styles.headerTitleContainer}>
           <Text style={styles.headerTitle}>Reports</Text>
-          <Text style={styles.headerSubtitle}>Financial Reports</Text>
         </View>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel="Open profile"
+          onPress={() => router.push('/(treasurer)/profile')}
+          style={styles.profileButton}
+        >
+          {user?.profile_photo ? (
+            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
+          ) : (
+            <View style={styles.profilePlaceholder}>
+              <Text style={styles.profileInitial}>{(user?.full_name || '').trim().charAt(0).toUpperCase() || '?'}</Text>
+            </View>
+          )}
+        </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content}>
-        {/* Current Month Summary */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Current Month</Text>
-          <View style={styles.summaryCard}>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Total Collected</Text>
-              <Text style={[styles.summaryValue, styles.collectedValue]}>R500.00</Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Collection Rate</Text>
-              <Text style={styles.summaryValue}>50%</Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Outstanding</Text>
-              <Text style={[styles.summaryValue, styles.outstandingValue]}>R500.00</Text>
-            </View>
-            <View style={styles.summaryRow}>
-              <Text style={styles.summaryLabel}>Late Members</Text>
-              <Text style={[styles.summaryValue, styles.lateValue]}>1</Text>
-            </View>
-          </View>
-        </View>
-
-        {/* Report Types */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Available Reports</Text>
-
-          {/* Monthly Report */}
-          <View style={styles.reportCard}>
-            <View style={styles.reportIcon}>
-              <Ionicons name="calendar" size={32} color={Colors.mediumGreen} />
-            </View>
-            <View style={styles.reportInfo}>
-              <Text style={styles.reportTitle}>Monthly Report</Text>
-              <Text style={styles.reportDescription}>
-                Detailed breakdown of all contributions for the current month with member-by-member analysis.
-              </Text>
-            </View>
-            <View style={styles.reportActions}>
-              {renderActionButton('monthly', 'download', Colors.mediumGreen, () => handleExportPDF('monthly'))}
-              {renderActionButton('monthly', 'logo-whatsapp', '#25D366', () => handleShareWhatsApp('monthly'))}
-            </View>
-          </View>
-
-          {/* Annual Report */}
-          <View style={styles.reportCard}>
-            <View style={styles.reportIcon}>
-              <Ionicons name="bar-chart" size={32} color={Colors.gold} />
-            </View>
-            <View style={styles.reportInfo}>
-              <Text style={styles.reportTitle}>Annual Report</Text>
-              <Text style={styles.reportDescription}>
-                Month-by-month collection summary for the entire year with trends and totals.
-              </Text>
-            </View>
-            <View style={styles.reportActions}>
-              {renderActionButton('annual', 'download', Colors.mediumGreen, () => handleExportPDF('annual'))}
-              {renderActionButton('annual', 'logo-whatsapp', '#25D366', () => handleShareWhatsApp('annual'))}
-            </View>
-          </View>
-
-          {/* Member Statement */}
-          <View style={styles.reportCard}>
-            <View style={styles.reportIcon}>
-              <Ionicons name="person" size={32} color={Colors.mediumGreen} />
-            </View>
-            <View style={styles.reportInfo}>
-              <Text style={styles.reportTitle}>Member Statement</Text>
-              <Text style={styles.reportDescription}>
-                Complete payment history for any individual member with proof of payment images.
-              </Text>
-            </View>
-            <View style={styles.reportActions}>
-              {renderActionButton('member', 'download', Colors.mediumGreen, () => handleExportPDF('member'))}
-              {renderActionButton('member', 'logo-whatsapp', '#25D366', () => handleShareWhatsApp('member'))}
-            </View>
-          </View>
-
-          {/* Defaulters Report */}
-          <View style={styles.reportCard}>
-            <View style={styles.reportIcon}>
-              <Ionicons name="alert-circle" size={32} color={Colors.statusLate} />
-            </View>
-            <View style={styles.reportInfo}>
-              <Text style={styles.reportTitle}>Defaulters Report</Text>
-              <Text style={styles.reportDescription}>
-                List of all members with late or missed payments across all months managed.
-              </Text>
-            </View>
-            <View style={styles.reportActions}>
-              {renderActionButton('monthly', 'download', Colors.mediumGreen, () => handleExportPDF('monthly'))}
-              {renderActionButton('monthly', 'logo-whatsapp', '#25D366', () => handleShareWhatsApp('monthly'))}
-            </View>
-          </View>
-        </View>
-
-        {/* Share Options */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Quick Actions</Text>
-          <View style={styles.shareButtons}>
-            <TouchableOpacity 
-              style={[styles.shareButton, styles.whatsappButton]}
-              onPress={() => handleShareWhatsApp('monthly')}
-              disabled={isGenerating}
-            >
-              <Ionicons name="logo-whatsapp" size={20} color={Colors.white} />
-              <Text style={styles.shareButtonText}>WhatsApp</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.shareButton, styles.pdfButton]}
-              onPress={() => handleExportPDF('monthly')}
-              disabled={isGenerating}
-            >
-              <Ionicons name="document-text" size={20} color={Colors.white} />
-              <Text style={styles.shareButtonText}>PDF</Text>
-            </TouchableOpacity>
-            <TouchableOpacity 
-              style={[styles.shareButton, styles.emailButton]}
-              onPress={() => handlePrintReport('monthly')}
-              disabled={isGenerating}
-            >
-              <Ionicons name="print" size={20} color={Colors.white} />
-              <Text style={styles.shareButtonText}>Print</Text>
+      <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void fetchReportData(true)} />}>
+        {loadingReports ? <ActivityIndicator accessibilityLabel="Loading reports" color={Colors.accent} /> : null}
+        {reportError ? (
+          <View style={styles.section}>
+            <Text style={styles.reportDescription}>{reportError}</Text>
+            <TouchableOpacity accessibilityRole="button" onPress={() => void fetchReportData()}>
+              <Text style={{ color: Colors.accent, paddingVertical: 12 }}>Retry</Text>
             </TouchableOpacity>
           </View>
+        ) : !loadingReports && dashboardData?.clubs.length === 0 ? (
+          <View style={styles.section}><Text style={styles.reportDescription}>No managed clubs or report data yet.</Text></View>
+        ) : null}
+        {dashboardData?.clubs.length > 0 && !reportError && (<>
+
+        <MonthlyReport clubs={dashboardData.clubs} token={token} contextualClubId={group_id || clubId} refreshKey={reportRefreshKey} />
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Report actions</Text>
+          <TouchableOpacity accessibilityRole="button" accessibilityState={{ expanded: showExports }} onPress={() => setShowExports(value => !value)}>
+            <Text style={styles.exportLink}>Other available exports {showExports ? '⌄' : '›'}</Text>
+          </TouchableOpacity>
+          {showExports ? <>
+            <Text style={styles.reportDescription}>These contribution exports cover all your managed clubs. They do not use the club or month selected above, and do not include the new claims and payouts statement.</Text>
+            <View style={styles.reportCard}>
+              <Text style={styles.reportTitle}>Current-month contribution export</Text>
+              <Text style={styles.reportDescription}>Contributions for the current month across all your managed clubs.</Text>
+              <View style={styles.reportActions}>
+                {renderActionButton('monthly', 'download', Colors.mediumGreen, () => handleExportPDF('monthly'))}
+                {renderActionButton('monthly', 'logo-whatsapp', '#25D366', () => handleShareWhatsApp('monthly'))}
+              </View>
+            </View>
+            <View style={styles.reportCard}>
+              <Text style={styles.reportTitle}>Current-year contribution export</Text>
+              <Text style={styles.reportDescription}>Contributions for the current year across all your managed clubs.</Text>
+              <View style={styles.reportActions}>
+                {renderActionButton('annual', 'download', Colors.mediumGreen, () => handleExportPDF('annual'))}
+                {renderActionButton('annual', 'logo-whatsapp', '#25D366', () => handleShareWhatsApp('annual'))}
+              </View>
+            </View>
+          </> : null}
         </View>
-        
+
+        </>)}
         {/* Ad Banner */}
         <AdBanner size="banner" />
       </ScrollView>
@@ -310,6 +434,36 @@ const styles = StyleSheet.create({
   backButton: {
     padding: 8,
   },
+  headerTitleContainer: {
+    flex: 1,
+    minWidth: 0,
+  },
+  profileButton: {
+    padding: 4,
+    flexShrink: 0,
+  },
+  profileImage: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 2,
+    borderColor: Colors.gold,
+  },
+  profilePlaceholder: {
+    width: 76,
+    height: 76,
+    borderRadius: 38,
+    borderWidth: 2,
+    borderColor: Colors.gold,
+    backgroundColor: Colors.gold,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  profileInitial: {
+    fontSize: 32,
+    fontWeight: 'bold',
+    color: Colors.white,
+  },
   headerTitle: {
     fontSize: 24,
     fontWeight: 'bold',
@@ -327,6 +481,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 24,
   },
+  exportLink: { color: Colors.accent, fontWeight: '600', paddingVertical: 12 },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',

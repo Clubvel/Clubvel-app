@@ -1,13 +1,13 @@
-import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, ActivityIndicator, Modal } from 'react-native';
+import React, { useCallback, useRef, useState } from 'react';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform, RefreshControl } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
-import { useRouter } from 'expo-router';
+import { useRouter, useFocusEffect } from 'expo-router';
 import { AdBanner } from '../../components/AdBanner';
-import * as ImagePicker from 'expo-image-picker';
-import * as FileSystem from 'expo-file-system';
+import * as DocumentPicker from 'expo-document-picker';
+import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import axios from 'axios';
 
@@ -16,7 +16,9 @@ interface Club {
   name: string;
   contribution_id?: string;
   amount_due: number;
-  status: string;
+  status: string | null;
+  group_type: string;
+  contribution_mode: string;
 }
 
 interface Proof {
@@ -26,38 +28,140 @@ interface Proof {
   month: string;
   amount: number;
   status: string;
-  uploadDate: string;
+  uploadDate: string | null;
   hasImage: boolean;
+  groupId: string;
+  proofVersion: string | null;
+  declineReason: string | null;
+  canDelete: boolean;
 }
 
 export default function ProofOfPaymentsScreen() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const router = useRouter();
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
   
   const [showClubModal, setShowClubModal] = useState(false);
   const [clubs, setClubs] = useState<Club[]>([]);
+  const [selectedFlexibleClub, setSelectedFlexibleClub] = useState<Club | null>(null);
+  const [flexibleAmount, setFlexibleAmount] = useState('');
   const [uploading, setUploading] = useState(false);
   const [loadingClubs, setLoadingClubs] = useState(false);
   const [proofs, setProofs] = useState<Proof[]>([]);
+  const [proofFilter, setProofFilter] = useState<'all' | 'confirmed' | 'proof_uploaded'>('all');
+  const confirmedProofs = proofs.filter(p => p.status === 'confirmed');
+  const pendingProofs = proofs.filter(p => p.status === 'proof_uploaded');
+  const visibleProofs = proofFilter === 'confirmed' ? confirmedProofs : proofFilter === 'proof_uploaded' ? pendingProofs : proofs;
+  const [proofsLoading, setProofsLoading] = useState(true);
+  const [proofsError, setProofsError] = useState<string | null>(null);
+  const [deletingProof, setDeletingProof] = useState<string | null>(null);
   const [viewingProof, setViewingProof] = useState<string | null>(null);
   const [proofImage, setProofImage] = useState<string | null>(null);
+  const [proofMimeType, setProofMimeType] = useState<string>('image/jpeg');
+  const [proofFileName, setProofFileName] = useState<string | null>(null);
   const [loadingProof, setLoadingProof] = useState(false);
+
+  const proofRequest = useRef<{ key: string; sequence: number } | null>(null);
+  const proofSequence = useRef(0);
+  const requestContext = `${user?.id}:${token}`;
+  const latestContext = useRef(requestContext);
+  latestContext.current = requestContext;
+
+  const fetchProofs = useCallback(async (force = false) => {
+    if (!user?.id || !token) return;
+    const key = `${user?.id}:${token}`;
+    if (!force && proofRequest.current?.key === key) return;
+    const sequence = ++proofSequence.current;
+    proofRequest.current = { key, sequence };
+    setProofsLoading(true);
+    setProofsError(null);
+    try {
+      const response = await axios.get(`${API_URL}/api/member/contributions/${user.id}`, {
+        headers: { Authorization: `Bearer ${token}` }
+      });
+      if (sequence !== proofSequence.current || latestContext.current !== key) return;
+      setProofs(response.data.contributions.filter((record: any) => record.proof_uploaded && !record.proof_dismissed).map((record: any) => ({
+        id: record.contribution_id,
+        contribution_id: record.contribution_id,
+        groupId: record.group_id,
+        groupName: record.group_name,
+        month: new Date(record.year, record.month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
+        amount: record.amount_due,
+        status: record.proof_review_status === 'declined' ? 'proof_declined' : record.status,
+        uploadDate: record.payment_date,
+        hasImage: true,
+        proofVersion: record.proof_version,
+        declineReason: record.proof_decline_reason,
+        canDelete: record.proof_delete_eligible
+      })));
+    } catch (error: any) {
+      if (sequence !== proofSequence.current || latestContext.current !== key) return;
+      setProofsError(error.response?.data?.detail || 'Unable to load proofs. Please try again.');
+    } finally {
+      if (proofRequest.current?.sequence === sequence) {
+        proofRequest.current = null;
+        setProofsLoading(false);
+      }
+    }
+  }, [API_URL, user?.id, token]);
+
+  useFocusEffect(useCallback(() => { void fetchProofs(); }, [fetchProofs]));
+
+  const handleDeleteProof = (proof: Proof) => {
+    Alert.alert('Delete Pending Proof', 'Remove this proof? Your contribution will remain unpaid.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Delete', style: 'destructive', onPress: async () => {
+        if (deletingProof) return;
+        setDeletingProof(proof.contribution_id);
+        try {
+          await axios.delete(`${API_URL}/api/contributions/${proof.contribution_id}/proof`, {
+            data: { proof_version: proof.proofVersion },
+            headers: { Authorization: `Bearer ${token}` }
+          });
+          await fetchProofs(true);
+        } catch (error: any) {
+          Alert.alert('Error', error.response?.data?.detail || 'Failed to delete pending proof');
+        } finally {
+          setDeletingProof(null);
+        }
+      } }
+    ]);
+  };
+
+  const removeDeclinedProof = (proof: Proof) => {
+    Alert.alert('Remove declined proof', 'Remove this declined proof from your view? Its review history is retained and you can still upload a replacement.', [
+      { text: 'Cancel', style: 'cancel' },
+      { text: 'Remove', style: 'destructive', onPress: async () => {
+        if (deletingProof) return;
+        setDeletingProof(proof.contribution_id);
+        try {
+          await axios.post(`${API_URL}/api/contributions/${proof.contribution_id}/proof/dismiss`,
+            { proof_version: proof.proofVersion }, {
+              headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+            });
+          await fetchProofs(true);
+        } catch {
+          Alert.alert('Unable to remove proof', 'Please refresh and try again. Your contribution has not been changed.');
+        } finally { setDeletingProof(null); }
+      } },
+    ]);
+  };
 
   const fetchClubs = async () => {
     setLoadingClubs(true);
     try {
-      const response = await axios.get(`${API_URL}/api/member/dashboard/${user?.id}`);
-      // Filter clubs that need payment (pending status)
-      const pendingClubs = response.data.clubs
-        .filter((club: any) => club.status === 'pending' || club.status === 'due')
-        .map((club: any) => ({
-          id: club.id,
-          name: club.name,
-          amount_due: club.monthly_contribution,
-          status: club.status,
-        }));
-      setClubs(pendingClubs);
+      const response = await axios.get(`${API_URL}/api/member/dashboard/${user?.id}`, {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+      });
+      const availableClubs = response.data.clubs.map((club: any) => ({
+        id: club.id,
+        name: club.name,
+        amount_due: Number(club.monthly_contribution) || 0,
+        status: club.status ?? null,
+        group_type: club.group_type,
+        contribution_mode: club.contribution_mode,
+      }));
+      setClubs(availableClubs);
     } catch (error) {
       console.error('Error fetching clubs:', error);
       setClubs([]);
@@ -67,47 +171,64 @@ export default function ProofOfPaymentsScreen() {
   };
 
   const handleUploadPress = async () => {
-    await fetchClubs();
     setShowClubModal(true);
+    await fetchClubs();
   };
 
-  const handleSelectClub = async (club: Club) => {
+  const uploadProofForClub = async (
+    club: Pick<Club, 'id' | 'name' | 'amount_due'>,
+    contributionId?: string
+  ) => {
     setShowClubModal(false);
-    
-    // Request permission and pick image
-    const permissionResult = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!permissionResult.granted) {
-      Alert.alert('Permission Required', 'Please allow access to your photo library to upload proof of payment.');
-      return;
-    }
 
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsEditing: true,
-      aspect: [4, 3],
-      quality: 0.7,
-      base64: true,
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ['application/pdf', 'image/*'],
+      copyToCacheDirectory: true,
+      multiple: false,
     });
 
-    if (!result.canceled && result.assets[0].base64) {
+    if (!result.canceled && result.assets[0]) {
+      const asset = result.assets[0];
+
+      if (asset.size && asset.size > 5 * 1024 * 1024) {
+        Alert.alert('File Too Large', 'Please select a proof of payment smaller than 5 MB.');
+        return;
+      }
+
+      const mimeType =
+        asset.mimeType ||
+        (asset.name?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+
+      const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+        encoding: FileSystem.EncodingType.Base64,
+      });
+
+      const proofData = `data:${mimeType};base64,${base64}`;
+
       setUploading(true);
       try {
-        // Get contribution ID for this club
-        const clubResponse = await axios.get(`${API_URL}/api/member/club/${club.id}/user/${user?.id}`);
-        const contributionId = clubResponse.data.current_contribution?.id;
+        let resolvedContributionId = contributionId;
 
-        if (!contributionId) {
-          Alert.alert('Error', 'No pending contribution found for this club.');
+        if (!resolvedContributionId) {
+          const clubResponse = await axios.get(
+            `${API_URL}/api/member/club/${club.id}/user/${user?.id}`
+          );
+          resolvedContributionId = clubResponse.data.current_contribution?.id;
+        }
+
+        if (!resolvedContributionId) {
+          Alert.alert('Error', 'No pending contribution found for this group.');
           return;
         }
 
-        // Upload proof
         await axios.post(`${API_URL}/api/contributions/upload-proof`, {
-          contribution_id: contributionId,
-          proof_image: `data:image/jpeg;base64,${result.assets[0].base64}`,
+          contribution_id: resolvedContributionId,
+          proof_image: proofData,
+          proof_mime_type: mimeType,
+          proof_file_name: asset.name || null,
           reference_number: '',
           user_id: user?.id,
-        });
+        }, { headers: { Authorization: `Bearer ${token}` } });
 
         Alert.alert(
           'Success!',
@@ -115,25 +236,122 @@ export default function ProofOfPaymentsScreen() {
           [{ text: 'OK' }]
         );
 
-        // Add to local proofs list
-        const newProof: Proof = {
-          id: Date.now().toString(),
-          contribution_id: contributionId,
-          groupName: club.name,
-          month: new Date().toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
-          amount: club.amount_due,
-          status: 'proof_uploaded',
-          uploadDate: new Date().toISOString().split('T')[0],
-          hasImage: true,
-        };
-        setProofs([newProof, ...proofs]);
-
-      } catch (error) {
+        await fetchProofs(true);
+      } catch (error: any) {
         console.error('Upload error:', error);
-        Alert.alert('Upload Failed', 'Failed to upload proof of payment. Please try again.');
+        Alert.alert(
+          'Upload Failed',
+          error.response?.data?.detail || 'Failed to upload proof of payment. Please try again.'
+        );
       } finally {
         setUploading(false);
       }
+    }
+  };
+
+  const handleSelectClub = async (club: Club) => {
+    const isFlexible =
+      club.contribution_mode === 'flexible_goal' ||
+      club.group_type === 'travel';
+
+    if (isFlexible) {
+      setShowClubModal(false);
+      setSelectedFlexibleClub(club);
+      setFlexibleAmount('');
+      return;
+    }
+
+    await uploadProofForClub(club);
+  };
+
+  const handleFlexibleContribution = async () => {
+    if (!selectedFlexibleClub || !token) {
+      Alert.alert('Error', 'Please sign in again and retry.');
+      return;
+    }
+
+    const amount = Number(flexibleAmount.replace(',', '.'));
+
+    if (!Number.isFinite(amount) || amount <= 0) {
+      Alert.alert('Invalid Amount', 'Please enter the amount you paid.');
+      return;
+    }
+
+    const result = await DocumentPicker.getDocumentAsync({
+      type: ['application/pdf', 'image/*'],
+      copyToCacheDirectory: true,
+      multiple: false,
+    });
+
+    if (result.canceled || !result.assets[0]) {
+      return;
+    }
+
+    const asset = result.assets[0];
+
+    if (asset.size && asset.size > 5 * 1024 * 1024) {
+      Alert.alert('File Too Large', 'Please select a proof of payment smaller than 5 MB.');
+      return;
+    }
+
+    const mimeType =
+      asset.mimeType ||
+      (asset.name?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+
+    const base64 = await FileSystem.readAsStringAsync(asset.uri, {
+      encoding: FileSystem.EncodingType.Base64,
+    });
+
+    const proofData = `data:${mimeType};base64,${base64}`;
+
+    setUploading(true);
+
+    try {
+      const club = selectedFlexibleClub;
+
+      const response = await axios.post(
+        `${API_URL}/api/member/contributions/flexible`,
+        {
+          group_id: club.id,
+          amount,
+        },
+        {
+          headers: {
+            Authorization: `Bearer ${token}`,
+          },
+        }
+      );
+
+      const contributionId = response.data.contribution_id;
+
+      await axios.post(`${API_URL}/api/contributions/upload-proof`, {
+        contribution_id: contributionId,
+        proof_image: proofData,
+        proof_mime_type: mimeType,
+        proof_file_name: asset.name || null,
+        reference_number: '',
+        user_id: user?.id,
+      }, { headers: { Authorization: `Bearer ${token}` } });
+
+      setSelectedFlexibleClub(null);
+      setFlexibleAmount('');
+
+      Alert.alert(
+        'Success!',
+        `Proof of payment for ${club.name} has been uploaded. Awaiting admin confirmation.`,
+        [{ text: 'OK' }]
+      );
+
+      await fetchProofs(true);
+    } catch (error: any) {
+      console.error('Flexible contribution error:', error);
+      Alert.alert(
+        'Upload Failed',
+        error.response?.data?.detail ||
+          'Could not record and upload this proof of payment. Please try again.'
+      );
+    } finally {
+      setUploading(false);
     }
   };
 
@@ -148,11 +366,44 @@ export default function ProofOfPaymentsScreen() {
     
     try {
       const response = await axios.get(
-        `${API_URL}/api/contributions/${proof.contribution_id}/proof?user_id=${user?.id}`
+        `${API_URL}/api/contributions/${proof.contribution_id}/proof?user_id=${user?.id}`,
+        { headers: { Authorization: `Bearer ${token}` } }
       );
-      setProofImage(response.data.proof_image);
+      const proofData = response.data.proof_image;
+      const mimeType =
+        response.data.proof_mime_type ||
+        (proofData?.startsWith('data:application/pdf') ? 'application/pdf' : 'image/jpeg');
+
+      setProofMimeType(mimeType);
+      setProofFileName(response.data.proof_file_name || null);
+
+      if (mimeType === 'application/pdf') {
+        const isAvailable = await Sharing.isAvailableAsync();
+        if (!isAvailable) {
+          Alert.alert('Error', 'Opening PDF files is not available on this device.');
+          setViewingProof(null);
+          return;
+        }
+
+        const base64Data = proofData.replace(/^data:application\/pdf;base64,/, '');
+        const fileUri = FileSystem.documentDirectory + `proof_${Date.now()}.pdf`;
+
+        await FileSystem.writeAsStringAsync(fileUri, base64Data, {
+          encoding: FileSystem.EncodingType.Base64,
+        });
+
+        setViewingProof(null);
+
+        await Sharing.shareAsync(fileUri, {
+          mimeType: 'application/pdf',
+          dialogTitle: 'Open Proof of Payment',
+        });
+        return;
+      }
+
+      setProofImage(proofData);
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to load proof image');
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to load proof of payment');
       setViewingProof(null);
     } finally {
       setLoadingProof(false);
@@ -163,31 +414,33 @@ export default function ProofOfPaymentsScreen() {
     if (!proofImage) return;
 
     try {
-      // Check if sharing is available
       const isAvailable = await Sharing.isAvailableAsync();
       if (!isAvailable) {
         Alert.alert('Error', 'Sharing is not available on this device');
         return;
       }
 
-      // Save to file system and share
-      const filename = `proof_${Date.now()}.jpg`;
+      const isPdf =
+        proofMimeType === 'application/pdf' ||
+        proofImage.startsWith('data:application/pdf');
+
+      const extension = isPdf ? 'pdf' : 'jpg';
+      const filename = proofFileName || `proof_${Date.now()}.${extension}`;
       const fileUri = FileSystem.documentDirectory + filename;
-      
-      // Remove data URL prefix if present
-      const base64Data = proofImage.replace(/^data:image\/\w+;base64,/, '');
-      
+
+      const base64Data = proofImage.replace(/^data:[^;]+;base64,/, '');
+
       await FileSystem.writeAsStringAsync(fileUri, base64Data, {
         encoding: FileSystem.EncodingType.Base64,
       });
 
       await Sharing.shareAsync(fileUri, {
-        mimeType: 'image/jpeg',
+        mimeType: isPdf ? 'application/pdf' : proofMimeType,
         dialogTitle: 'Save Proof of Payment',
       });
     } catch (error) {
       console.error('Download error:', error);
-      Alert.alert('Error', 'Failed to download proof image');
+      Alert.alert('Error', 'Failed to save proof of payment');
     }
   };
 
@@ -197,20 +450,19 @@ export default function ProofOfPaymentsScreen() {
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.headerTitle}>Proof of Payments</Text>
-          <Text style={styles.headerSubtitle}>Upload and view your payment proofs</Text>
         </View>
         <TouchableOpacity onPress={() => router.push('/(member)/profile')} style={styles.profileButton}>
           {user?.profile_photo ? (
-            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} />
+            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
             <View style={styles.profilePlaceholder}>
-              <Ionicons name="person" size={20} color={Colors.white} />
+              <Ionicons name="person" size={32} color={Colors.white} />
             </View>
           )}
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content}>
+      <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={proofsLoading} onRefresh={() => void fetchProofs()} />}>
         {/* Upload Button */}
         <TouchableOpacity 
           style={styles.uploadButton}
@@ -230,39 +482,55 @@ export default function ProofOfPaymentsScreen() {
         {/* Summary Card */}
         <View style={styles.summaryCard}>
           <View style={styles.summaryRow}>
-            <View style={styles.summaryItem}>
-              <Text style={styles.summaryLabel}>Total Uploaded</Text>
+            <TouchableOpacity style={styles.summaryItem} accessibilityRole="button" accessibilityLabel="Show total proofs" accessibilityState={{ selected: proofFilter === 'all' }} activeOpacity={0.75} onPress={() => setProofFilter('all')}>
+              <Text style={styles.summaryLabel}>Total Proofs</Text>
               <Text style={styles.summaryValue}>{proofs.length}</Text>
-            </View>
+            <Ionicons name="chevron-down" size={14} color={Colors.white} />
+            </TouchableOpacity>
             <View style={styles.summaryDivider} />
-            <View style={styles.summaryItem}>
+            <TouchableOpacity style={styles.summaryItem} accessibilityRole="button" accessibilityLabel="Show confirmed" accessibilityState={{ selected: proofFilter === 'confirmed' }} activeOpacity={0.75} onPress={() => setProofFilter('confirmed')}>
               <Text style={styles.summaryLabel}>Confirmed</Text>
               <Text style={[styles.summaryValue, styles.confirmedValue]}>
-                {proofs.filter(p => p.status === 'confirmed').length}
+                {confirmedProofs.length}
               </Text>
-            </View>
+            <Ionicons name="chevron-down" size={14} color={Colors.white} />
+            </TouchableOpacity>
             <View style={styles.summaryDivider} />
-            <View style={styles.summaryItem}>
+            <TouchableOpacity style={styles.summaryItem} accessibilityRole="button" accessibilityLabel="Show pending" accessibilityState={{ selected: proofFilter === 'proof_uploaded' }} activeOpacity={0.75} onPress={() => setProofFilter('proof_uploaded')}>
               <Text style={styles.summaryLabel}>Pending</Text>
               <Text style={[styles.summaryValue, styles.pendingValue]}>
-                {proofs.filter(p => p.status === 'proof_uploaded').length}
+                {pendingProofs.length}
               </Text>
-            </View>
+            <Ionicons name="chevron-down" size={14} color={Colors.white} />
+            </TouchableOpacity>
           </View>
         </View>
 
         {/* Proofs List */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Recent Uploads</Text>
+          <Text style={styles.sectionTitle}>Proofs of Payment</Text>
+          {proofFilter !== 'all' && <View>
+            <Text accessibilityLiveRegion="polite">Showing {proofFilter === 'confirmed' ? 'confirmed' : 'pending review'} proofs ({visibleProofs.length})</Text>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Show all proofs" onPress={() => setProofFilter('all')}><Text style={styles.viewProofText}>Show all</Text></TouchableOpacity>
+          </View>}
 
-          {proofs.length === 0 ? (
+          {proofsError ? (
+            <View style={styles.emptyState}>
+              <Text style={styles.emptyStateText}>{proofsError}</Text>
+              <TouchableOpacity style={styles.viewProofButton} onPress={() => void fetchProofs()}>
+                <Text style={styles.viewProofText}>Retry</Text>
+              </TouchableOpacity>
+            </View>
+          ) : proofsLoading && proofs.length === 0 ? (
+            <ActivityIndicator color={Colors.mediumGreen} />
+          ) : visibleProofs.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="document-text-outline" size={48} color={Colors.textMuted} />
-              <Text style={styles.emptyStateText}>No proofs uploaded yet</Text>
-              <Text style={styles.emptyStateSubtext}>Tap the button above to upload your first proof</Text>
+              <Text style={styles.emptyStateText}>{proofFilter === 'all' ? 'No proofs uploaded yet' : 'No proofs match this filter'}</Text>
+              {proofFilter === 'all' && <Text style={styles.emptyStateSubtext}>Tap the button above to upload your first proof</Text>}
             </View>
           ) : (
-            proofs.map((proof) => (
+            visibleProofs.map((proof) => (
               <View key={proof.id} style={styles.proofCard}>
                 <View style={styles.proofHeader}>
                   <Ionicons name="document-text" size={24} color={Colors.mediumGreen} />
@@ -280,10 +548,13 @@ export default function ProofOfPaymentsScreen() {
                   </View>
                   <View style={styles.proofDetailRow}>
                     <Text style={styles.proofDetailLabel}>Uploaded:</Text>
-                    <Text style={styles.proofDetailValue}>{new Date(proof.uploadDate).toLocaleDateString()}</Text>
+                    <Text style={styles.proofDetailValue}>{proof.uploadDate ? new Date(proof.uploadDate).toLocaleDateString() : 'Not recorded'}</Text>
                   </View>
                 </View>
 
+                {proof.status === 'proof_declined' && proof.declineReason && (
+                  <Text style={styles.proofDetailLabel}>Decline reason: {proof.declineReason}</Text>
+                )}
                 {proof.hasImage && (
                   <View style={styles.proofActions}>
                     <TouchableOpacity 
@@ -294,6 +565,24 @@ export default function ProofOfPaymentsScreen() {
                       <Text style={styles.viewProofText}>View Proof</Text>
                     </TouchableOpacity>
                   </View>
+                )}
+                {proof.canDelete && proof.status === 'proof_uploaded' && (
+                  <TouchableOpacity style={styles.viewProofButton} disabled={!!deletingProof || uploading}
+                    onPress={() => handleDeleteProof(proof)}>
+                    <Text style={styles.viewProofText}>Delete Pending Proof</Text>
+                  </TouchableOpacity>
+                )}
+                {proof.status === 'proof_declined' && (
+                  <TouchableOpacity style={styles.viewProofButton} disabled={uploading || !!deletingProof}
+                    onPress={() => uploadProofForClub({ id: proof.groupId, name: proof.groupName, amount_due: proof.amount }, proof.contribution_id)}>
+                    <Text style={styles.viewProofText}>Replace Proof</Text>
+                  </TouchableOpacity>
+                )}
+                {proof.status === 'proof_declined' && (
+                  <TouchableOpacity style={styles.viewProofButton} disabled={uploading || !!deletingProof}
+                    onPress={() => removeDeclinedProof(proof)}>
+                    <Text style={styles.viewProofText}>Remove</Text>
+                  </TouchableOpacity>
                 )}
               </View>
             ))
@@ -306,7 +595,7 @@ export default function ProofOfPaymentsScreen() {
           <View style={styles.infoText}>
             <Text style={styles.infoTitle}>About Proof of Payments</Text>
             <Text style={styles.infoBody}>
-              Upload proof after making each payment. Your club admin will review and confirm. You can download any uploaded proof for your records.
+              Upload proof against a specific current group contribution. Your club admin can then review that recorded contribution.
             </Text>
           </View>
         </View>
@@ -325,20 +614,20 @@ export default function ProofOfPaymentsScreen() {
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
-              <Text style={styles.modalTitle}>Select Club</Text>
+              <Text style={styles.modalTitle}>Select Group</Text>
               <TouchableOpacity onPress={() => setShowClubModal(false)}>
                 <Ionicons name="close" size={24} color={Colors.textPrimary} />
               </TouchableOpacity>
             </View>
-            <Text style={styles.modalSubtitle}>Choose which club to upload proof for</Text>
+            <Text style={styles.modalSubtitle}>Choose which Group to upload proof for</Text>
 
             {loadingClubs ? (
               <ActivityIndicator size="large" color={Colors.mediumGreen} style={{ marginVertical: 20 }} />
             ) : clubs.length === 0 ? (
               <View style={styles.noClubsContainer}>
                 <Ionicons name="checkmark-circle" size={48} color={Colors.mediumGreen} />
-                <Text style={styles.noClubsText}>All payments are up to date!</Text>
-                <Text style={styles.noClubsSubtext}>No pending payments to upload proof for.</Text>
+                <Text style={styles.noClubsText}>No Groups available</Text>
+                <Text style={styles.noClubsSubtext}>You do not have an active Group available for proof upload.</Text>
               </View>
             ) : (
               <ScrollView style={styles.clubList}>
@@ -353,7 +642,11 @@ export default function ProofOfPaymentsScreen() {
                     </View>
                     <View style={styles.clubInfo}>
                       <Text style={styles.clubName}>{club.name}</Text>
-                      <Text style={styles.clubAmount}>Amount Due: R{club.amount_due.toFixed(2)}</Text>
+                      <Text style={styles.clubAmount}>
+                        {club.contribution_mode === 'flexible_goal' || club.group_type === 'travel'
+                          ? 'Enter amount paid'
+                          : `Amount Due: R${club.amount_due.toFixed(2)}`}
+                      </Text>
                     </View>
                     <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
                   </TouchableOpacity>
@@ -362,6 +655,64 @@ export default function ProofOfPaymentsScreen() {
             )}
           </View>
         </View>
+      </Modal>
+
+      {/* Flexible / Travel Contribution Amount Modal */}
+      <Modal
+        visible={selectedFlexibleClub !== null}
+        transparent={true}
+        animationType="fade"
+        onRequestClose={() => {
+          setSelectedFlexibleClub(null);
+          setFlexibleAmount('');
+        }}
+      >
+        <KeyboardAvoidingView
+          behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+          style={styles.modalOverlay}
+        >
+          <View style={styles.modalContent}>
+            <View style={styles.modalHeader}>
+              <Text style={styles.modalTitle}>Amount Paid</Text>
+              <TouchableOpacity
+                onPress={() => {
+                  setSelectedFlexibleClub(null);
+                  setFlexibleAmount('');
+                }}
+              >
+                <Ionicons name="close" size={24} color={Colors.textPrimary} />
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.modalSubtitle}>
+              Enter the amount you paid to {selectedFlexibleClub?.name}.
+            </Text>
+
+            <View style={styles.amountInputContainer}>
+              <Text style={styles.currencyPrefix}>R</Text>
+              <TextInput
+                style={styles.amountInput}
+                value={flexibleAmount}
+                onChangeText={setFlexibleAmount}
+                placeholder="0.00"
+                keyboardType="decimal-pad"
+                editable={!uploading}
+              />
+            </View>
+
+            <TouchableOpacity
+              style={styles.continueButton}
+              onPress={handleFlexibleContribution}
+              disabled={uploading}
+            >
+              {uploading ? (
+                <ActivityIndicator color={Colors.white} />
+              ) : (
+                <Text style={styles.continueButtonText}>Continue to Upload Proof</Text>
+              )}
+            </TouchableOpacity>
+          </View>
+        </KeyboardAvoidingView>
       </Modal>
 
       {/* View Proof Modal */}
@@ -432,6 +783,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     justifyContent: 'space-between',
     alignItems: 'center',
+    gap: 16,
   },
   headerLeft: {
     flex: 1,
@@ -448,18 +800,19 @@ const styles = StyleSheet.create({
   },
   profileButton: {
     padding: 4,
+    flexShrink: 0,
   },
   profileImage: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
   profilePlaceholder: {
-    width: 44,
-    height: 44,
-    borderRadius: 22,
+    width: 76,
+    height: 76,
+    borderRadius: 38,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
@@ -635,7 +988,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   uploadButton: {
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.primary,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -657,6 +1010,7 @@ const styles = StyleSheet.create({
   },
   modalContent: {
     backgroundColor: Colors.white,
+    marginBottom: 16,
     borderTopLeftRadius: 24,
     borderTopRightRadius: 24,
     paddingTop: 20,
@@ -680,6 +1034,41 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     paddingHorizontal: 24,
     marginBottom: 16,
+  },
+  amountInputContainer: {
+    marginHorizontal: 24,
+    marginBottom: 16,
+    paddingHorizontal: 16,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    borderRadius: 12,
+    backgroundColor: Colors.white,
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  currencyPrefix: {
+    fontSize: 18,
+    color: Colors.textPrimary,
+    marginRight: 4,
+  },
+  amountInput: {
+    flex: 1,
+    paddingVertical: 14,
+    fontSize: 18,
+    color: Colors.textPrimary,
+  },
+  continueButton: {
+    marginHorizontal: 24,
+    backgroundColor: Colors.primary,
+    paddingVertical: 16,
+    borderRadius: 12,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  continueButtonText: {
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: '600',
   },
   clubList: {
     paddingHorizontal: 24,
