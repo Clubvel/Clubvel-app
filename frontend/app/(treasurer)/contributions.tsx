@@ -9,6 +9,7 @@ import { AdBanner } from '../../components/AdBanner';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import axios from 'axios';
+import { paymentRemaining, paymentSummaryRecords } from '../../services/paymentSummaryRecords';
 
 interface Contribution {
   id: string | null;
@@ -45,6 +46,12 @@ export default function ContributionsScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loadedKey, setLoadedKey] = useState<string | null>(null);
   const context = `${groupId}:${currentMonth}:${currentYear}:${user?.id}:${token}`;
+  const [paymentFilter, setPaymentFilter] = useState<{ key: string; kind: 'collected' | 'outstanding' } | null>(null);
+  const activeFilter = paymentFilter?.key === context ? paymentFilter.kind : null;
+  const breakdown = paymentSummaryRecords(contributions, summary);
+  const filterMatches = activeFilter === 'collected' ? breakdown.collectedMatches : breakdown.outstandingMatches;
+  const effectiveFilter = activeFilter && filterMatches ? activeFilter : null;
+  const visibleContributions = effectiveFilter === 'collected' ? breakdown.collected : effectiveFilter === 'outstanding' ? breakdown.outstanding : contributions;
   const latestContext = useRef(context);
   latestContext.current = context;
   const request = useRef<{ key: string; sequence: number } | null>(null);
@@ -213,18 +220,21 @@ export default function ContributionsScreen() {
       {loadedKey === context && <>
       {/* Summary Totals */}
       <View style={styles.summaryContainer}>
-        <View style={styles.summaryCard}>
+        <TouchableOpacity style={styles.summaryCard} disabled={!breakdown.collectedMatches} accessibilityRole={breakdown.collectedMatches ? 'button' : undefined} accessibilityLabel="Show records contributing to collected" accessibilityState={{ disabled: !breakdown.collectedMatches, selected: effectiveFilter === 'collected' }} activeOpacity={0.75} onPress={() => setPaymentFilter({ key: context, kind: 'collected' })}>
           <Text style={styles.summaryLabel}>Collected</Text>
           <Text style={[styles.summaryValue, styles.collectedValue]}>R{summary.collected.toFixed(2)}</Text>
-        </View>
-        <View style={styles.summaryCard}>
+        {breakdown.collectedMatches && <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} />}
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.summaryCard} disabled={!breakdown.outstandingMatches} accessibilityRole={breakdown.outstandingMatches ? 'button' : undefined} accessibilityLabel="Show records contributing to outstanding" accessibilityState={{ disabled: !breakdown.outstandingMatches, selected: effectiveFilter === 'outstanding' }} activeOpacity={0.75} onPress={() => setPaymentFilter({ key: context, kind: 'outstanding' })}>
           <Text style={styles.summaryLabel}>Outstanding</Text>
           <Text style={[styles.summaryValue, styles.outstandingValue]}>R{summary.outstanding.toFixed(2)}</Text>
-        </View>
-        <View style={styles.summaryCard}>
+        {breakdown.outstandingMatches && <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} />}
+        </TouchableOpacity>
+        <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Explain collection rate" activeOpacity={0.75} onPress={() => Alert.alert('Collection Rate', `Expected: R${summary.total_expected.toFixed(2)}\nCollected: R${summary.collected.toFixed(2)}\nCollection Rate: ${summary.collection_rate}%\n\nCollected ÷ Expected × 100. When Expected is zero, the displayed rate is zero. Collected includes valid recorded payments, even when not yet confirmed.`)}>
           <Text style={styles.summaryLabel}>Collection Rate</Text>
           <Text style={styles.summaryValue}>{summary.collection_rate}%</Text>
-        </View>
+        <Ionicons name="information-circle-outline" size={14} color={Colors.textSecondary} />
+        </TouchableOpacity>
       </View>
 
       </>}
@@ -232,7 +242,13 @@ export default function ContributionsScreen() {
       <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={loading && loadedKey === context} onRefresh={() => void fetchContributions()} />}>
         {loading && loadedKey !== context && <ActivityIndicator size="large" color={Colors.mediumGreen} />}
         {!loading && !groupId && !error && <Text>No managed clubs yet.</Text>}
-        {(loadedKey === context ? contributions : []).map((contribution) => (
+        {loadedKey === context && effectiveFilter && <View style={styles.contributionCard}>
+          <Text accessibilityLiveRegion="polite">Showing {effectiveFilter === 'collected' ? 'recorded payments contributing to Collected' : 'remaining balances contributing to Outstanding'} — R{summary[effectiveFilter].toFixed(2)}</Text>
+          <Text>{effectiveFilter === 'collected' ? 'Recorded amounts may still await confirmation.' : 'Settled and excused records do not add an outstanding balance.'}</Text>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Show all payment records" onPress={() => setPaymentFilter(null)}><Text style={styles.viewProofText}>Show all</Text></TouchableOpacity>
+          {visibleContributions.length === 0 && <Text>No records contribute to this amount.</Text>}
+        </View>}
+        {(loadedKey === context ? visibleContributions : []).map((contribution) => (
           <View key={contribution.id ?? contribution.member_id} style={styles.contributionCard}>
             <View style={styles.contributionHeader}>
               <View>
@@ -246,6 +262,11 @@ export default function ContributionsScreen() {
               <Text style={styles.amountLabel}>Amount</Text>
               <Text style={styles.amountValue}>{contribution.amount_due == null ? 'Not recorded' : `R${contribution.amount_due.toFixed(2)}`}</Text>
             </View>
+
+            {effectiveFilter && <View style={styles.contributionAmount}>
+              <Text style={styles.amountLabel}>{effectiveFilter === 'collected' ? 'Recorded payment' : 'Remaining balance'}</Text>
+              <Text style={styles.amountValue}>R{(effectiveFilter === 'collected' ? contribution.amount_paid : paymentRemaining(contribution) || 0).toFixed(2)}</Text>
+            </View>}
 
             {contribution.proof_uploaded && contribution.id && (
               <View style={styles.contributionActions}>

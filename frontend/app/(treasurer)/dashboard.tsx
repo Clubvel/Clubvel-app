@@ -50,6 +50,8 @@ interface DashboardData {
 export default function AdminDashboardScreen() {
   const { user, token, logout } = useAuth();
   const router = useRouter();
+  const dashboardScroll = useRef<ScrollView>(null);
+  const clubsOffset = useRef(0);
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [dashboardCountAvailable, setDashboardCountAvailable] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -261,7 +263,7 @@ export default function AdminDashboardScreen() {
 
   return (
     <View style={{ flex: 1 }}>
-    <ScrollView
+    <ScrollView ref={dashboardScroll}
       style={styles.container}
       refreshControl={
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -286,10 +288,13 @@ export default function AdminDashboardScreen() {
 
       {/* Summary Cards */}
       <View style={styles.summaryContainer}>
-        <View style={styles.summaryCard}>
+        <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Show All Clubs" activeOpacity={0.75} onPress={() => dashboardScroll.current?.scrollTo({ y: clubsOffset.current, animated: true })}>
           <Text style={styles.summaryLabel}>Total Clubs</Text>
-          <Text style={styles.summaryValue}>{dashboardData?.summary.total_clubs || 0}</Text>
-        </View>
+          <View>
+            <Text style={styles.summaryValue}>{dashboardData?.summary.total_clubs || 0}</Text>
+            <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} style={{ position: 'absolute', top: '100%', left: 0 }} />
+          </View>
+        </TouchableOpacity>
 
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Total Members</Text>
@@ -300,14 +305,14 @@ export default function AdminDashboardScreen() {
       <View style={styles.summaryContainer}>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Collected This Month</Text>
-          <Text style={[styles.summaryValue, styles.moneyValue]}>
+          <Text style={[styles.summaryValue, { color: Colors.statusPaid }]}>
             R{dashboardData?.summary.total_collected_this_month?.toFixed(2) || '0.00'}
           </Text>
         </View>
 
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Late Members</Text>
-          <Text style={[styles.summaryValue, dashboardData?.summary.late_members_count ? styles.lateValue : null]}>
+          <Text style={[styles.summaryValue, styles.lateValue]}>
             {dashboardData?.summary.late_members_count || 0}
           </Text>
         </View>
@@ -355,7 +360,7 @@ export default function AdminDashboardScreen() {
       )}
 
       {/* All Clubs */}
-      <View style={styles.section}>
+      <View style={styles.section} onLayout={event => { clubsOffset.current = event.nativeEvent.layout.y; }}>
         <Text style={styles.sectionTitle}>All Clubs</Text>
 
         {dashboardData?.clubs && dashboardData.clubs.length > 0 ? (
@@ -398,7 +403,9 @@ export default function AdminDashboardScreen() {
                   />
                 </View>
                 <Text style={styles.progressText}>
-                  R{club.collected.toFixed(2)} / R{club.expected.toFixed(2)}
+                  <Text style={{ color: Colors.accent }}>R{club.collected.toFixed(2)}</Text>
+                      <Text style={{ color: Colors.textMuted }}> / </Text>
+                      <Text style={{ color: Colors.primary }}>R{club.expected.toFixed(2)}</Text>
                 </Text>
               </View>
               

@@ -2,18 +2,18 @@ const test=require('node:test');
 const assert=require('node:assert/strict');
 const {load,engine,tick,nodes,text,button,native,colors}=require('./ui-harness.cjs');
 async function setup(){
- const ui=engine(),requests=[],alerts=[];
+ const ui=engine(),requests=[],alerts=[],params={};
  const claim={claim_id:'old',group_id:'club',group_name:'Club',amount:20000,reason:'Original reason',status:'rejected',rejection_reason:'Outside policy'};
  const claims={records:[claim],phase:'ready',refreshing:false,reload:async()=>{}};
  const Screen=load('app/(member)/claims.tsx',{
   react:{...ui.react,useMemo:fn=>fn()},
   'react-native':{...native,KeyboardAvoidingView:'KeyboardAvoidingView',Platform:{OS:'android'},TextInput:'TextInput',Alert:{alert:(...a)=>alerts.push(a)}},
-  'expo-router':{useLocalSearchParams:()=>({}),useRouter:()=>({push(){}})},'@expo/vector-icons':{Ionicons:'Icon'},
+  'expo-router':{useFocusEffect:ui.useFocusEffect,useLocalSearchParams:()=>params,useRouter:()=>({push(){}})},'@expo/vector-icons':{Ionicons:'Icon'},
   '../../contexts/AuthContext':{useAuth:()=>({user:{id:'member'},token:'signed'})},
   '../../constants/Colors':{Colors:colors},'../../hooks/usePersonalClaims':{usePersonalClaims:()=>claims},
   axios:{isAxiosError:()=>false,get:async()=>({data:{clubs:[{id:'club',name:'Club'}]}}),post:async(url,data,options)=>{requests.push({url,data,options});}},
  }).default;
- const render=()=>ui.render(Screen);render();await tick();return {render,requests,alerts,claims,claim};
+ const render=()=>ui.render(Screen);render();await tick();return {render,requests,alerts,claims,claim,params,ui};
 }
 test('rejected claim shows reason, resubmit prefills form and creates a linked corrected submission',async()=>{
  const c=await setup();assert.match(text(c.render()),/Reason for rejectionOutside policy/);
@@ -55,4 +55,18 @@ test('Member Claims shows partial remaining and full paid actual date separately
  assert.ok(text(tree).includes(`Payment date: ${new Date('2026-01-02').toLocaleDateString()}`));
  assert.ok(text(tree).includes(`Scheduled payout ${new Date('2026-11-20').toLocaleDateString()}`));
  assert.equal(button(tree,'Mark as Paid'),undefined);assert.equal(button(tree,'Review Payment'),undefined);
+});
+
+test('Upcoming Payouts shows only approved remaining balances, latest total and Show all',async()=>{
+ const c=await setup();const record=(id,status,amount,paid)=>({...c.claim,claim_id:id,group_name:id,status,amount,actual_amount_paid:paid});
+ c.claims.records=[record('partial','approved',1000,250),record('unpaid','approved',500,0),record('pending','pending',900,0),record('rejected','rejected',700,0),record('full','approved',100,100),record('paid','paid',300,300)];c.params.view='payouts';c.render();
+ const tree=c.render();assert.match(text(tree),/Upcoming Payouts/);assert.match(text(tree),/Remaining total: R1[\s,]250[.,]00/);
+ const ids=nodes(tree).filter(n=>n.type==='View'&&n.props.key).map(n=>n.props.key);assert.deepEqual(ids,['partial','unpaid']);
+ assert.match(text(tree),/Remaining: R750[.,]00/);assert.match(text(tree),/Remaining: R500[.,]00/);
+ button(tree,'Show all claims').props.onPress();assert.match(text(c.render()),/Your Claims/);assert.ok(nodes(c.render()).some(n=>n.props.key==='pending'));
+ c.ui.blur();c.ui.focus();assert.match(text(c.render()),/Upcoming Payouts/);
+ c.params.view=undefined;c.render();c.params.view='payouts';c.render();assert.match(text(c.render()),/Upcoming Payouts/);
+ c.params.claim_id='rejected';assert.match(text(c.render()),/Your Claims/);assert.ok(nodes(c.render()).some(n=>n.props.key==='rejected'));c.params.claim_id=undefined;
+ c.claims.records=[];assert.match(text(c.render()),/No payouts awaiting payment/);
+ c.claims.phase='error';assert.match(text(c.render()),/Unable to load claims/);assert.doesNotMatch(text(c.render()),/Remaining total/);
 });

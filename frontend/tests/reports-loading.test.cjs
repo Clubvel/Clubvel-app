@@ -68,3 +68,17 @@ test('Android PDF generation timeout releases controls and offers Retry',async()
   assert.equal(nodes(c.render()).find(n=>n.type==='TouchableOpacity'&&nodes(n).some(i=>i.props?.name==='download')).props.disabled,false);
  } finally {global.setTimeout=original;global.clearTimeout=originalClear;}
 });
+
+test('Reports initial/focus/retry loading never activates Android pull indicator; an actual pull does', async () => {
+ const c=setup(); const refresh=()=>nodes(c.render()).find(n=>n.type==='ScrollView').props.refreshControl;
+ assert.equal(refresh().props.refreshing,false);
+ assert.equal(nodes(c.render()).filter(n=>n.type==='ActivityIndicator').length,1);
+ assert.equal(c.requests.length,1);
+ c.requests[0].resolve({data:{clubs:[{id:'club'}]}});await tick();
+ assert.equal(refresh().props.refreshing,false);
+ refresh().props.onRefresh();assert.equal(refresh().props.refreshing,true);assert.equal(c.requests.length,2);
+ c.requests[1].resolve({data:{clubs:[{id:'club'}]}});await tick();assert.equal(refresh().props.refreshing,false);
+ c.ui.blur();c.ui.focus();assert.equal(refresh().props.refreshing,false);assert.equal(c.requests.length,3);
+ c.requests[2].reject(new Error('Offline'));await tick();button(c.render(),'Retry').props.onPress();assert.equal(refresh().props.refreshing,false);
+ c.requests[3].resolve({data:{clubs:[]}});await tick();
+});

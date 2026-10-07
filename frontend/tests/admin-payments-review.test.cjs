@@ -15,6 +15,7 @@ async function setup(wait = false) {
   const result = { contributions: records, summary: { collected: 200, outstanding: 6500, total_expected: 6700, collection_rate: 3 } };
   const state = { monthly: null, clubs: wait ? () => new Promise(resolve => { state.resolveClubs = resolve; }) : null, proof: 'data:image/jpeg;base64,image', conflict: false };
   const Screen = load('app/(treasurer)/contributions.tsx', {
+    '../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
     react: ui.react,
     'react-native': { ...native, TextInput: 'TextInput', RefreshControl: 'RefreshControl', Alert: { alert: (...args) => alerts.push(args) } },
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
@@ -129,4 +130,24 @@ test('stale proof conflict is shown and triggers a fresh list; profile navigatio
   assert.equal(c.alerts.at(-1)[1], 'Proof changed'); assert.equal(payments(c).length, 2);
   const profile = nodes(c.render()).find(n => n.type === 'TouchableOpacity' && nodes(n).some(child => child.props?.name === 'person'));
   profile.props.onPress(); assert.deepEqual(c.routes, ['/(treasurer)/profile']);
+});
+
+const labelled = (c, label) => nodes(c.render()).find(n => n.type === 'TouchableOpacity' && n.props.accessibilityLabel === label);
+test('Collected and Outstanding reveal their exact records with clear filters and amount labels', async () => {
+ const c=await setup();
+ labelled(c,'Show records contributing to collected').props.onPress();
+ assert.match(text(c.render()),/Recorded paymentR200.00/);assert.match(text(c.render()),/Payment 0/);assert.doesNotMatch(text(c.render()),/Payment 1/);
+ labelled(c,'Show all payment records').props.onPress();assert.match(text(c.render()),/Payment 1/);
+ labelled(c,'Show records contributing to outstanding').props.onPress();
+ assert.doesNotMatch(text(c.render()),/Payment 0/);for(let i=1;i<6;i++)assert.match(text(c.render()),new RegExp(`Payment ${i}`));
+ assert.match(text(c.render()),/Remaining balance/);assert.equal(payments(c).length,1);
+ const previous=nodes(c.render()).find(n=>n.type==='TouchableOpacity'&&nodes(n).some(i=>i.props.name==='chevron-back'));
+ previous.props.onPress();c.render();await tick();c.render();assert.equal(labelled(c,'Show all payment records'),undefined);
+});
+test('Payments summary mismatch leaves the affected card passive; percentage explains authoritative values', async () => {
+ const c=await setup();c.result.summary.collected=999;
+ nodes(c.render()).find(n=>n.type==='ScrollView').props.refreshControl.props.onRefresh();await tick();c.render();
+ assert.equal(labelled(c,'Show records contributing to collected').props.disabled,true);
+ assert.equal(labelled(c,'Show records contributing to collected').props.accessibilityRole,undefined);
+ labelled(c,'Explain collection rate').props.onPress();assert.match(c.alerts.at(-1)[1],/Expected: R6700.00/);assert.match(c.alerts.at(-1)[1],/Collected: R999.00/);assert.match(c.alerts.at(-1)[1],/not yet confirmed/);
 });

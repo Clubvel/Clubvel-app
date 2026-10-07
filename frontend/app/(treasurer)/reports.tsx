@@ -30,9 +30,9 @@ export default function ReportsScreen() {
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
-  const fetchReportData = useCallback(async () => {
+  const fetchReportData = useCallback(async (pullToRefresh = false) => {
     const ticket = ++request.current;
-    setRefreshing(true);
+    setRefreshing(pullToRefresh);
     setReportError(null);
     try {
       if (!user?.id || !token) throw new Error('Please sign in again to load reports.');
@@ -367,7 +367,7 @@ export default function ReportsScreen() {
         </TouchableOpacity>
       </View>
 
-      <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void fetchReportData()} />}>
+      <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void fetchReportData(true)} />}>
         {loadingReports ? <ActivityIndicator accessibilityLabel="Loading reports" color={Colors.accent} /> : null}
         {reportError ? (
           <View style={styles.section}>

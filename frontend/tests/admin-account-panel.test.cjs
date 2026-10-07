@@ -131,10 +131,10 @@ test('Delete retains confirmation/cancellation and authenticated original deleti
   assert.equal(c.counts().clears, 1); assert.equal(deletion().props.visible, false);
   c.alerts.at(-1)[2].find(n => n.text === 'OK').onPress(); assert.equal(c.counts().logouts, 1); assert.equal(c.routes.at(-1), '/');
 });
-test('Member, Reports, header, financial presentation and existing security/action handlers remain unchanged', () => {
+test('Approved account panels, header styles and existing security/action handlers remain unchanged', () => {
   const root = path.join(__dirname, '../..');
   const baseline = name => cp.execFileSync('git', ['show', `e74ebcf3fe2603564ccc0691dde1959cc85690a4:frontend/${name}`], { cwd: root, encoding: 'utf8' });
-  for (const name of ['app/(member)/home.tsx', 'app/(treasurer)/reports.tsx', 'components/MonthlyReport.tsx']) {
+  for (const name of ['components/MonthlyReport.tsx']) {
     assert.equal(fs.readFileSync(path.join(root, 'frontend', name), 'utf8'), baseline(name));
   }
   const current = fs.readFileSync(path.join(root, 'frontend', file), 'utf8'), previous = baseline(file);
@@ -151,6 +151,10 @@ test('Member, Reports, header, financial presentation and existing security/acti
     if (name !== 'modalOverlay' && !name.startsWith('dropdown')) assert.deepEqual(newStyles[name], value, name);
   }
 
-  const content = source => source.slice(source.indexOf('      {/* Header */}'), source.indexOf('    {/*', source.indexOf('    </ScrollView>')));
-  assert.equal(content(current), content(previous));
+  const checkpoint = name => cp.execFileSync('git', ['show', `0d2fdf99c00a2647953fc8f6706b6b52415cd1a1:frontend/${name}`], { cwd: root, encoding: 'utf8' });
+  for (const [name, marker, endMarker] of [['app/(member)/home.tsx', '    {/* Member Account Panel */}', '    {/* Delete'], [file, '    {/* Admin Account Panel */}', '    {/* Create']]) {
+    const before = checkpoint(name), after = fs.readFileSync(path.join(root, 'frontend', name), 'utf8');
+    const panel = source => { const start = source.indexOf(marker); assert.ok(start >= 0); const end = source.indexOf(endMarker, start + marker.length); return source.slice(start, end < 0 ? source.indexOf('const styles =', start) : end); };
+    assert.equal(panel(after), panel(before));
+  }
 });

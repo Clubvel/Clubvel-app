@@ -48,6 +48,10 @@ export default function ProofOfPaymentsScreen() {
   const [uploading, setUploading] = useState(false);
   const [loadingClubs, setLoadingClubs] = useState(false);
   const [proofs, setProofs] = useState<Proof[]>([]);
+  const [proofFilter, setProofFilter] = useState<'all' | 'confirmed' | 'proof_uploaded'>('all');
+  const confirmedProofs = proofs.filter(p => p.status === 'confirmed');
+  const pendingProofs = proofs.filter(p => p.status === 'proof_uploaded');
+  const visibleProofs = proofFilter === 'confirmed' ? confirmedProofs : proofFilter === 'proof_uploaded' ? pendingProofs : proofs;
   const [proofsLoading, setProofsLoading] = useState(true);
   const [proofsError, setProofsError] = useState<string | null>(null);
   const [deletingProof, setDeletingProof] = useState<string | null>(null);
@@ -478,30 +482,37 @@ export default function ProofOfPaymentsScreen() {
         {/* Summary Card */}
         <View style={styles.summaryCard}>
           <View style={styles.summaryRow}>
-            <View style={styles.summaryItem}>
+            <TouchableOpacity style={styles.summaryItem} accessibilityRole="button" accessibilityLabel="Show total proofs" accessibilityState={{ selected: proofFilter === 'all' }} activeOpacity={0.75} onPress={() => setProofFilter('all')}>
               <Text style={styles.summaryLabel}>Total Proofs</Text>
               <Text style={styles.summaryValue}>{proofs.length}</Text>
-            </View>
+            <Ionicons name="chevron-down" size={14} color={Colors.white} />
+            </TouchableOpacity>
             <View style={styles.summaryDivider} />
-            <View style={styles.summaryItem}>
+            <TouchableOpacity style={styles.summaryItem} accessibilityRole="button" accessibilityLabel="Show confirmed" accessibilityState={{ selected: proofFilter === 'confirmed' }} activeOpacity={0.75} onPress={() => setProofFilter('confirmed')}>
               <Text style={styles.summaryLabel}>Confirmed</Text>
               <Text style={[styles.summaryValue, styles.confirmedValue]}>
-                {proofs.filter(p => p.status === 'confirmed').length}
+                {confirmedProofs.length}
               </Text>
-            </View>
+            <Ionicons name="chevron-down" size={14} color={Colors.white} />
+            </TouchableOpacity>
             <View style={styles.summaryDivider} />
-            <View style={styles.summaryItem}>
+            <TouchableOpacity style={styles.summaryItem} accessibilityRole="button" accessibilityLabel="Show pending" accessibilityState={{ selected: proofFilter === 'proof_uploaded' }} activeOpacity={0.75} onPress={() => setProofFilter('proof_uploaded')}>
               <Text style={styles.summaryLabel}>Pending</Text>
               <Text style={[styles.summaryValue, styles.pendingValue]}>
-                {proofs.filter(p => p.status === 'proof_uploaded').length}
+                {pendingProofs.length}
               </Text>
-            </View>
+            <Ionicons name="chevron-down" size={14} color={Colors.white} />
+            </TouchableOpacity>
           </View>
         </View>
 
         {/* Proofs List */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Proofs of Payment</Text>
+          {proofFilter !== 'all' && <View>
+            <Text accessibilityLiveRegion="polite">Showing {proofFilter === 'confirmed' ? 'confirmed' : 'pending review'} proofs ({visibleProofs.length})</Text>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Show all proofs" onPress={() => setProofFilter('all')}><Text style={styles.viewProofText}>Show all</Text></TouchableOpacity>
+          </View>}
 
           {proofsError ? (
             <View style={styles.emptyState}>
@@ -512,14 +523,14 @@ export default function ProofOfPaymentsScreen() {
             </View>
           ) : proofsLoading && proofs.length === 0 ? (
             <ActivityIndicator color={Colors.mediumGreen} />
-          ) : proofs.length === 0 ? (
+          ) : visibleProofs.length === 0 ? (
             <View style={styles.emptyState}>
               <Ionicons name="document-text-outline" size={48} color={Colors.textMuted} />
-              <Text style={styles.emptyStateText}>No proofs uploaded yet</Text>
-              <Text style={styles.emptyStateSubtext}>Tap the button above to upload your first proof</Text>
+              <Text style={styles.emptyStateText}>{proofFilter === 'all' ? 'No proofs uploaded yet' : 'No proofs match this filter'}</Text>
+              {proofFilter === 'all' && <Text style={styles.emptyStateSubtext}>Tap the button above to upload your first proof</Text>}
             </View>
           ) : (
-            proofs.map((proof) => (
+            visibleProofs.map((proof) => (
               <View key={proof.id} style={styles.proofCard}>
                 <View style={styles.proofHeader}>
                   <Ionicons name="document-text" size={24} color={Colors.mediumGreen} />

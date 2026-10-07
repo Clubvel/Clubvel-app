@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -15,7 +15,7 @@ import {
 } from 'react-native';
 import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
-import { useLocalSearchParams, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Colors } from '../../constants/Colors';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePersonalClaims, PersonalClaim } from '../../hooks/usePersonalClaims';
@@ -45,7 +45,9 @@ const formatDate = (value: string | null) => {
 export default function ClaimsScreen() {
   const { user, token } = useAuth();
   const router = useRouter();
-  const { claim_id: selectedClaimId } = useLocalSearchParams<{ claim_id?: string }>();
+  const { claim_id: selectedClaimId, view } = useLocalSearchParams<{ claim_id?: string; view?: string }>();
+  const [showAllClaims, setShowAllClaims] = useState(false);
+  useFocusEffect(useCallback(() => { if (view === 'payouts') setShowAllClaims(false); }, [view]));
   const [activeGroups, setActiveGroups] = useState<Array<{
     id: string;
     name: string;
@@ -58,6 +60,11 @@ export default function ClaimsScreen() {
     refreshing,
     reload,
   } = usePersonalClaims(user?.id, token);
+
+  const payoutsOnly = view === 'payouts' && !selectedClaimId && !showAllClaims;
+  const payoutClaims = claims.filter(claim => claim.status === 'approved' && claim.amount != null && Math.max(claim.amount - (claim.actual_amount_paid || 0), 0) > 0);
+  const visibleClaims = payoutsOnly ? payoutClaims : claims;
+  const remainingPayout = payoutClaims.reduce((sum, claim) => sum + Math.max((claim.amount || 0) - (claim.actual_amount_paid || 0), 0), 0);
 
   const [formOpen, setFormOpen] = useState(false);
   const [selectedGroupId, setSelectedGroupId] = useState('');
@@ -263,7 +270,12 @@ export default function ClaimsScreen() {
           <Text style={styles.submitButtonText}>Submit a Claim</Text>
         </TouchableOpacity>
 
-        <Text style={styles.sectionTitle}>Your Claims</Text>
+        <Text style={styles.sectionTitle}>{payoutsOnly ? 'Upcoming Payouts' : 'Your Claims'}</Text>
+        {payoutsOnly && <View>
+          <Text style={styles.helperText}>Approved claims with a remaining balance in your active Clubvels. Figures reflect the latest claim records.</Text>
+          {(phase === 'ready' || phase === 'empty') && <Text style={styles.meta}>Remaining total: R{remainingPayout.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>}
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Show all claims" onPress={() => setShowAllClaims(true)}><Text style={styles.retryText}>Show all claims</Text></TouchableOpacity>
+        </View>}
 
         {refreshing && phase !== 'loading' && (
           <Text accessibilityLiveRegion="polite" style={styles.helperText}>
@@ -284,16 +296,16 @@ export default function ClaimsScreen() {
               <Text style={styles.retryText}>Retry</Text>
             </TouchableOpacity>
           </View>
-        ) : claims.length === 0 ? (
+        ) : visibleClaims.length === 0 ? (
           <View style={styles.empty}>
             <Ionicons name="document-text-outline" size={52} color={Colors.accent} />
-            <Text style={styles.emptyTitle}>No claims yet</Text>
+            <Text style={styles.emptyTitle}>{payoutsOnly ? 'No payouts awaiting payment' : 'No claims yet'}</Text>
             <Text style={styles.emptyText}>
-              Claims you submit to your groups will appear here.
+              {payoutsOnly ? 'No approved claims have a remaining payout balance.' : 'Claims you submit to your groups will appear here.'}
             </Text>
           </View>
         ) : (
-          [...claims].sort((a, b) => Number(b.claim_id === selectedClaimId) - Number(a.claim_id === selectedClaimId)).map(claim => {
+          [...visibleClaims].sort((a, b) => Number(b.claim_id === selectedClaimId) - Number(a.claim_id === selectedClaimId)).map(claim => {
             const submitted = formatDate(claim.submitted_at);
             const scheduled = formatDate(claim.scheduled_claim_date);
 
@@ -323,6 +335,7 @@ export default function ClaimsScreen() {
                   <Text style={styles.meta}>Submitted {submitted}</Text>
                 ) : null}
 
+                {payoutsOnly && <Text style={styles.meta}>Remaining: R{Math.max((claim.amount || 0) - (claim.actual_amount_paid || 0), 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>}
                 {claim.status === 'approved' ? (
                   <Text style={styles.meta}>Payout date: {scheduled || 'To be scheduled'}</Text>
                 ) : scheduled ? (
@@ -333,7 +346,7 @@ export default function ClaimsScreen() {
                   <View>
                     <Text style={styles.meta}>Paid: R{claim.actual_amount_paid?.toLocaleString()}{claim.status === 'approved' ? ' (partially paid)' : ''}</Text>
                     <Text style={styles.meta}>{claim.status === 'paid' ? 'Payment date' : 'Last payment date'}: {formatDate(claim.actual_payment_date) || 'Not recorded'}</Text>
-                    <Text style={styles.meta}>Remaining: R{Math.max((claim.amount || 0) - (claim.actual_amount_paid || 0), 0).toLocaleString()}</Text>
+                    {!payoutsOnly && <Text style={styles.meta}>Remaining: R{Math.max((claim.amount || 0) - (claim.actual_amount_paid || 0), 0).toLocaleString()}</Text>}
                   </View>
                 ) : null}
 

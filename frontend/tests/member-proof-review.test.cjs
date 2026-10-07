@@ -13,7 +13,7 @@ async function setup(screen = 'proofs', review = 'declined', approved = false, d
   const statusPill = load('components/StatusPill.tsx', {
     react: ui.react, 'react-native': native, '../constants/Colors': { Colors: colors }
   }).StatusPill;
-  const state = { get: null };
+  const state = { get: null, records: null };
   if (deferred) state.get = () => new Promise(resolve => { state.resolve = resolve; });
   const params = { id: 'group-a' };
   const auth = { useAuth: () => ({ user: { id: 'member-user' }, token: 'member-session' }) };
@@ -21,7 +21,7 @@ async function setup(screen = 'proofs', review = 'declined', approved = false, d
     get: async (url, options) => {
       requests.push({ url, options });
       if (state.get) return state.get(url);
-      if (url.includes('/api/member/contributions/')) return { data: { contributions: [JSON.parse(JSON.stringify(record))] } };
+      if (url.includes('/api/member/contributions/')) return { data: { contributions: JSON.parse(JSON.stringify(state.records || [record])) } };
       if (url.includes('/api/member/club/')) return { data: {
         group: { id: 'group-a', name: 'Club A' }, current_contribution: { ...record, id: record.contribution_id },
         payment_reference: { amount: 150, reference_code: 'REF' }, payment_history: []
@@ -219,4 +219,15 @@ test('declined Remove persists a version-specific dismissal and leaves the proof
 test('approved proof has no Remove action and remains viewable', async () => {
   const c=await setup('proofs','approved',true);
   assert.equal(button(c.render(),'Remove'),undefined);assert.ok(button(c.render(),'View Proof'));
+});
+
+test('Proof cards use identical count/list predicates, whole-card accessibility and reversible empty filters', async()=>{
+ const c=await setup();c.state.records=[{...c.record,contribution_id:'confirmed',group_name:'Confirmed Club',status:'confirmed',proof_review_status:'approved'},{...c.record,contribution_id:'pending',group_name:'Pending Club',proof_review_status:'pending'},{...c.record,contribution_id:'declined',group_name:'Declined Club',proof_review_status:'declined'},{...c.record,contribution_id:'paid',group_name:'Paid Club',status:'paid',proof_review_status:'approved'}];
+ c.ui.blur();c.ui.focus();await tick();
+ const tap=label=>nodes(c.render()).find(n=>n.type==='TouchableOpacity'&&n.props.accessibilityLabel===label);
+ assert.match(text(tap('Show total proofs')),/Total Proofs4/);assert.match(text(tap('Show confirmed')),/Confirmed1/);assert.match(text(tap('Show pending')),/Pending1/);
+ tap('Show confirmed').props.onPress();assert.equal(tap('Show confirmed').props.accessibilityState.selected,true);assert.match(text(c.render()),/Confirmed Club/);assert.doesNotMatch(text(c.render()),/Pending Club|Declined Club|Paid Club/);
+ tap('Show pending').props.onPress();assert.match(text(c.render()),/Pending Club/);assert.doesNotMatch(text(c.render()),/Confirmed Club|Declined Club|Paid Club/);
+ tap('Show all proofs').props.onPress();assert.match(text(c.render()),/Declined Club/);tap('Show total proofs').props.onPress();assert.equal(tap('Show all proofs'),undefined);
+ c.state.records=[];c.ui.blur();c.ui.focus();await tick();tap('Show confirmed').props.onPress();assert.match(text(c.render()),/No proofs match this filter/);assert.ok(tap('Show all proofs'));
 });

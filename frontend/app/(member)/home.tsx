@@ -50,6 +50,8 @@ interface PendingInvitation {
 export default function MemberHomeScreen() {
   const { user, token, logout } = useAuth();
   const router = useRouter();
+  const dashboardScroll = useRef<ScrollView>(null);
+  const clubsOffset = useRef(0);
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -343,7 +345,7 @@ export default function MemberHomeScreen() {
 
   return (
     <View style={{ flex: 1 }}>
-      <ScrollView
+      <ScrollView ref={dashboardScroll}
         style={styles.container}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -372,21 +374,24 @@ export default function MemberHomeScreen() {
         <View style={styles.summaryContainer}>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Contributions</Text>
-          <Text style={styles.summaryValue}>
+          <Text style={[styles.summaryValue, { color: Colors.statusPaid }]}>
             R{dashboardData?.summary.total_saved.toFixed(2) || '0.00'}
           </Text>
         </View>
 
-        <View style={styles.summaryCard}>
+        <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Show My Clubs" activeOpacity={0.75} onPress={() => dashboardScroll.current?.scrollTo({ y: clubsOffset.current, animated: true })}>
           <Text style={styles.summaryLabel}>Groups &amp; Clubs</Text>
-          <Text style={styles.summaryValue}>{dashboardData?.summary.active_clubs || 0}</Text>
-        </View>
+          <View>
+            <Text style={styles.summaryValue}>{dashboardData?.summary.active_clubs || 0}</Text>
+            <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} style={{ position: 'absolute', top: '100%', left: 0 }} />
+          </View>
+        </TouchableOpacity>
       </View>
 
       <View style={styles.summaryContainer}>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Upcoming Payments</Text>
-          <Text style={styles.summaryValue}>{dashboardData?.summary.upcoming_payments || 0}</Text>
+          <Text style={[styles.summaryValue, { color: Colors.statusLate }]}>{dashboardData?.summary.upcoming_payments || 0}</Text>
         </View>
 
         <View style={styles.summaryCard}>
@@ -396,16 +401,19 @@ export default function MemberHomeScreen() {
       </View>
 
       <View style={styles.summaryContainer}>
-        <View style={styles.summaryCard}>
+        <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Show approved claims awaiting payout" activeOpacity={0.75} onPress={() => router.push({ pathname: "/(member)/claims", params: { view: "payouts", claim_id: "" } })}>
           <Text style={styles.summaryLabel}>Upcoming Payouts</Text>
-          <Text style={styles.summaryValue}>
-            R{(dashboardData?.summary.upcoming_payout_amount ?? 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-          </Text>
-        </View>
+          <View>
+            <Text style={[styles.summaryValue, { color: Colors.accent }]}>
+              R{(dashboardData?.summary.upcoming_payout_amount ?? 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+            </Text>
+            <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} style={{ position: 'absolute', top: '100%', left: 0 }} />
+          </View>
+        </TouchableOpacity>
       </View>
 
       {/* My Clubs Section */}
-      <View style={styles.section}>
+      <View style={styles.section} onLayout={event => { clubsOffset.current = event.nativeEvent.layout.y; }}>
         <Text style={styles.sectionTitle}>My Clubs</Text>
 
         {pendingInvitations.length > 0 && (
