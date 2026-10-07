@@ -33,6 +33,8 @@ from services.notification_service import (
 )
 
 from services.monthly_reports import monthly_report
+from services.intelligence.context import summary_context
+from services.intelligence.schemas import SummaryContext
 
 from services.phone_numbers import normalize_phone, phone_aliases, phone_identity_query
 from services.auth_otp import AuthOTP, OTPError, runtime_mock_otp_allowed
@@ -2826,6 +2828,39 @@ async def get_monthly_group_report(group_id: str, year: int, month: int,
         return monthly_report(group, records, claims, members, users, year, month, contribution_outstanding)
     except ValueError as error:
         raise HTTPException(status_code=409, detail=str(error)) from error
+
+
+@api_router.get('/intelligence/{group_id}/summary', response_model=SummaryContext)
+async def get_intelligence_summary(group_id: str, year: int, month: int,
+                                   authorization: str | None = Header(None)):
+    """Admin-only aggregate facts. Explicit reads never reconcile or update records."""
+    person = authenticated_user_id(authorization)
+    account = await db.users.find_one({'id': person, 'status': 'active'}, {'id': 1, '_id': 0})
+    if not account:
+        raise HTTPException(status_code=403, detail='Active account required')
+    if not 1 <= year <= 9999 or not 1 <= month <= 12:
+        raise HTTPException(status_code=422, detail='Invalid summary period')
+    group = await db.groups.find_one({'id': group_id, 'status': 'active'},
+                                     {'id': 1, 'group_name': 1, '_id': 0})
+    if not group:
+        raise HTTPException(status_code=404, detail='Active group not found')
+    membership = await db.members.find_one({'user_id': person, 'group_id': group_id, 'status': 'active',
+                                           'role_in_group': {'$in': ['admin', 'treasurer']}}, {'id': 1, '_id': 0})
+    if not membership:
+        raise HTTPException(status_code=403, detail='Active group administration membership required')
+    active_members = await db.members.find({'group_id': group_id, 'status': 'active'},
+                                           {'group_id': 1, 'status': 1, '_id': 0}).to_list(None)
+    records = await db.contributions.find({'group_id': group_id, 'year': year, 'month': month}, {
+        'id': 1, 'group_id': 1, 'year': 1, 'month': 1, 'amount_due': 1, 'amount_paid': 1,
+        'contribution_status': 1, 'proof_review_status': 1, 'confirmation_date': 1, '_id': 0,
+    }).to_list(None)
+    claims = await db.claims.find({'group_id': group_id}, {
+        'id': 1, 'group_id': 1, 'claim_amount': 1, 'claim_status': 1, 'submitted_at': 1,
+        'reviewed_at': 1, 'scheduled_claim_date': 1, 'actual_amount_paid': 1,
+        'payout_payments.id': 1, 'payout_payments.amount': 1,
+        'payout_payments.actual_payment_date': 1, '_id': 0,
+    }).to_list(None)
+    return summary_context(group, records, claims, active_members, year, month, contribution_outstanding)
 
 
 @api_router.get('/treasurer/contributions/{contribution_id}/reminder')
