@@ -20,6 +20,7 @@ export default function ReportsScreen() {
   const { group_id, clubId } = useLocalSearchParams<{ group_id?: string; clubId?: string }>();
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingType, setGeneratingType] = useState<string | null>(null);
+  const [showExports, setShowExports] = useState(false);
   const [dashboardData, setDashboardData] = useState<any>(null);
   const [loadingReports, setLoadingReports] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -325,6 +326,8 @@ export default function ReportsScreen() {
     
     return (
       <TouchableOpacity
+        accessibilityRole="button"
+        accessibilityLabel={`${icon === 'download' ? 'Download' : 'Share'} ${reportType === 'monthly' ? 'current-month' : 'current-year'} contribution export`}
         style={styles.actionButton}
         onPress={onPress}
         disabled={isGenerating}
@@ -380,78 +383,30 @@ export default function ReportsScreen() {
 
         <MonthlyReport clubs={dashboardData.clubs} token={token} contextualClubId={group_id || clubId} refreshKey={reportRefreshKey} />
 
-        {/* Report Types */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Legacy exports</Text>
-          <Text style={styles.reportDescription}>Separate from the selected monthly view. Existing exports use the current month/year across all managed clubs, not the club or period selected above.</Text>
-
-          {/* Monthly Report */}
-          <View style={styles.reportCard}>
-            <View style={styles.reportIcon}>
-              <Ionicons name="calendar" size={32} color={Colors.mediumGreen} />
-            </View>
-            <View style={styles.reportInfo}>
+          <Text style={styles.sectionTitle}>Report actions</Text>
+          <TouchableOpacity accessibilityRole="button" accessibilityState={{ expanded: showExports }} onPress={() => setShowExports(value => !value)}>
+            <Text style={styles.exportLink}>Other available exports {showExports ? '⌄' : '›'}</Text>
+          </TouchableOpacity>
+          {showExports ? <>
+            <Text style={styles.reportDescription}>These contribution exports cover all your managed clubs. They do not use the club or month selected above, and do not include the new claims and payouts statement.</Text>
+            <View style={styles.reportCard}>
               <Text style={styles.reportTitle}>Current-month contribution export</Text>
-              <Text style={styles.reportDescription}>
-                Detailed breakdown of all contributions for the current month with member-by-member analysis.
-              </Text>
+              <Text style={styles.reportDescription}>Contributions for the current month across all your managed clubs.</Text>
+              <View style={styles.reportActions}>
+                {renderActionButton('monthly', 'download', Colors.mediumGreen, () => handleExportPDF('monthly'))}
+                {renderActionButton('monthly', 'logo-whatsapp', '#25D366', () => handleShareWhatsApp('monthly'))}
+              </View>
             </View>
-            <View style={styles.reportActions}>
-              {renderActionButton('monthly', 'download', Colors.mediumGreen, () => handleExportPDF('monthly'))}
-              {renderActionButton('monthly', 'logo-whatsapp', '#25D366', () => handleShareWhatsApp('monthly'))}
+            <View style={styles.reportCard}>
+              <Text style={styles.reportTitle}>Current-year contribution export</Text>
+              <Text style={styles.reportDescription}>Contributions for the current year across all your managed clubs.</Text>
+              <View style={styles.reportActions}>
+                {renderActionButton('annual', 'download', Colors.mediumGreen, () => handleExportPDF('annual'))}
+                {renderActionButton('annual', 'logo-whatsapp', '#25D366', () => handleShareWhatsApp('annual'))}
+              </View>
             </View>
-          </View>
-
-          {/* Annual Report */}
-          <View style={styles.reportCard}>
-            <View style={styles.reportIcon}>
-              <Ionicons name="bar-chart" size={32} color={Colors.gold} />
-            </View>
-            <View style={styles.reportInfo}>
-              <Text style={styles.reportTitle}>Annual Report</Text>
-              <Text style={styles.reportDescription}>
-                Month-by-month collection summary for the entire year with trends and totals.
-              </Text>
-            </View>
-            <View style={styles.reportActions}>
-              {renderActionButton('annual', 'download', Colors.mediumGreen, () => handleExportPDF('annual'))}
-              {renderActionButton('annual', 'logo-whatsapp', '#25D366', () => handleShareWhatsApp('annual'))}
-            </View>
-          </View>
-
-          {/* Member Statement */}
-          <View style={styles.reportCard}>
-            <View style={styles.reportIcon}>
-              <Ionicons name="person" size={32} color={Colors.mediumGreen} />
-            </View>
-            <View style={styles.reportInfo}>
-              <Text style={styles.reportTitle}>Member Statement</Text>
-              <Text style={styles.reportDescription}>
-                Complete payment history for any individual member with proof of payment images.
-              </Text>
-            </View>
-            <View style={styles.reportActions}>
-              {renderActionButton('member', 'download', Colors.mediumGreen, () => handleExportPDF('member'))}
-              {renderActionButton('member', 'logo-whatsapp', '#25D366', () => handleShareWhatsApp('member'))}
-            </View>
-          </View>
-
-          {/* Defaulters Report */}
-          <View style={styles.reportCard}>
-            <View style={styles.reportIcon}>
-              <Ionicons name="alert-circle" size={32} color={Colors.statusLate} />
-            </View>
-            <View style={styles.reportInfo}>
-              <Text style={styles.reportTitle}>Contribution export (legacy shortcut)</Text>
-              <Text style={styles.reportDescription}>
-                Same current-month contribution export across managed clubs; not a standalone arrears report.
-              </Text>
-            </View>
-            <View style={styles.reportActions}>
-              {renderActionButton('monthly', 'download', Colors.mediumGreen, () => handleExportPDF('monthly'))}
-              {renderActionButton('monthly', 'logo-whatsapp', '#25D366', () => handleShareWhatsApp('monthly'))}
-            </View>
-          </View>
+          </> : null}
         </View>
 
         </>)}
@@ -526,6 +481,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 24,
     paddingTop: 24,
   },
+  exportLink: { color: Colors.accent, fontWeight: '600', paddingVertical: 12 },
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',

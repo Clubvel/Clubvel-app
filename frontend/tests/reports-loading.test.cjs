@@ -20,7 +20,10 @@ test('Reports waits for authenticated dashboard, ends loading and shows existing
  const c=setup();assert.ok(nodes(c.initial).some(n=>n.type==='ActivityIndicator'));
  assert.equal(c.requests[0].options.timeout,20000);assert.equal(c.requests[0].options.headers.Authorization,'Bearer signed');
  c.requests[0].resolve({data:{clubs:[{id:'club',collected:20,expected:40}]}});await tick();
- assert.match(text(c.render()),/Current-month contribution export/);assert.doesNotMatch(text(c.render()),/No managed/);
+ assert.match(text(c.render()),/Other available exports/);assert.doesNotMatch(text(c.render()),/Current-month contribution export|No managed/);
+ button(c.render(),'Other available exports').props.onPress();
+ assert.match(text(c.render()),/Current-month contribution export/);assert.match(text(c.render()),/do not use the club or month selected above/);
+ assert.doesNotMatch(text(c.render()),/Member Statement|legacy/i);
 });
 test('Reports empty state is only shown after a successful empty response',async()=>{
  const c=setup();c.requests[0].resolve({data:{clubs:[]}});await tick();
@@ -41,6 +44,7 @@ test('Reports token restoration refetches, and account change rejects an older r
 });
 test('Report generation sends correct period/auth and bounded requests, with Retry on failure',async()=>{
  const c=setup();c.requests[0].resolve({data:{clubs:[{id:'club'}]}});await tick();
+ button(c.render(),'Other available exports').props.onPress();
  const download=nodes(c.render()).find(n=>n.type==='TouchableOpacity'&&nodes(n).some(i=>i.props?.name==='download'));
  const work=download.props.onPress();assert.equal(c.requests[1].url.endsWith('/api/treasurer/reports/club'),true);
  assert.equal(c.requests[1].options.headers.Authorization,'Bearer signed');assert.equal(c.requests[1].options.timeout,20000);
@@ -55,7 +59,8 @@ test('Android PDF generation timeout releases controls and offers Retry',async()
  try {
   global.setTimeout=(fn,ms)=>{assert.equal(ms,45000);expire=fn;return 1;};global.clearTimeout=()=>{};
   const c=setup(()=>new Promise(()=>{}));c.requests[0].resolve({data:{clubs:[{id:'club'}]}});await tick();
-  const download=nodes(c.render()).find(n=>n.type==='TouchableOpacity'&&nodes(n).some(i=>i.props?.name==='download'));
+  button(c.render(),'Other available exports').props.onPress();
+ const download=nodes(c.render()).find(n=>n.type==='TouchableOpacity'&&nodes(n).some(i=>i.props?.name==='download'));
   const work=download.props.onPress();c.requests[1].resolve({data:{rows:[],summary:{},group_id:'club',group_name:'Club'}});await tick();
   expire();await work;
   assert.match(c.alerts.at(-1)[1],/PDF generation timed out/);

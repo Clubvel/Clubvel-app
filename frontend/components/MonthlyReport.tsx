@@ -16,7 +16,8 @@ export default function MonthlyReport({ clubs, token, contextualClubId, refreshK
   const [data, setData] = useState<{ key: string; report: MonthlyReportData } | null>(null);
   const [error, setError] = useState<{ key: string; message: string } | null>(null);
   const [loading, setLoading] = useState(true);
-  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [detail, setDetail] = useState<{ key: string; kind: 'contributions' | 'claims' | 'about' } | null>(null);
+  const [claimView, setClaimView] = useState<'submitted' | 'approved' | 'paid' | 'remaining'>('submitted');
   const sequence = useRef(0);
   const key = `${club?.id}/${period.year}/${period.month}/${token}/${refreshKey}`;
   const fetchReport = useCallback(async () => {
@@ -43,21 +44,35 @@ export default function MonthlyReport({ clubs, token, contextualClubId, refreshK
   }, [fetchReport]));
   const report = data?.key === key ? data.report : null;
   const failure = error?.key === key ? error.message : null;
-  const section = (id: string, label: string, children: React.ReactNode) => (
-    <View style={styles.card}>
-      <TouchableOpacity accessibilityRole="button" accessibilityState={{ expanded: !!expanded[id] }} onPress={() => setExpanded(previous => ({ ...previous, [id]: !previous[id] }))}>
-        <Text style={styles.heading}>{label} {expanded[id] ? '−' : '+'}</Text>
-      </TouchableOpacity>
-      {expanded[id] ? children : null}
-    </View>
-  );
+  const openDetail = (kind: 'contributions' | 'claims' | 'about') => {
+    setClaimView('submitted');
+    setDetail({ key, kind });
+  };
+  const readableStatus = (status: string) => ({
+    pending: 'Pending', due: 'Due', late: 'Late', proof_uploaded: 'Awaiting review',
+    confirmed: 'Confirmed', paid: 'Paid', excused: 'Excused',
+    approved: 'Approved', rejected: 'Rejected',
+  }[status] || 'Status unavailable');
+  const claimStatus = (status: string) => status === 'pending' ? 'Awaiting approval' : readableStatus(status);
+  const dated = (stamp: string) => new Date(stamp).toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' });
+  const warningText: Record<string, string> = {
+    historical_identity_unavailable: 'A former member’s name is unavailable. Their financial record is still included.',
+    confirmation_date_unavailable: 'A confirmed contribution has no confirmation date.',
+    unconfirmed_recorded_payment: 'A payment amount reduces outstanding but has not been confirmed as received.',
+    settled_amount_mismatch: 'A settled contribution has a recorded payment below its expected amount.',
+    submission_date_unavailable: 'A claim has no submission date and cannot be placed in a month.',
+    approval_date_unavailable: 'An approved claim has no approval date and cannot be placed in a month.',
+    scheduled_date_invalid: 'A scheduled payout date needs checking.',
+    claim_payment_state_mismatch: 'A claim’s payment amount and status need checking.',
+    payout_date_unavailable: 'A payment has no valid payment date and cannot be placed in a month.',
+    payout_history_incomplete: 'A claim’s payment history does not match its recorded total paid.',
+  };
   const value = (label: string, amount: number) => <View style={styles.value}><Text style={styles.body}>{label}</Text><Text style={styles.amount}>{reportRand(amount)}</Text></View>;
   const shift = (delta: number) => {
     const next = moveReportMonth(period, delta);
     if (next.year >= 1 && next.year <= 9999) setPeriod(next);
   };
   return <View style={styles.container}>
-    <Text style={styles.title}>Monthly Report</Text>
     <TouchableOpacity accessibilityRole="button" accessibilityLabel="Select report club" style={styles.card} onPress={() => setSelection('club')}>
       <Text style={styles.heading}>{report?.club.name || club?.name || club?.group_name || 'Select club'} ▾</Text>
     </TouchableOpacity>
@@ -66,44 +81,101 @@ export default function MonthlyReport({ clubs, token, contextualClubId, refreshK
       <TouchableOpacity accessibilityRole="button" accessibilityLabel="Select report month and year" style={styles.periodTitle} onPress={() => { setYearInput(String(period.year)); setSelection('period'); }}><Text style={styles.heading}>{REPORT_MONTHS[period.month - 1]} {period.year} ▾</Text></TouchableOpacity>
       <TouchableOpacity accessibilityRole="button" accessibilityLabel="Next report month" style={styles.control} onPress={() => shift(1)}><Text style={styles.heading}>›</Text></TouchableOpacity>
     </View>
-    <Text style={styles.caption}>Africa/Johannesburg • Recorded obligations and activity</Text>
     {loading || (!report && !failure) ? <ActivityIndicator accessibilityLabel="Loading monthly report" color={Colors.accent} /> : null}
     {failure ? <View style={styles.card}><Text style={styles.body}>{failure}</Text><TouchableOpacity accessibilityRole="button" onPress={() => void fetchReport()}><Text style={styles.link}>Retry monthly report</Text></TouchableOpacity></View> : null}
     {report ? <>
-      <Text style={styles.caption}>Generated: {new Date(report.generated_at).toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })}</Text>
-      {report.empty_period ? <View style={styles.card}><Text style={styles.body}>No recorded activity or obligations for {report.club.name} in {REPORT_MONTHS[period.month - 1]} {period.year}.</Text></View> : null}
       <View style={styles.card}>
         <Text style={styles.heading}>Contributions</Text>
-        {value('Expected', report.summary.expected)}{value('Confirmed', report.summary.confirmed)}
-        {value('Outstanding', report.summary.outstanding)}{value('Awaiting Proof Review', report.summary.awaiting_review)}
-        <Text style={styles.caption}>Awaiting review is included in outstanding, never in confirmed. These are recorded obligations, not bank cash receipts.</Text>
+        {value('Expected', report.summary.expected)}{value('Received', report.summary.confirmed)}
+        {value('Outstanding', report.summary.outstanding)}{value('Awaiting review', report.summary.awaiting_review)}
+        {report.contributions.length ? (
+          <TouchableOpacity accessibilityRole="button" onPress={() => openDetail('contributions')}><Text style={styles.link}>View contribution details ›</Text></TouchableOpacity>
+        ) : <Text style={styles.body}>No contributions recorded for {REPORT_MONTHS[period.month - 1]} {period.year}.</Text>}
       </View>
-      {section('contributions', `Contribution detail (${report.contributions.length})`, report.contributions.length ? report.contributions.map(row => <View key={row.id} style={styles.detail}>
-        <Text style={styles.heading}>{row.member_name}</Text><Text style={styles.caption}>Record: {row.id}</Text>
-        {value('Expected', row.expected)}{value('Confirmed', row.confirmed)}{value('Outstanding', row.outstanding)}
-        <Text style={styles.body}>Status: {row.status.replace(/_/g, ' ')}{row.proof_review_status === 'declined' ? ' • Proof declined' : ''}</Text>
-        {row.confirmation_date ? <Text style={styles.caption}>Confirmed: {new Date(row.confirmation_date).toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })}</Text> : null}
-      </View>) : <Text style={styles.body}>No recorded contribution obligations.</Text>)}
-      <View style={styles.card}><Text style={styles.heading}>Claim activity</Text>
-        {value(`Submitted (${report.summary.claims_submitted_count})`, report.summary.claims_submitted_amount)}
-        {value(`Approved (${report.summary.claims_approved_count})`, report.summary.claims_approved_amount)}
-        <Text style={styles.caption}>Submission and approval dates determine the month. Paid claims retain their approval activity.</Text>
+      <View style={styles.card}>
+        <Text style={styles.heading}>Claims &amp; Payouts</Text>
+        {value(`Claims submitted (${report.summary.claims_submitted_count})`, report.summary.claims_submitted_amount)}
+        {value(`Claims approved (${report.summary.claims_approved_count})`, report.summary.claims_approved_amount)}
+        {value('Paid this month', report.summary.actual_payouts)}
+        {value('Still to be paid', report.summary.current_commitments)}
+        <Text style={styles.caption}>Current approved balance</Text>
+        {!report.claim_activity.submitted.length ? <Text style={styles.body}>No claims submitted in {REPORT_MONTHS[period.month - 1]} {period.year}.</Text> : null}
+        {!report.payout_payments.length ? <Text style={styles.body}>No payouts recorded in {REPORT_MONTHS[period.month - 1]} {period.year}.</Text> : null}
+        {report.claim_activity.submitted.length || report.claim_activity.approved.length || report.payout_payments.length || report.current_commitments.length ? (
+          <TouchableOpacity accessibilityRole="button" onPress={() => openDetail('claims')}><Text style={styles.link}>View claim details ›</Text></TouchableOpacity>
+        ) : null}
       </View>
-      {section('claims', 'Claim activity detail', <>
-        {report.claim_activity.submitted.map(row => <View key={`submitted-${row.claim_id}`} style={styles.detail}><Text style={styles.body}>{row.member_name} • Submitted • {reportRand(row.claim_amount)}</Text><Text style={styles.caption}>{new Date(row.submitted_at).toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })}</Text></View>)}
-        {report.claim_activity.approved.map(row => <View key={`approved-${row.claim_id}`} style={styles.detail}><Text style={styles.body}>{row.member_name} • Approved • {reportRand(row.claim_amount)}</Text><Text style={styles.caption}>{new Date(row.reviewed_at).toLocaleString('en-ZA', { timeZone: 'Africa/Johannesburg' })}</Text></View>)}
-        {!report.claim_activity.submitted.length && !report.claim_activity.approved.length ? <Text style={styles.body}>No dated claim activity in this month.</Text> : null}
-      </>)}
-      <View style={styles.card}>{value('Actual Payouts', report.summary.actual_payouts)}<Text style={styles.caption}>Individual recorded payments by actual payment date.</Text></View>
-      {section('payouts', `Actual payout detail (${report.payout_payments.length})`, report.payout_payments.length ? report.payout_payments.map(row => <View key={`${row.claim_id}-${row.id}`} style={styles.detail}><Text style={styles.body}>{row.member_name} • {reportRand(row.amount)}</Text><Text style={styles.caption}>Paid: {row.actual_payment_date}</Text></View>) : <Text style={styles.body}>No recorded payouts in this month.</Text>)}
-      <View style={styles.card}>{value('CURRENT Approved / Unpaid Payouts', report.summary.current_commitments)}<Text style={styles.caption}>Current remaining commitments, independent of the selected month. This is not a historical month-end liability or cash balance.</Text></View>
-      {section('commitments', `Current commitment detail (${report.current_commitments.length})`, report.current_commitments.length ? report.current_commitments.map(row => <View key={row.claim_id} style={styles.detail}><Text style={styles.heading}>{row.member_name}</Text>
-        {value('Claim amount', row.claim_amount)}{value('Actual paid to date', row.actual_amount_paid)}{value('Remaining', row.remaining)}
-        <Text style={styles.body}>Scheduled: {row.scheduled_claim_date || 'Not scheduled'} • {row.status}</Text>
-      </View>) : <Text style={styles.body}>No current approved unpaid commitments.</Text>)}
-      {report.warnings.length ? <View style={styles.warning}><Text style={styles.heading}>Data completeness</Text>{report.warnings.map((warning, index) => <Text key={index} style={styles.body}>{warning.record_id}: {warning.message}</Text>)}</View> : null}
-      {report.unallocated_activity.length ? section('undated', 'Activity without usable historical dates', report.unallocated_activity.map((row, index) => <View key={index} style={styles.detail}><Text style={styles.body}>{row.member_name} • {row.activity} • {reportRand(row.amount ?? row.claim_amount)}</Text></View>)) : null}
-      <Text style={styles.caption}>{report.basis}</Text>
+      {report.warnings.some(w => w.code !== 'receipt_date_unavailable') || report.unallocated_activity.length ? (
+        <TouchableOpacity accessibilityRole="button" style={styles.warning} onPress={() => openDetail('about')}><Text style={styles.heading}>Some records need attention ›</Text></TouchableOpacity>
+      ) : null}
+      <TouchableOpacity accessibilityRole="button" onPress={() => openDetail('about')}><Text style={styles.link}>About these figures ⓘ</Text></TouchableOpacity>
+      <Modal visible={detail?.key === key} transparent animationType="slide" onRequestClose={() => setDetail(null)}>
+        {detail?.key === key ? <View style={styles.sheetOverlay}>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close report details backdrop" style={styles.backdrop} onPress={() => setDetail(null)} />
+          <View style={styles.sheet}>
+            <View style={styles.sheetHeader}>
+              <Text style={styles.heading}>{detail.kind === 'contributions' ? 'Contribution details' : detail.kind === 'claims' ? 'Claim details' : 'About these figures'}</Text>
+              <TouchableOpacity accessibilityRole="button" onPress={() => setDetail(null)}><Text style={styles.link}>Close</Text></TouchableOpacity>
+            </View>
+            <Text style={styles.caption}>{report.club.name} • {REPORT_MONTHS[period.month - 1]} {period.year}</Text>
+            <ScrollView>
+              {detail.kind === 'contributions' ? report.contributions.map(row => <View key={row.id} style={styles.detail}>
+                <Text style={styles.heading}>{row.member_name}</Text>
+                <Text style={styles.body}>{readableStatus(row.status)}{row.proof_review_status === 'declined' ? ' • Proof declined' : ''}</Text>
+                {value('Expected', row.expected)}{value('Received', row.confirmed)}{value('Outstanding', row.outstanding)}
+                {row.confirmation_date ? <Text style={styles.caption}>Confirmed: {dated(row.confirmation_date)}</Text> : null}
+              </View>) : null}
+              {detail.kind === 'claims' ? <>
+                <View style={styles.tabs}>
+                  {(['submitted', 'approved', 'paid', 'remaining'] as const).map(view => <TouchableOpacity key={view} accessibilityRole="button" accessibilityState={{ selected: claimView === view }} style={[styles.tab, claimView === view && styles.selectedTab]} onPress={() => setClaimView(view)}>
+                    <Text style={styles.body}>{({ submitted: 'Submitted this month', approved: 'Approved this month', paid: 'Paid this month', remaining: 'Still to be paid' })[view]}</Text>
+                  </TouchableOpacity>)}
+                </View>
+                {claimView === 'submitted' || claimView === 'approved' ? <>
+                  {(claimView === 'submitted' ? report.claim_activity.submitted : report.claim_activity.approved).map(row => <View key={row.claim_id} style={styles.detail}>
+                    <Text style={styles.heading}>{row.member_name}</Text>
+                    {value('Claim amount', row.claim_amount)}
+                    <Text style={styles.body}>{claimStatus(row.status)}</Text>
+                    <Text style={styles.caption}>{'submitted_at' in row ? 'Submitted' : 'Approved'}: {dated('submitted_at' in row ? row.submitted_at : row.reviewed_at)}</Text>
+                  </View>)}
+                  {!(claimView === 'submitted' ? report.claim_activity.submitted : report.claim_activity.approved).length ? <Text style={styles.body}>No claims {claimView} in {REPORT_MONTHS[period.month - 1]} {period.year}.</Text> : null}
+                </> : null}
+                {claimView === 'paid' ? <>
+                  {report.payout_payments.map(row => <View key={`${row.claim_id}-${row.id}`} style={styles.detail}>
+                    <Text style={styles.heading}>{row.member_name}</Text>
+                    {value('Claim amount', row.claim_amount)}{value('Payment amount', row.amount)}
+                    <Text style={styles.body}>{claimStatus(row.status)}</Text>
+                    <Text style={styles.caption}>Payment date: {row.actual_payment_date}</Text>
+                  </View>)}
+                  {!report.payout_payments.length ? <Text style={styles.body}>No payouts recorded in {REPORT_MONTHS[period.month - 1]} {period.year}.</Text> : null}
+                </> : null}
+                {claimView === 'remaining' ? <>
+                  <Text style={styles.caption}>Current approved balance</Text>
+                  {report.current_commitments.map(row => <View key={row.claim_id} style={styles.detail}>
+                    <Text style={styles.heading}>{row.member_name}</Text>
+                    {value('Claim amount', row.claim_amount)}{value('Already paid', row.actual_amount_paid)}{value('Remaining', row.remaining)}
+                    <Text style={styles.body}>{claimStatus(row.status)}</Text>
+                    <Text style={styles.caption}>Payout date: {row.scheduled_claim_date || 'Not scheduled'}</Text>
+                  </View>)}
+                  {!report.current_commitments.length ? <Text style={styles.body}>No approved payouts remaining.</Text> : null}
+                </> : null}
+              </> : null}
+              {detail.kind === 'about' ? <>
+                <Text style={styles.body}>Received shows contributions confirmed in Clubvel, not verified bank deposits. Awaiting review is included in Outstanding.</Text>
+                <Text style={styles.body}>Contributions belong to the selected contribution month. Claims submitted and approved use their event dates. Paid this month uses each actual payment date.</Text>
+                <Text style={styles.body}>Still to be paid is the current approved unpaid or partially paid balance, across all months. It is not the balance at the end of the selected month.</Text>
+                <Text style={styles.caption}>Reporting timezone: Africa/Johannesburg</Text>
+                <Text style={styles.caption}>Generated: {dated(report.generated_at)}</Text>
+                {report.warnings.filter(w => w.code !== 'receipt_date_unavailable').map((warning, index) => <Text key={index} style={styles.body}>{warningText[warning.code] || 'A record needs checking before relying on these figures.'}</Text>)}
+                {report.unallocated_activity.length ? <Text style={styles.heading}>Records without a usable date</Text> : null}
+                {report.unallocated_activity.map((row, index) => <View key={index} style={styles.detail}>
+                  <Text style={styles.body}>{row.member_name} • {({ submission: 'Claim submitted', approval: 'Claim approved', payout: 'Payment' })[row.activity] || 'Claim activity'} • {reportRand(row.amount ?? row.claim_amount)}</Text>
+                </View>)}
+              </> : null}
+            </ScrollView>
+          </View>
+        </View> : null}
+      </Modal>
     </> : null}
     <Modal visible={selection !== null} transparent animationType="fade" onRequestClose={() => setSelection(null)}>
       <View style={styles.overlay}><View style={styles.dialog}><ScrollView>
@@ -129,6 +201,13 @@ const styles = StyleSheet.create({
   value: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', gap: 8, marginVertical: 6 },
   amount: { fontSize: 16, fontWeight: '600', color: Colors.textPrimary },
   detail: { paddingVertical: 12, borderTopWidth: 1, borderTopColor: Colors.cardBorder },
+  sheetOverlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.4)' },
+  backdrop: { position: 'absolute', top: 0, bottom: 0, left: 0, right: 0 },
+  sheet: { height: '90%', backgroundColor: Colors.white, padding: 24, paddingBottom: 32, borderTopLeftRadius: 16, borderTopRightRadius: 16 },
+  sheetHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 16 },
+  tabs: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 12 },
+  tab: { padding: 10, minHeight: 44, borderWidth: 1, borderColor: Colors.cardBorder, borderRadius: 8 },
+  selectedTab: { borderColor: Colors.accent, backgroundColor: Colors.accentLight },
   warning: { padding: 16, backgroundColor: Colors.accentLight, borderRadius: 12, marginBottom: 12 },
   link: { color: Colors.accent, fontWeight: '600', paddingVertical: 12 },
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.4)', justifyContent: 'center', padding: 24 },

@@ -114,7 +114,7 @@ test('Admin Home hides only the self-reminder action and sends the other contrib
   assert.equal(calls[0][1], 'session'); assert.equal(calls[0][2], 'other-payment');
 });
 
-test('Reports removes Quick Actions but retains individual report controls and handlers', async () => {
+test('Reports keeps Quick Actions absent and retains functioning exports and handlers', async () => {
   const ui = engine();
   const Screen = load('app/(treasurer)/reports.tsx', {
     react: ui.react, 'react-native': native,
@@ -127,9 +127,13 @@ test('Reports removes Quick Actions but retains individual report controls and h
   }).default;
   ui.render(Screen); await tick(); const tree = ui.render(Screen);
   assert.doesNotMatch(text(tree), /Quick Actions/);
-  assert.match(text(tree), /Member Statement/); assert.match(text(tree), /Contribution export \(legacy shortcut\)/);
-  assert.equal(nodes(tree).filter(n => n.type === 'Ionicons' && n.props.name === 'download').length, 4);
-  assert.equal(nodes(tree).filter(n => n.type === 'Ionicons' && n.props.name === 'logo-whatsapp').length, 4);
+  assert.match(text(tree), /Other available exports/);
+  button(tree, 'Other available exports').props.onPress();
+  const exports = ui.render(Screen);
+  assert.doesNotMatch(text(exports), /Member Statement|legacy shortcut/i);
+  assert.match(text(exports), /Current-month contribution export|Current-year contribution export/);
+  assert.equal(nodes(exports).filter(n => n.type === 'Ionicons' && n.props.name === 'download').length, 2);
+  assert.equal(nodes(exports).filter(n => n.type === 'Ionicons' && n.props.name === 'logo-whatsapp').length, 2);
   const b = { isGenerating: false, setIsGenerating() {}, setGeneratingType() {}, dashboardData: {},
     Alert: { alert() {} }, buildReportData: async type => ({ reportType: type }),
     generatePDF: async () => ({ success: true, uri: 'report.pdf' }),
