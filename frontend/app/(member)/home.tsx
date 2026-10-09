@@ -353,7 +353,6 @@ export default function MemberHomeScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.brandName}>Clubvel</Text>
           <TouchableOpacity 
             style={styles.avatarButton}
             accessibilityRole="button"
@@ -368,6 +367,7 @@ export default function MemberHomeScreen() {
               </View>
             )}
           </TouchableOpacity>
+          <Text style={styles.brandName}>Clubvel</Text>
         </View>
 
         {/* Summary Cards */}
