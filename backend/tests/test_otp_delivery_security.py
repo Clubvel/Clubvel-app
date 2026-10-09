@@ -239,6 +239,17 @@ class OTPDeliveryTests(unittest.IsolatedAsyncioTestCase):
             await otp.issue("+27820000000", "registration", "sms")
         self.assertEqual(store.records["registration:+27820000000"], original)
 
+    def test_notification_status_does_not_expose_demo_code(self):
+        from unittest.mock import patch
+        from services import notification_service
+        with patch.object(notification_service, "ENABLE_REAL_NOTIFICATIONS", False), \
+             patch.object(notification_service, "is_twilio_configured", return_value=False):
+            status = notification_service.get_notification_status()
+        self.assertFalse(status["real_notifications_enabled"])
+        self.assertFalse(status["twilio_configured"])
+        self.assertNotIn("1234", str(status))
+        self.assertIsNone(status.get("mock_otp"))
+
     def test_runtime_mock_is_only_allowed_in_explicit_staging(self):
         staging = {"CLUBVEL_ENV": "staging", "ALLOW_MOCK_OTP": "true",
                    "PRODUCTION_MODE": "false", "RAILWAY_ENVIRONMENT_NAME": "staging"}
