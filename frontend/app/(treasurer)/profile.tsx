@@ -6,6 +6,7 @@ import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
+import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 
 interface AdminStats {
   clubs_managed: number;
@@ -31,6 +32,7 @@ export default function ProfileScreen() {
   const { user, token, logout, updateProfilePhoto } = useAuth();
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
+  const [photoExpanded, setPhotoExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<AdminStats>({ clubs_managed: 0, total_members: 0, total_collected: 0 });
   const [clubs, setClubs] = useState<Club[]>([]);
@@ -131,9 +133,10 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.container}>
+      <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.avatarContainer} onPress={handleChangePhoto} disabled={uploading}>
+        <TouchableOpacity style={styles.avatarContainer} onPress={() => user?.profile_photo ? setPhotoExpanded(true) : handleChangePhoto()} disabled={uploading}>
           {user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} />
           ) : (
@@ -148,6 +151,9 @@ export default function ProfileScreen() {
               <Ionicons name="camera" size={14} color={Colors.white} />
             )}
           </View>
+        </TouchableOpacity>
+        <TouchableOpacity onPress={handleChangePhoto} disabled={uploading} accessibilityRole="button">
+          <Text style={styles.photoActionText}>{uploading ? "Updating photo…" : "Change photo"}</Text>
         </TouchableOpacity>
         <Text style={styles.name}>{user?.full_name}</Text>
         <View style={styles.roleBadge}>
@@ -358,6 +364,7 @@ const styles = StyleSheet.create({
     paddingBottom: 20,
     alignItems: 'center',
   },
+  photoActionText: { color: Colors.mediumGreen, fontSize: 14, marginTop: 8, marginBottom: 8 },
   avatarContainer: {
     position: 'relative',
     marginBottom: 12,
