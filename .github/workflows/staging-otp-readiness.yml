@@ -1,0 +1,44 @@
+name: Staging OTP read-only readiness
+on:
+  pull_request:
+    paths:
+      - '.github/workflows/staging-otp-readiness.yml'
+  workflow_dispatch:
+
+jobs:
+  staging-readiness:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - name: Probe staging public API without sending OTP or changing accounts
+        env:
+          STAGING_BASE: https://clubvel-staging.up.railway.app
+        run: |
+          python - <<'PY'
+          import json, os, urllib.request, urllib.error
+          base = os.environ["STAGING_BASE"]
+          for path in ("/openapi.json", "/api/auth/notification-status"):
+              try:
+                  with urllib.request.urlopen(base + path, timeout=12) as response:
+                      body = response.read(300000)
+                      print(path, "HTTP", response.status)
+                      if path == "/openapi.json":
+                          spec = json.loads(body)
+                          paths = spec.get("paths", {})
+                          for endpoint in ("/api/auth/register", "/api/auth/verify-otp",
+                                           "/api/auth/login", "/api/auth/forgot-password",
+                                           "/api/auth/verify-reset-otp", "/api/auth/reset-password"):
+                              print("route", endpoint, "present" if endpoint in paths else "MISSING")
+                      else:
+                          data = json.loads(body)
+                          # Print only non-sensitive boolean flags; never log sender numbers or OTPs.
+                          for key in ("real_notifications_enabled", "twilio_configured"):
+                              print(key, data.get(key, "UNKNOWN"))
+                          print("mock_otp_exposed", bool(data.get("mock_otp")))
+                          if data.get("mock_otp"):
+                              print("SECURITY_GATE_FAILED: public status endpoint exposes a test OTP")
+                              raise SystemExit(2)
+              except Exception as exc:
+                  print(path, "PROBE_FAILED", type(exc).__name__, str(exc)[:150])
+                  raise SystemExit(1)
+          PY
