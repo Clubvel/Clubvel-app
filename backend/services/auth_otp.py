@@ -48,8 +48,8 @@ class AuthOTP:
         challenge = secrets.token_hex(16)
         await self.collection.create_index("expires_at", expireAfterSeconds=0)
         result = await self.send(phone, preferred_channel=channel, otp=code)
-        if not result.get("success"):
-            raise OTPError("Could not send the verification code. Please try again.")
+        if not result.get("success") or (not mock and result.get("mock") is not False):
+            raise OTPError("Could not confirm live verification delivery. Please try again.")
         await self.collection.replace_one({"_id": f"{purpose}:{phone}"}, {
             "_id": f"{purpose}:{phone}", "challenge": challenge,
             "digest": self.digest(challenge, code), "attempts": 0,
