@@ -271,7 +271,6 @@ export default function AdminDashboardScreen() {
     >
       {/* Header */}
       <View style={styles.header}>
-        <Text style={styles.brandName}>Clubvel</Text>
         <TouchableOpacity 
           style={styles.avatarButton}
           onPress={() => setShowProfileMenu(true)}
@@ -284,6 +283,7 @@ export default function AdminDashboardScreen() {
             </View>
           )}
         </TouchableOpacity>
+        <Text style={styles.brandName}>Clubvel</Text>
       </View>
 
       {/* Summary Cards */}
