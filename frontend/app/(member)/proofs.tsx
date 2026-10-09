@@ -448,9 +448,6 @@ export default function ProofOfPaymentsScreen() {
     <View style={styles.container}>
       {/* Header with Profile Photo */}
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle}>Proof of Payments</Text>
-        </View>
         <TouchableOpacity onPress={() => router.push('/(member)/profile')} style={styles.profileButton}>
           {user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
@@ -460,6 +457,10 @@ export default function ProofOfPaymentsScreen() {
             </View>
           )}
         </TouchableOpacity>
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerTitle}>Proof of Payments</Text>
+        </View>
+      
       </View>
 
       <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={proofsLoading} onRefresh={() => void fetchProofs()} />}>
