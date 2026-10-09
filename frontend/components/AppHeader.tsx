@@ -1,4 +1,5 @@
-import React from 'react';
+import React, { useState } from 'react';
+import ProfilePhotoViewer from './ProfilePhotoViewer';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/Colors';
@@ -28,6 +29,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 }) => {
   const router = useRouter();
   const { user } = useAuth();
+  const [photoExpanded, setPhotoExpanded] = useState(false);
 
   const handleBackPress = () => {
     if (backRoute) {
@@ -52,7 +54,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           </TouchableOpacity>
         )}
       {showProfile && (
-        <TouchableOpacity onPress={handleProfilePress} style={styles.profileButton}>
+        <TouchableOpacity onPress={() => user?.profile_photo ? setPhotoExpanded(true) : handleProfilePress()} style={styles.profileButton} accessibilityLabel="Expand profile photo">
           {user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
@@ -73,6 +75,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
       </View>
 
 
+      <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
     </View>
   );
 };
@@ -114,16 +117,16 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   profileImage: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 104,
+    height: 104,
+    borderRadius: 52,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
   profilePlaceholder: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 104,
+    height: 104,
+    borderRadius: 52,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
