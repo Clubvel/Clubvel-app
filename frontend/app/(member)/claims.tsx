@@ -243,7 +243,6 @@ export default function ClaimsScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Claims</Text>
         <TouchableOpacity
           accessibilityRole="button"
           accessibilityLabel="Open profile"
@@ -258,6 +257,8 @@ export default function ClaimsScreen() {
             </View>
           )}
         </TouchableOpacity>
+        <Text style={styles.headerTitle}>Claims</Text>
+      
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
