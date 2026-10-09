@@ -246,8 +246,6 @@ export default function TreasurerClaimsScreen() {
   return (
     <View style={styles.container}>
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Claims Management</Text>
-
         <TouchableOpacity
           onPress={() => router.push('/(treasurer)/profile')}
           style={styles.profileButton}
@@ -260,6 +258,8 @@ export default function TreasurerClaimsScreen() {
             </View>
           )}
         </TouchableOpacity>
+        <Text style={styles.headerTitle}>Claims Management</Text>
+      
       </View>
 
       <ScrollView
