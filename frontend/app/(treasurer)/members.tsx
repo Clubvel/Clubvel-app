@@ -42,6 +42,7 @@ export default function MembersScreen() {
   const [showClubPicker, setShowClubPicker] = useState(false);
   const [sending, setSending] = useState(false);
   const invitationInFlight = useRef(false);
+  const membersRequestId = useRef(0);
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
 
@@ -51,16 +52,28 @@ export default function MembersScreen() {
 
   useEffect(() => {
     if (selectedClub) {
-      fetchMembers(selectedClub.id);
+      void fetchMembers(selectedClub.id);
     }
-  }, [selectedClub]);
+  }, [selectedClub?.id]);
+
+  useEffect(() => {
+    const requestedId = params.groupId || params.id;
+    const requestedClub = clubs.find(club => club.id === requestedId);
+    if (requestedClub && selectedClub?.id !== requestedClub.id) {
+      setSelectedClub(requestedClub);
+      setSearchQuery('');
+    }
+  }, [params.groupId, params.id, clubs]);
 
   const fetchMembers = async (groupId: string) => {
+    const requestId = ++membersRequestId.current;
+    setMembers([]);
     try {
       const response = await axios.get(
         `${API_URL}/api/treasurer/club/${groupId}?treasurer_id=${user?.id}`,
         { headers: { Authorization: `Bearer ${token}` } },
       );
+      if (requestId !== membersRequestId.current) return;
       setMembers((response.data.members || []).map((member: any) => ({
         id: member.id,
         name: member.name,
@@ -77,6 +90,7 @@ export default function MembersScreen() {
         phone: member.phone,
       })));
     } catch (error) {
+      if (requestId !== membersRequestId.current) return;
       console.error('Error fetching members:', error);
       setMembers([]);
     }
