@@ -168,9 +168,6 @@ export default function AlertsScreen() {
     <View style={styles.container}>
       {/* Header with Profile Photo */}
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle}>Alerts</Text>
-        </View>
         <TouchableOpacity onPress={() => router.push('/(member)/profile')} style={styles.profileButton}>
           {user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
@@ -180,6 +177,10 @@ export default function AlertsScreen() {
             </View>
           )}
         </TouchableOpacity>
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerTitle}>Alerts</Text>
+        </View>
+      
       </View>
 
       <ScrollView
