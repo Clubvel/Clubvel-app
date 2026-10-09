@@ -184,10 +184,6 @@ export default function MembersScreen() {
     <View style={styles.container}>
       {/* Header with Profile Photo */}
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle}>Members</Text>
-          <Text style={styles.headerSubtitle}>{selectedClub?.name || 'Select a club'}</Text>
-        </View>
         <TouchableOpacity onPress={() => router.push('/(treasurer)/profile')} style={styles.profileButton}>
           {user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
@@ -197,6 +193,11 @@ export default function MembersScreen() {
             </View>
           )}
         </TouchableOpacity>
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerTitle}>Members</Text>
+          <Text style={styles.headerSubtitle}>{selectedClub?.name || 'Select a club'}</Text>
+        </View>
+      
       </View>
 
       <ScrollView style={styles.content}>
