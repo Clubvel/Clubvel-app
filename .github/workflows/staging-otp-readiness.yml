@@ -25,10 +25,16 @@ jobs:
                       if path == "/openapi.json":
                           spec = json.loads(body)
                           paths = spec.get("paths", {})
+                          missing_routes = []
                           for endpoint in ("/api/auth/register", "/api/auth/verify-otp",
                                            "/api/auth/login", "/api/auth/forgot-password",
                                            "/api/auth/verify-reset-otp", "/api/auth/reset-password"):
                               print("route", endpoint, "present" if endpoint in paths else "MISSING")
+                              if endpoint not in paths:
+                                  missing_routes.append(endpoint)
+                          if missing_routes:
+                              print("SECURITY_GATE_FAILED: required authentication routes missing")
+                              raise SystemExit(3)
                       else:
                           data = json.loads(body)
                           # Print only non-sensitive boolean flags; never log sender numbers or OTPs.
