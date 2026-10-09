@@ -186,9 +186,6 @@ export default function ContributionsScreen() {
     <View style={styles.container}>
       {/* Header with Month Navigation and Profile */}
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle}>Payments</Text>
-        </View>
         <TouchableOpacity onPress={() => router.push('/(treasurer)/profile')} style={styles.profileButton}>
           {user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
@@ -198,6 +195,10 @@ export default function ContributionsScreen() {
             </View>
           )}
         </TouchableOpacity>
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerTitle}>Payments</Text>
+        </View>
+      
       </View>
 
       <View style={styles.monthNav}>
