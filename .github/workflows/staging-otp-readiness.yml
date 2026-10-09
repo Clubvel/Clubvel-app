@@ -34,7 +34,7 @@ jobs:
                           # Print only non-sensitive boolean flags; never log sender numbers or OTPs.
                           for key in ("real_notifications_enabled", "twilio_configured"):
                               print(key, data.get(key, "UNKNOWN"))
-                          print("mock_otp_exposed", bool(data.get("mock_otp")))
+                          print("mock_otp_exposed", bool(data.get("mock_otp")))\n                          if data.get("mock_otp"):\n                              print("SECURITY_GATE_FAILED: public status endpoint exposes a test OTP")\n                              raise SystemExit(2)
               except Exception as exc:
                   print(path, "PROBE_FAILED", type(exc).__name__, str(exc)[:150])
                   raise SystemExit(1)
