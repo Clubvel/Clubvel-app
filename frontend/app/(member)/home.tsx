@@ -2,6 +2,7 @@ import React, { useCallback, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image, TextInput, Platform, KeyboardAvoidingView } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
+import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import { StatusPill } from '../../components/StatusPill';
 import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
@@ -50,6 +51,7 @@ interface PendingInvitation {
 export default function MemberHomeScreen() {
   const { user, token, logout } = useAuth();
   const router = useRouter();
+  const [photoExpanded, setPhotoExpanded] = useState(false);
   const dashboardScroll = useRef<ScrollView>(null);
   const clubsOffset = useRef(0);
   const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
@@ -356,8 +358,8 @@ export default function MemberHomeScreen() {
           <TouchableOpacity 
             style={styles.avatarButton}
             accessibilityRole="button"
-            accessibilityLabel="Open profile menu"
-            onPress={() => setShowProfileMenu(true)}
+            accessibilityLabel="Expand profile photo"
+            onPress={() => user?.profile_photo ? setPhotoExpanded(true) : setShowProfileMenu(true)}
           >
             {user?.profile_photo ? (
               <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
@@ -794,9 +796,9 @@ const styles = StyleSheet.create({
     paddingBottom: 16,
     paddingHorizontal: 24,
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     alignItems: 'center',
-    gap: 16,
+    gap: 12,
   },
   brandName: {
     flexShrink: 1,
@@ -950,17 +952,17 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   avatar: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatarImage: {
-    width: 88,
-    height: 88,
-    borderRadius: 44,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
