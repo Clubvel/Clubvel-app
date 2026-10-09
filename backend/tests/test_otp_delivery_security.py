@@ -197,6 +197,48 @@ class OTPDeliveryTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(sum(not isinstance(r, Exception) for r in results), 1)
         self.assertEqual(sum(isinstance(r, OTPError) for r in results), 1)
 
+
+    async def test_resend_invalidates_prior_challenge(self):
+        store = FakeCollection()
+        codes = []
+
+        async def sender(*args, **kwargs):
+            codes.append(kwargs["otp"])
+            return {"success": True, "mock": False, "channel": "sms"}
+
+        otp = AuthOTP(store, sender,
+                      lambda: {"real_notifications_enabled": True, "twilio_configured": True},
+                      "test-secret")
+        await otp.issue("+27820000000", "registration", "sms")
+        old = dict(store.records["registration:+27820000000"])
+        await otp.issue("+27820000000", "registration", "sms")
+        new = store.records["registration:+27820000000"]
+        self.assertNotEqual(old["challenge"], new["challenge"])
+        self.assertNotEqual(old["digest"], new["digest"])
+        self.assertEqual(new["attempts"], 0)
+        if codes[0] != codes[1]:
+            with self.assertRaises(OTPError):
+                await otp.check("+27820000000", "registration", codes[0], consume=True)
+        await otp.check("+27820000000", "registration", codes[1], consume=True)
+
+    async def test_failed_delivery_does_not_replace_existing_challenge(self):
+        store = FakeCollection()
+        sent = 0
+
+        async def sender(*args, **kwargs):
+            nonlocal sent
+            sent += 1
+            return {"success": sent == 1, "mock": False, "channel": "sms"}
+
+        otp = AuthOTP(store, sender,
+                      lambda: {"real_notifications_enabled": True, "twilio_configured": True},
+                      "test-secret")
+        await otp.issue("+27820000000", "registration", "sms")
+        original = dict(store.records["registration:+27820000000"])
+        with self.assertRaises(OTPError):
+            await otp.issue("+27820000000", "registration", "sms")
+        self.assertEqual(store.records["registration:+27820000000"], original)
+
     def test_runtime_mock_is_only_allowed_in_explicit_staging(self):
         staging = {"CLUBVEL_ENV": "staging", "ALLOW_MOCK_OTP": "true",
                    "PRODUCTION_MODE": "false", "RAILWAY_ENVIRONMENT_NAME": "staging"}
