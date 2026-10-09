@@ -1,3 +1,4 @@
+import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import { ClaimPaymentRecord } from '../../components/ClaimPaymentRecord';
 import { ClaimPayoutDate } from '../../components/ClaimPayoutDate';
 import React, { useEffect, useState } from 'react';
@@ -42,6 +43,7 @@ interface GroupClaim {
 }
 
 export default function TreasurerClaimsScreen() {
+  const [photoExpanded, setPhotoExpanded] = React.useState(false);
   const { user, token } = useAuth();
   const router = useRouter();
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
@@ -245,9 +247,10 @@ export default function TreasurerClaimsScreen() {
 
   return (
     <View style={styles.container}>
+      <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
       <View style={styles.header}>
         <TouchableOpacity
-          onPress={() => router.push('/(treasurer)/profile')}
+          onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(treasurer)/profile')}
           style={styles.profileButton}
         >
           {user?.profile_photo ? (
@@ -529,16 +532,16 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   profileImage: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 104,
+    height: 104,
+    borderRadius: 52,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
   profilePlaceholder: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 104,
+    height: 104,
+    borderRadius: 52,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
