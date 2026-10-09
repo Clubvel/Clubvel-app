@@ -1,8 +1,7 @@
 name: Staging OTP read-only readiness
 on:
-  pull_request:
-    paths:
-      - '.github/workflows/staging-otp-readiness.yml'
+  # Run after staging deployment. A PR cannot fix the already deployed service.
+  # Manual invocation prevents repeated known-failure email notifications.
   workflow_dispatch:
 
 jobs:
