@@ -51,16 +51,6 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             <Ionicons name="arrow-back" size={24} color={titleColor} />
           </TouchableOpacity>
         )}
-        <View style={styles.titleContainer}>
-          <Text style={[styles.title, { color: titleColor }]}>{title}</Text>
-          {subtitle && (
-            <Text style={[styles.subtitle, { color: titleColor === Colors.white ? 'rgba(255,255,255,0.7)' : Colors.textSecondary }]}>
-              {subtitle}
-            </Text>
-          )}
-        </View>
-      </View>
-
       {showProfile && (
         <TouchableOpacity onPress={handleProfilePress} style={styles.profileButton}>
           {user?.profile_photo ? (
@@ -72,6 +62,17 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
           )}
         </TouchableOpacity>
       )}
+        <View style={styles.titleContainer}>
+          <Text style={[styles.title, { color: titleColor }]}>{title}</Text>
+          {subtitle && (
+            <Text style={[styles.subtitle, { color: titleColor === Colors.white ? 'rgba(255,255,255,0.7)' : Colors.textSecondary }]}>
+              {subtitle}
+            </Text>
+          )}
+        </View>
+      </View>
+
+
     </View>
   );
 };
