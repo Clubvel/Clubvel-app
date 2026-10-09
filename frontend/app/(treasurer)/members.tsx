@@ -4,7 +4,8 @@ import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams } from 'expo-router';
+import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import { AdBanner } from '../../components/AdBanner';
 import axios from 'axios';
 
@@ -27,6 +28,9 @@ interface Club {
 export default function MembersScreen() {
   const { user, token } = useAuth();
   const router = useRouter();
+  const params = useLocalSearchParams<{ groupId?: string; id?: string }>();
+  const [photoExpanded, setPhotoExpanded] = useState(false);
+  const [showMembersClubPicker, setShowMembersClubPicker] = useState(false);
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
   
   const [searchQuery, setSearchQuery] = useState('');
@@ -89,7 +93,8 @@ export default function MembersScreen() {
         }));
         setClubs(clubList);
         if (clubList.length > 0) {
-          setSelectedClub(clubList[0]);
+          const requestedClub = clubList.find((club: Club) => club.id === (params.groupId || params.id));
+          setSelectedClub(requestedClub || clubList[0]);
         }
       }
     } catch (error) {
@@ -182,9 +187,10 @@ export default function MembersScreen() {
 
   return (
     <View style={styles.container}>
+      <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
       {/* Header with Profile Photo */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.push('/(treasurer)/profile')} style={styles.profileButton}>
+        <TouchableOpacity onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(treasurer)/profile')} style={styles.profileButton}>
           {user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
@@ -201,6 +207,11 @@ export default function MembersScreen() {
       </View>
 
       <ScrollView style={styles.content}>
+        <TouchableOpacity style={styles.membersClubSelector} onPress={() => setShowMembersClubPicker(!showMembersClubPicker)} accessibilityRole="button" accessibilityLabel="Select club for members">
+          <Text style={styles.membersClubSelectorText}>{selectedClub?.name || 'Select a club'}</Text>
+          <Ionicons name={showMembersClubPicker ? 'chevron-up' : 'chevron-down'} size={24} color={Colors.textSecondary} />
+        </TouchableOpacity>
+        {showMembersClubPicker && <View style={styles.membersClubOptions}>{clubs.map(club => <TouchableOpacity key={club.id} style={styles.clubPickerItem} onPress={() => { setSelectedClub(club); setShowMembersClubPicker(false); setSearchQuery(''); }}><Text style={styles.clubPickerItemText}>{club.name}</Text>{selectedClub?.id === club.id && <Ionicons name="checkmark" size={20} color={Colors.mediumGreen} />}</TouchableOpacity>)}</View>}
         {/* Summary Row */}
         <View style={styles.summaryRow}>
           <View style={[styles.summaryItem, styles.summaryItemPaid]}>
@@ -419,16 +430,16 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   profileImage: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 104,
+    height: 104,
+    borderRadius: 52,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
   profilePlaceholder: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 104,
+    height: 104,
+    borderRadius: 52,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
@@ -436,6 +447,9 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
+  membersClubSelector: { marginHorizontal: 24, marginTop: 16, padding: 16, borderRadius: 12, backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.cardBorder, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  membersClubSelectorText: { fontSize: 18, fontWeight: '600', color: Colors.textPrimary },
+  membersClubOptions: { marginHorizontal: 24, padding: 8, backgroundColor: Colors.white, borderRadius: 12, borderWidth: 1, borderColor: Colors.cardBorder },
   summaryRow: {
     flexDirection: 'row',
     paddingHorizontal: 24,
