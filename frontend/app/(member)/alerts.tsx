@@ -1,3 +1,4 @@
+import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import React, { useCallback, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity, Image, Alert as NativeAlert } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
@@ -20,6 +21,7 @@ interface Alert {
 }
 
 export default function AlertsScreen() {
+  const [photoExpanded, setPhotoExpanded] = React.useState(false);
   const { user, token } = useAuth();
   const router = useRouter();
   const [alerts, setAlerts] = useState<Alert[]>([]);
@@ -166,9 +168,10 @@ export default function AlertsScreen() {
 
   return (
     <View style={styles.container}>
+      <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
       {/* Header with Profile Photo */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.push('/(member)/profile')} style={styles.profileButton}>
+        <TouchableOpacity onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(member)/profile')} style={styles.profileButton}>
           {user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
@@ -275,16 +278,16 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   profileImage: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 104,
+    height: 104,
+    borderRadius: 52,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
   profilePlaceholder: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 104,
+    height: 104,
+    borderRadius: 52,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
