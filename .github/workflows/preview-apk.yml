@@ -1,6 +1,11 @@
 name: Build Clubvel preview APK
 
 on:
+  push:
+    branches:
+      - feature/profile-photo-expand-20261009
+    paths:
+      - '.github/workflows/preview-apk.yml'
   workflow_dispatch:
 
 permissions:
