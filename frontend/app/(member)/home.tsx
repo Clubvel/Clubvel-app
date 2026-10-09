@@ -802,7 +802,7 @@ const styles = StyleSheet.create({
   },
   brandName: {
     flexShrink: 1,
-    fontSize: 24,
+    fontSize: 28,
     fontWeight: '700',
     color: Colors.white,
     letterSpacing: 0.2,
