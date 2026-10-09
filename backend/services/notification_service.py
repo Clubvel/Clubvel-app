@@ -152,7 +152,7 @@ async def send_otp(phone: str, preferred_channel: str = 'whatsapp', *, otp: str)
         Dict with success status, channel used, and mock flag
     """
     if ENABLE_REAL_NOTIFICATIONS and not is_twilio_configured():
-        return {'success': False, 'error': 'Notification delivery is not configured'}
+        return {'success': False, 'error': 'Notification delivery is not configured', 'mock': False}
 
     if preferred_channel == 'whatsapp':
         # Try WhatsApp first
@@ -305,5 +305,6 @@ def get_notification_status() -> Dict[str, Any]:
         'whatsapp_number': TWILIO_WHATSAPP_NUMBER if is_twilio_configured() else None,
         'sms_number': TWILIO_PHONE_NUMBER if is_twilio_configured() else None,
         'mode': 'live' if ENABLE_REAL_NOTIFICATIONS and is_twilio_configured() else 'mock',
-        'mock_otp': '1234' if not ENABLE_REAL_NOTIFICATIONS else None
+        # Never expose a reusable verification code through the status endpoint.
+        'mock_otp': None
     }
