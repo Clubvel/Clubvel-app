@@ -45,6 +45,8 @@ export default function MembersScreen() {
   const membersRequestId = useRef(0);
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [membersError, setMembersError] = useState<string | null>(null);
 
   useEffect(() => {
     fetchData();
@@ -68,6 +70,8 @@ export default function MembersScreen() {
   const fetchMembers = async (groupId: string) => {
     const requestId = ++membersRequestId.current;
     setMembers([]);
+    setMembersError(null);
+    setMembersLoading(true);
     try {
       const response = await axios.get(
         `${API_URL}/api/treasurer/club/${groupId}?treasurer_id=${user?.id}`,
@@ -92,7 +96,10 @@ export default function MembersScreen() {
     } catch (error) {
       if (requestId !== membersRequestId.current) return;
       console.error('Error fetching members:', error);
+      setMembersError('Unable to load members for this club. Please try again.');
       setMembers([]);
+    } finally {
+      if (requestId === membersRequestId.current) setMembersLoading(false);
     }
   };
 
@@ -226,6 +233,8 @@ export default function MembersScreen() {
           <Ionicons name={showMembersClubPicker ? 'chevron-up' : 'chevron-down'} size={24} color={Colors.textSecondary} />
         </TouchableOpacity>
         {showMembersClubPicker && <View style={styles.membersClubOptions}>{clubs.map(club => <TouchableOpacity key={club.id} style={styles.clubPickerItem} onPress={() => { setSelectedClub(club); setShowMembersClubPicker(false); setSearchQuery(''); }}><Text style={styles.clubPickerItemText}>{club.name}</Text>{selectedClub?.id === club.id && <Ionicons name="checkmark" size={20} color={Colors.mediumGreen} />}</TouchableOpacity>)}</View>}
+        {membersLoading && <ActivityIndicator accessibilityLabel="Loading club members" color={Colors.mediumGreen} />}
+        {membersError && <View style={{ paddingVertical: 12 }}><Text style={{ color: Colors.textSecondary }}>{membersError}</Text><TouchableOpacity accessibilityRole="button" onPress={() => selectedClub && void fetchMembers(selectedClub.id)}><Text style={{ color: Colors.mediumGreen, fontWeight: 'bold', paddingTop: 8 }}>Retry</Text></TouchableOpacity></View>}
         {/* Summary Row */}
         <View style={styles.summaryRow}>
           <View style={[styles.summaryItem, styles.summaryItemPaid]}>
