@@ -89,6 +89,8 @@ test('Member Home clearly identifies Admin privilege, retains Member wording and
     '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': { useAuth: () => ({ user: { id: 'recipient' }, token: 'session', logout() {} }) },
     '../../components/AdBanner': { AdBanner: 'AdBanner' }, '../../components/StatusPill': { StatusPill: 'StatusPill' },
+    '../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
+    '../../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     axios: { get: async url => ({ data: url.includes('/invitations/') ? {
       invitations: [{ id: 'admin-invite', group_name: 'WeTraveling', intended_role: 'admin', invited_by_name: 'Kenneth' },

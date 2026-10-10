@@ -1,3 +1,4 @@
+import { paymentStateLabel, paymentMoney } from '../../services/paymentSummaryRecords';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import React, { useCallback, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Image, Alert, ActivityIndicator, Modal, TextInput, KeyboardAvoidingView, Platform, RefreshControl } from 'react-native';
@@ -28,6 +29,11 @@ interface Proof {
   groupName: string;
   month: string;
   amount: number;
+  paymentState?: string;
+  historicalOnly?: boolean;
+  confirmedAmount?: number | null;
+  recordedAmount?: number | null;
+  remainingAmount?: number | null;
   status: string;
   uploadDate: string | null;
   hasImage: boolean;
@@ -50,10 +56,12 @@ export default function ProofOfPaymentsScreen() {
   const [uploading, setUploading] = useState(false);
   const [loadingClubs, setLoadingClubs] = useState(false);
   const [proofs, setProofs] = useState<Proof[]>([]);
+  const [loadedProofContext, setLoadedProofContext] = useState<string | null>(null);
+  const currentProofs = loadedProofContext === `${user?.id}:${token}` ? proofs : [];
   const [proofFilter, setProofFilter] = useState<'all' | 'confirmed' | 'proof_uploaded'>('all');
-  const confirmedProofs = proofs.filter(p => p.status === 'confirmed');
-  const pendingProofs = proofs.filter(p => p.status === 'proof_uploaded');
-  const visibleProofs = proofFilter === 'confirmed' ? confirmedProofs : proofFilter === 'proof_uploaded' ? pendingProofs : proofs;
+  const confirmedProofs = currentProofs.filter(p => ['confirmed', 'paid'].includes(p.status));
+  const pendingProofs = currentProofs.filter(p => p.status === 'proof_uploaded');
+  const visibleProofs = proofFilter === 'confirmed' ? confirmedProofs : proofFilter === 'proof_uploaded' ? pendingProofs : currentProofs;
   const [proofsLoading, setProofsLoading] = useState(true);
   const [proofsError, setProofsError] = useState<string | null>(null);
   const [deletingProof, setDeletingProof] = useState<string | null>(null);
@@ -82,6 +90,7 @@ export default function ProofOfPaymentsScreen() {
         headers: { Authorization: `Bearer ${token}` }
       });
       if (sequence !== proofSequence.current || latestContext.current !== key) return;
+      setLoadedProofContext(key);
       setProofs(response.data.contributions.filter((record: any) => record.proof_uploaded && !record.proof_dismissed).map((record: any) => ({
         id: record.contribution_id,
         contribution_id: record.contribution_id,
@@ -89,9 +98,14 @@ export default function ProofOfPaymentsScreen() {
         groupName: record.group_name,
         month: new Date(record.year, record.month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' }),
         amount: record.amount_due,
-        status: record.proof_review_status === 'declined' ? 'proof_declined' : record.status,
+        paymentState: record.payment_state,
+        historicalOnly: record.historical_only,
+        confirmedAmount: record.confirmed_amount,
+        recordedAmount: record.amount_paid,
+        remainingAmount: record.outstanding_amount,
+        status: record.payment_state === 'confirmed' ? 'confirmed' : record.payment_state === 'awaiting_confirmation' ? 'proof_uploaded' : record.proof_review_status === 'declined' ? 'proof_declined' : record.contribution_status || record.status,
         uploadDate: record.payment_date,
-        hasImage: true,
+        hasImage: !record.historical_only,
         proofVersion: record.proof_version,
         declineReason: record.proof_decline_reason,
         canDelete: record.proof_delete_eligible
@@ -488,7 +502,7 @@ export default function ProofOfPaymentsScreen() {
           <View style={styles.summaryRow}>
             <TouchableOpacity style={styles.summaryItem} accessibilityRole="button" accessibilityLabel="Show total proofs" accessibilityState={{ selected: proofFilter === 'all' }} activeOpacity={0.75} onPress={() => setProofFilter('all')}>
               <Text style={styles.summaryLabel}>Total Proofs</Text>
-              <Text style={styles.summaryValue}>{proofs.length}</Text>
+              <Text style={styles.summaryValue}>{currentProofs.length}</Text>
             <Ionicons name="chevron-down" size={14} color={Colors.white} />
             </TouchableOpacity>
             <View style={styles.summaryDivider} />
@@ -525,7 +539,7 @@ export default function ProofOfPaymentsScreen() {
                 <Text style={styles.viewProofText}>Retry</Text>
               </TouchableOpacity>
             </View>
-          ) : proofsLoading && proofs.length === 0 ? (
+          ) : proofsLoading && currentProofs.length === 0 ? (
             <ActivityIndicator color={Colors.mediumGreen} />
           ) : visibleProofs.length === 0 ? (
             <View style={styles.emptyState}>
@@ -542,13 +556,13 @@ export default function ProofOfPaymentsScreen() {
                     <Text style={styles.proofGroupName}>{proof.groupName}</Text>
                     <Text style={styles.proofMonth}>{proof.month}</Text>
                   </View>
-                  <StatusPill status={proof.status} />
+                  <StatusPill status={proof.status} label={paymentStateLabel(proof.paymentState)} />
                 </View>
 
                 <View style={styles.proofDetails}>
                   <View style={styles.proofDetailRow}>
                     <Text style={styles.proofDetailLabel}>Amount:</Text>
-                    <Text style={styles.proofDetailValue}>R{proof.amount.toFixed(2)}</Text>
+                    <Text style={styles.proofDetailValue}>{paymentMoney(proof.amount)}</Text>
                   </View>
                   <View style={styles.proofDetailRow}>
                     <Text style={styles.proofDetailLabel}>Uploaded:</Text>
@@ -556,6 +570,8 @@ export default function ProofOfPaymentsScreen() {
                   </View>
                 </View>
 
+                {proof.confirmedAmount !== undefined && <Text>Confirmed Collected: {paymentMoney(proof.confirmedAmount)} · Outstanding: {paymentMoney(proof.remainingAmount)}</Text>}
+                {proof.recordedAmount != null && proof.confirmedAmount === 0 && proof.recordedAmount > 0 && <Text>Recorded, unconfirmed: {paymentMoney(proof.recordedAmount)}</Text>}
                 {proof.status === 'proof_declined' && proof.declineReason && (
                   <Text style={styles.proofDetailLabel}>Decline reason: {proof.declineReason}</Text>
                 )}
@@ -576,13 +592,13 @@ export default function ProofOfPaymentsScreen() {
                     <Text style={styles.viewProofText}>Delete Pending Proof</Text>
                   </TouchableOpacity>
                 )}
-                {proof.status === 'proof_declined' && (
+                {!proof.historicalOnly && proof.status === 'proof_declined' && (
                   <TouchableOpacity style={styles.viewProofButton} disabled={uploading || !!deletingProof}
                     onPress={() => uploadProofForClub({ id: proof.groupId, name: proof.groupName, amount_due: proof.amount }, proof.contribution_id)}>
                     <Text style={styles.viewProofText}>Replace Proof</Text>
                   </TouchableOpacity>
                 )}
-                {proof.status === 'proof_declined' && (
+                {!proof.historicalOnly && proof.status === 'proof_declined' && (
                   <TouchableOpacity style={styles.viewProofButton} disabled={uploading || !!deletingProof}
                     onPress={() => removeDeclinedProof(proof)}>
                     <Text style={styles.viewProofText}>Remove</Text>

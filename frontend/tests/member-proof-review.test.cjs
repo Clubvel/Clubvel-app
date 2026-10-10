@@ -49,6 +49,8 @@ async function setup(screen = 'proofs', review = 'declined', approved = false, d
       Alert: { alert: (...args) => alerts.push(args) } },
     'expo-router': { useFocusEffect: ui.useFocusEffect, useLocalSearchParams: () => params,
       useRouter: () => ({ back: () => routes.push('back'), push: route => routes.push(route) }) },
+    '../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
+    '../../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
     '../../constants/Colors': { Colors: colors }, '../../../constants/Colors': { Colors: colors },
     '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': auth, '../../../contexts/AuthContext': auth,
@@ -226,8 +228,8 @@ test('Proof cards use identical count/list predicates, whole-card accessibility 
  const c=await setup();c.state.records=[{...c.record,contribution_id:'confirmed',group_name:'Confirmed Club',status:'confirmed',proof_review_status:'approved'},{...c.record,contribution_id:'pending',group_name:'Pending Club',proof_review_status:'pending'},{...c.record,contribution_id:'declined',group_name:'Declined Club',proof_review_status:'declined'},{...c.record,contribution_id:'paid',group_name:'Paid Club',status:'paid',proof_review_status:'approved'}];
  c.ui.blur();c.ui.focus();await tick();
  const tap=label=>nodes(c.render()).find(n=>n.type==='TouchableOpacity'&&n.props.accessibilityLabel===label);
- assert.match(text(tap('Show total proofs')),/Total Proofs4/);assert.match(text(tap('Show confirmed')),/Confirmed1/);assert.match(text(tap('Show pending')),/Pending1/);
- tap('Show confirmed').props.onPress();assert.equal(tap('Show confirmed').props.accessibilityState.selected,true);assert.match(text(c.render()),/Confirmed Club/);assert.doesNotMatch(text(c.render()),/Pending Club|Declined Club|Paid Club/);
+ assert.match(text(tap('Show total proofs')),/Total Proofs4/);assert.match(text(tap('Show confirmed')),/Confirmed2/);assert.match(text(tap('Show pending')),/Pending1/);
+ tap('Show confirmed').props.onPress();assert.equal(tap('Show confirmed').props.accessibilityState.selected,true);assert.match(text(c.render()),/Confirmed Club/);assert.match(text(c.render()),/Paid Club/);assert.doesNotMatch(text(c.render()),/Pending Club|Declined Club/);
  tap('Show pending').props.onPress();assert.match(text(c.render()),/Pending Club/);assert.doesNotMatch(text(c.render()),/Confirmed Club|Declined Club|Paid Club/);
  tap('Show all proofs').props.onPress();assert.match(text(c.render()),/Declined Club/);tap('Show total proofs').props.onPress();assert.equal(tap('Show all proofs'),undefined);
  c.state.records=[];c.ui.blur();c.ui.focus();await tick();tap('Show confirmed').props.onPress();assert.match(text(c.render()),/No proofs match this filter/);assert.ok(tap('Show all proofs'));
@@ -258,4 +260,27 @@ test('malformed club response becomes controlled retry instead of render excepti
   c.state.club = { group: { id: 'group-a', name: 'Club A' }, payment_reference: {}, payment_history: null };
   c.ui.blur(); c.ui.focus(); await tick();
   assert.ok(button(c.render(), 'Retry'));
+});
+
+test('member selects distinct monthly contributions and uploads only the selected ID', async () => {
+ const c=await setup('club','pending');
+ const first={...c.record,contribution_id:'first',amount_due:100,status:'confirmed',payment_state:'confirmed',confirmed_amount:100,outstanding_amount:0,proof_eligible:false};
+ const second={...c.record,contribution_id:'second',amount_due:200,status:'pending',payment_state:'awaiting_payment',confirmed_amount:0,outstanding_amount:200,proof_uploaded:false,proof_eligible:true};
+ c.state.club={group:{id:'group-a',name:'Club A'},current_contribution:{...first,id:'first'},contributions:[first,second],payment_reference:{amount:0,reference_code:'REF'},payment_history:[]};
+ c.ui.blur();c.ui.focus();await tick();
+ assert.ok(button(c.render(),'Payment Confirmed'));
+ button(c.render(),'Contribution 2').props.onPress();
+ assert.match(text(c.render()),/Awaiting Payment/);
+ assert.match(text(c.render()),/Outstanding: R200.00/);
+ await button(c.render(),'Upload Proof of Payment').props.onPress();
+ assert.equal(c.requests.find(r=>r.url.endsWith('/upload-proof')).data.contribution_id,'second');
+});
+test('historical member record cannot expose upload or delete controls',async()=>{
+ const c=await setup('club','pending');
+ const history={...c.record,contribution_id:'history',historical_only:true,payment_state:'awaiting_confirmation',proof_eligible:false,proof_delete_eligible:false};
+ c.state.club={group:{id:'group-a',name:'Club A'},current_contribution:{...history,id:'history'},contributions:[history],payment_reference:{amount:150,reference_code:'REF'},payment_history:[]};
+ c.ui.blur();c.ui.focus();await tick();
+ assert.match(text(c.render()),/Historical contribution/);
+ assert.equal(button(c.render(),'Upload Proof of Payment'),undefined);
+ assert.equal(button(c.render(),'Delete Pending Proof'),undefined);
 });

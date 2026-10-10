@@ -2,6 +2,8 @@
 import ast
 import copy
 import math
+import sys
+from zoneinfo import ZoneInfo
 import unittest
 import uuid
 from datetime import datetime, timedelta
@@ -10,6 +12,8 @@ from types import SimpleNamespace as Obj
 from typing import Optional
 
 SOURCE = Path(__file__).resolve().parents[1] / 'backend/server.py'
+sys.path.insert(0, str(SOURCE.parent))
+from services.contribution_financials import financial_details, financial_totals
 
 
 class HTTPError(Exception):
@@ -143,7 +147,7 @@ def environment():
                                             ('contribution-a-other', 'membership-a', 'group-a')]]),
         alerts=Collection(), trust_scores=Collection(),
     )
-    ns = dict(db=db, Optional=Optional, Header=lambda default: default, HTTPException=HTTPError,
+    ns = dict(db=db, financial_details=financial_details, financial_totals=financial_totals, BUSINESS_TIMEZONE=ZoneInfo('Africa/Johannesburg'), Optional=Optional, Header=lambda default: default, HTTPException=HTTPError,
               ProofReviewRequest=Obj, ProofUpload=Obj, ConfirmPayment=Obj, datetime=datetime,
               timedelta=timedelta, math=math, uuid=uuid, Alert=Alert, verify_token=verify_token,
               reconcile_legacy_group_admin_membership=no_legacy_membership,
@@ -394,7 +398,7 @@ class PaymentListTests(unittest.IsolatedAsyncioTestCase):
         rows = [r for r in result['contributions'] if r['id']]
         self.assertEqual({r['id'] for r in rows}, valid_ids)
         self.assertEqual(len(rows), 6)
-        self.assertEqual(result['summary'], {'collected': 200, 'outstanding': 6500, 'total_expected': 6700, 'collection_rate': 3.0})
+        self.assertEqual(result['summary'], {'collected': 200, 'outstanding': 6500, 'total_expected': 6700, 'collection_rate': 3.0, 'awaiting_confirmation': 6200})
         self.assertEqual(sum(r['status'] == 'proof_uploaded' for r in rows), 4)
         self.assertTrue(all('proof_of_payment' not in r for r in result['contributions']))
         legacy = next(r for r in rows if r['id'] == 'payment-0')
@@ -442,7 +446,7 @@ class PaymentListTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result['current_contribution']['proof_delete_eligible'])
         self.assertNotIn('proof_of_payment', result['current_contribution'])
         self.assertEqual(len(result['payment_history']), 2)
-        self.assertTrue(all(isinstance(query[2]['proof_of_payment'], dict) for query in db.contributions.reads))
+        self.assertTrue(all(isinstance((query[1][1]['$project'] if query[0] == 'aggregate' else query[2])['proof_of_payment'], dict) for query in db.contributions.reads))
         self.assertEqual(result['current_contribution']['proof_version'], ns['proof_version'](db.contributions.records[0]))
 
     async def test_monthly_list_rejects_another_groups_admin(self):

@@ -28,6 +28,8 @@ async function setup(from = 'member', uploaded = true) {
     '../../components/ClubSummary': { default: 'ClubSummary' },
     '../../components/ClaimPaymentRecord':{ClaimPaymentRecord:'ClaimPaymentRecord'},
   '../../components/ClaimPayoutDate': { ClaimPayoutDate: 'ClaimPayoutDate' },
+    '../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
+    '../../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
     '../../constants/Colors': { Colors: colors },
     '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '../../contexts/AuthContext': { useAuth: () => auth },

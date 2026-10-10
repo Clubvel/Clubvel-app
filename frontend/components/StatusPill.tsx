@@ -32,6 +32,7 @@ export const StatusPill: React.FC<StatusPillProps> = ({ status, label, subtleAcc
     
     switch (status) {
       case 'confirmed':
+      case 'paid':
         return 'Paid';
       case 'active':
         return 'Active';

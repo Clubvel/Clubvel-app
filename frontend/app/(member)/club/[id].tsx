@@ -1,3 +1,4 @@
+import { paymentStateLabel, paymentMoney } from '../../../services/paymentSummaryRecords';
 import React, { useCallback, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, Alert, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
@@ -32,6 +33,7 @@ interface ClubDetails {
     proof_decline_reason?: string | null;
     proof_delete_eligible?: boolean;
   } | null;
+  contributions?: (NonNullable<ClubDetails['current_contribution']> & { contribution_id: string; amount_paid?: number; payment_state?: string; confirmed_amount?: number | null; outstanding_amount?: number | null; historical_only?: boolean; proof_eligible?: boolean })[];
   payment_reference: {
     reference_code: string;
     bank_name: string;
@@ -42,6 +44,10 @@ interface ClubDetails {
     month: number;
     year: number;
     amount: number;
+    contribution_id?: string;
+    payment_state?: string;
+    confirmed_amount?: number | null;
+    outstanding_amount?: number | null;
     status: string;
     payment_date: string | null;
   }>;
@@ -59,16 +65,19 @@ export default function ClubDetailScreen() {
   const [deletingProof, setDeletingProof] = useState(false);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+  const [period, setPeriod] = useState(() => ({ month: new Date().getMonth() + 1, year: new Date().getFullYear() }));
+  const [selectedContributionId, setSelectedContributionId] = useState<string | null>(null);
+  const [loadedContext, setLoadedContext] = useState<string | null>(null);
 
   const clubRequest = useRef<{ key: string; sequence: number } | null>(null);
   const clubSequence = useRef(0);
-  const requestContext = `${id}:${user?.id}:${token}`;
+  const requestContext = `${id}:${user?.id}:${token}:${period.year}:${period.month}`;
   const latestContext = useRef(requestContext);
   latestContext.current = requestContext;
 
   const fetchClubDetails = useCallback(async (force = false) => {
     if (!id || !user?.id || !token) { setLoading(false); setClubData(null); setError('Unable to open this club. Please sign in again.'); return; }
-    const key = `${id}:${user?.id}:${token}`;
+    const key = `${id}:${user?.id}:${token}:${period.year}:${period.month}`;
     if (!force && clubRequest.current?.key === key) return;
     const sequence = ++clubSequence.current;
     clubRequest.current = { key, sequence };
@@ -76,7 +85,7 @@ export default function ClubDetailScreen() {
     setError(null);
     try {
       const response = await axios.get(`${API_URL}/api/member/club/${id}/user/${user?.id}`, {
-        headers: { Authorization: `Bearer ${token}` }, timeout: 15000
+        params: period, headers: { Authorization: `Bearer ${token}` }, timeout: 15000
       });
       const data = response.data;
       if (!data?.group || data.group.id !== id || typeof data.group.name !== 'string' ||
@@ -86,7 +95,7 @@ export default function ClubDetailScreen() {
           data.payment_history.some((payment: any) => !payment || typeof payment.amount !== 'number' || !Number.isFinite(payment.amount))) {
         throw new Error('Invalid club response');
       }
-      if (sequence === clubSequence.current && latestContext.current === key) setClubData(data);
+      if (sequence === clubSequence.current && latestContext.current === key) { setClubData(data); setLoadedContext(key); }
     } catch (error: any) {
       if (sequence !== clubSequence.current || latestContext.current !== key) return;
       setClubData(null);
@@ -97,14 +106,17 @@ export default function ClubDetailScreen() {
         setLoading(false);
       }
     }
-  }, [API_URL, id, user?.id, token]);
+  }, [API_URL, id, user?.id, token, period]);
 
   useFocusEffect(useCallback(() => {
     void fetchClubDetails();
   }, [fetchClubDetails]));
 
+  const selectedContribution = clubData?.contributions?.find(row => row.contribution_id === selectedContributionId) || clubData?.contributions?.[0];
+  const displayedClub = clubData && selectedContribution ? { ...clubData, current_contribution: { ...selectedContribution, id: selectedContribution.contribution_id } } : clubData;
+
   const handleDeleteProof = () => {
-    const contribution = clubData?.current_contribution;
+    const contribution = displayedClub?.current_contribution;
     if (!contribution || !token || deletingProof) return;
     Alert.alert('Delete Pending Proof', 'Remove this proof? Your contribution will remain unpaid.', [
       { text: 'Cancel', style: 'cancel' },
@@ -127,6 +139,7 @@ export default function ClubDetailScreen() {
 
   const handleUploadProof = async () => {
     if (!clubData?.current_contribution || !token || uploading) return;
+    if (selectedContribution?.historical_only || selectedContribution?.proof_eligible === false) return;
     const result = await DocumentPicker.getDocumentAsync({
       type: ['application/pdf', 'image/*'],
       copyToCacheDirectory: true,
@@ -158,7 +171,7 @@ export default function ClubDetailScreen() {
 
     try {
       await axios.post(`${API_URL}/api/contributions/upload-proof`, {
-        contribution_id: clubData?.current_contribution?.id,
+        contribution_id: displayedClub?.current_contribution?.id,
         proof_image: proofData,
         proof_mime_type: mimeType,
         proof_file_name: asset.name || null,
@@ -181,7 +194,7 @@ export default function ClubDetailScreen() {
     }
   };
 
-  if (!clubData || clubData.group.id !== id) {
+  if (!clubData || clubData.group.id !== id || loadedContext !== requestContext) {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
@@ -192,7 +205,7 @@ export default function ClubDetailScreen() {
           <View style={styles.headerSpacer} />
         </View>
         <View style={styles.loadingContainer}>
-          {loading ? <ActivityIndicator size="large" color={Colors.mediumGreen} /> :
+          {loading || (clubData && loadedContext !== requestContext) ? <ActivityIndicator size="large" color={Colors.mediumGreen} /> :
             <View><Text style={styles.errorText}>{error || 'Unable to load club details'}</Text><TouchableOpacity onPress={() => void fetchClubDetails(true)}><Text style={styles.errorText}>Retry</Text></TouchableOpacity></View>}
         </View>
       </View>
@@ -216,50 +229,59 @@ export default function ClubDetailScreen() {
       </View>
 
       <ScrollView>
+        <View style={styles.cardHeader}>
+          <TouchableOpacity accessibilityLabel="Previous contribution month" onPress={() => { const d = new Date(period.year, period.month - 2, 1); setSelectedContributionId(null); setPeriod({ year: d.getFullYear(), month: d.getMonth() + 1 }); }}><Text>‹</Text></TouchableOpacity>
+          <Text>{getMonthName(period.month)} {period.year}</Text>
+          <TouchableOpacity accessibilityLabel="Next contribution month" onPress={() => { const d = new Date(period.year, period.month, 1); setSelectedContributionId(null); setPeriod({ year: d.getFullYear(), month: d.getMonth() + 1 }); }}><Text>›</Text></TouchableOpacity>
+        </View>
+        {clubData.contributions?.map((row, index) => <TouchableOpacity key={row.contribution_id} accessibilityRole="button" onPress={() => setSelectedContributionId(row.contribution_id)}><Text>Contribution {index + 1}: {paymentMoney(row.amount_due)} · {paymentStateLabel(row.payment_state)}</Text></TouchableOpacity>)}
+
         {/* Current Contribution Status */}
         <View style={styles.section}>
           <View style={styles.card}>
-            {clubData.current_contribution ? <>
+            {displayedClub?.current_contribution ? <>
             <View style={styles.cardHeader}>
-              <Text style={styles.cardTitle}>Current Month</Text>
-              <StatusPill status={clubData.current_contribution.proof_review_status === 'declined' ? 'proof_declined' : clubData.current_contribution.status} />
+              <Text style={styles.cardTitle}>Selected Contribution</Text>
+              <StatusPill label={paymentStateLabel(selectedContribution?.payment_state)} status={displayedClub?.current_contribution.proof_review_status === 'declined' ? 'proof_declined' : displayedClub?.current_contribution.status} />
             </View>
 
             <View style={styles.amountRow}>
               <Text style={styles.amountLabel}>Amount Due</Text>
-              <Text style={styles.amountValue}>R{clubData.current_contribution.amount_due.toFixed(2)}</Text>
+              <Text style={styles.amountValue}>{paymentMoney(displayedClub?.current_contribution.amount_due)}</Text>
             </View>
 
+            {selectedContribution && <Text>Confirmed Collected: {paymentMoney(selectedContribution.confirmed_amount)} · Outstanding: {paymentMoney(selectedContribution.outstanding_amount)}</Text>}
+            {selectedContribution?.amount_paid != null && selectedContribution.confirmed_amount === 0 && selectedContribution.amount_paid > 0 && <Text>Recorded, unconfirmed: {paymentMoney(selectedContribution.amount_paid)}</Text>}
             <View style={styles.divider} />
 
             <View style={styles.infoRow}>
               <Ionicons name="calendar" size={16} color={Colors.textSecondary} />
-              <Text style={styles.infoText}>Due date: {clubData.current_contribution.due_date}</Text>
+              <Text style={styles.infoText}>{displayedClub?.current_contribution.due_date ? `Due date: ${displayedClub.current_contribution.due_date}` : 'Flexible contribution'}</Text>
             </View>
 
-            {['confirmed', 'paid'].includes(clubData.current_contribution.status) ? (
+            {selectedContribution?.historical_only || (selectedContribution?.payment_state ? ['confirmed', 'excused'].includes(selectedContribution.payment_state) : ['confirmed', 'paid', 'excused'].includes(displayedClub?.current_contribution.status)) ? (
               <TouchableOpacity style={styles.buttonSecondary}>
                 <Ionicons name="checkmark-circle" size={20} color={Colors.mediumGreen} />
-                <Text style={styles.buttonSecondaryText}>Payment Confirmed</Text>
+                <Text style={styles.buttonSecondaryText}>{selectedContribution?.historical_only ? 'Historical contribution — read only' : selectedContribution?.payment_state === 'excused' ? 'Excused' : 'Payment Confirmed'}</Text>
               </TouchableOpacity>
-            ) : clubData.current_contribution.proof_review_status === 'declined' ? (
+            ) : displayedClub?.current_contribution.proof_review_status === 'declined' ? (
               <View>
                 <Text style={styles.waitingText}>Proof Declined</Text>
-                {!!clubData.current_contribution.proof_decline_reason && (
-                  <Text style={styles.infoText}>{clubData.current_contribution.proof_decline_reason}</Text>
+                {!!displayedClub?.current_contribution.proof_decline_reason && (
+                  <Text style={styles.infoText}>{displayedClub?.current_contribution.proof_decline_reason}</Text>
                 )}
                 <TouchableOpacity style={[styles.buttonOutline, uploading && styles.buttonDisabled]}
                   onPress={handleUploadProof} disabled={uploading}>
                   <Text style={styles.buttonOutlineText}>{uploading ? 'Uploading...' : 'Replace Proof'}</Text>
                 </TouchableOpacity>
               </View>
-            ) : clubData.current_contribution.proof_uploaded ? (
+            ) : displayedClub?.current_contribution.proof_uploaded ? (
               <View>
                 <View style={styles.waitingContainer}>
                   <Ionicons name="time" size={20} color={Colors.gold} />
                   <Text style={styles.waitingText}>Awaiting treasurer confirmation</Text>
                 </View>
-                {clubData.current_contribution.proof_delete_eligible && (
+                {displayedClub?.current_contribution.proof_delete_eligible && (
                   <TouchableOpacity style={[styles.buttonOutline, deletingProof && styles.buttonDisabled]}
                     onPress={handleDeleteProof} disabled={deletingProof || uploading}>
                     <Ionicons name="trash-outline" size={18} color={Colors.mediumGreen} />
@@ -267,7 +289,7 @@ export default function ClubDetailScreen() {
                   </TouchableOpacity>
                 )}
               </View>
-            ) : (
+            ) : selectedContribution?.proof_eligible === false ? <Text style={styles.infoText}>Recorded amount is not confirmed. Contact your administrator.</Text> : (
               <TouchableOpacity
                 style={[styles.button, uploading && styles.buttonDisabled]}
                 onPress={handleUploadProof}
@@ -305,7 +327,7 @@ export default function ClubDetailScreen() {
               </View>
               <View style={styles.bankDetailRow}>
                 <Text style={styles.bankDetailLabel}>Amount</Text>
-                <Text style={styles.bankDetailValue}>{clubData.payment_reference.amount == null ? 'Not recorded' : `R${clubData.payment_reference.amount.toFixed(2)}`} </Text>
+                <Text style={styles.bankDetailValue}>{selectedContribution ? paymentMoney(selectedContribution.outstanding_amount) : clubData.payment_reference.amount == null ? 'Not recorded' : paymentMoney(clubData.payment_reference.amount)} </Text>
               </View>
             </View>
           </View>
@@ -316,14 +338,15 @@ export default function ClubDetailScreen() {
           <Text style={styles.sectionTitle}>Payment History</Text>
           {clubData.payment_history.length > 0 ? (
             clubData.payment_history.map((payment, index) => (
-              <View key={index} style={styles.historyCard}>
+              <View key={payment.contribution_id || index} style={styles.historyCard}>
                 <View style={styles.historyHeader}>
                   <Text style={styles.historyMonth}>
                     {getMonthName(payment.month)} {payment.year}
                   </Text>
-                  <StatusPill status={payment.status} />
+                  <StatusPill status={payment.status} label={paymentStateLabel(payment.payment_state)} />
                 </View>
-                <Text style={styles.historyAmount}>R{payment.amount.toFixed(2)}</Text>
+                <Text style={styles.historyAmount}>Recorded amount: {paymentMoney(payment.amount)}</Text>
+                {payment.confirmed_amount !== undefined && <Text>Confirmed Collected: {paymentMoney(payment.confirmed_amount)} · Outstanding: {paymentMoney(payment.outstanding_amount)}</Text>}
               </View>
             ))
           ) : (
