@@ -30,7 +30,7 @@ test('Admin entry points depend on the selected membership role, not account ide
 });
 test('Member destinations preserve selected club and obligation period where supported', async () => {
   const c = setup(); await c.reply(0); c.tap('My Contributions'); assert.deepEqual(c.routes.at(-1), { pathname: '/(member)/club/[id]', params: { id: 'travel', month: '10', year: '2026' } });
-  c.tap('Members'); assert.equal(c.routes.at(-1).params.id, 'travel'); c.tap('Payments and Proofs'); assert.equal(c.routes.at(-1).params.group_id, 'travel'); assert.equal(c.routes.at(-1).params.month, '10');
+  c.tap('Members'); assert.deepEqual(c.routes.at(-1), { pathname: '/club/[id]/members', params: { id: 'travel', from: 'member' } }); c.tap('Payments and Proofs'); assert.equal(c.routes.at(-1).params.group_id, 'travel'); assert.equal(c.routes.at(-1).params.month, '10');
   c.tap('Payouts and Claims'); assert.equal(c.routes.at(-1), '/(member)/claims'); assert.match(text(c.render()), /across your active clubs/);
 });
 test('Admin management destinations carry the current club and existing routes remain usable', async () => {

@@ -55,3 +55,11 @@ test('profile backdrop dismisses and overlapping focus requests are not duplicat
 test('privileged Admin metadata stays out of the simple member profile',async()=>{
  const c=setup();c.props.renderDetails=()=>({type:'Text',props:{children:'PRIVATE_REFERENCE R999'}});await c.reply(0);assert.match(text(c.render()),/PRIVATE_REFERENCE/);c.tap('Open profile of Jimmy Person');const modal=nodes(c.render()).find(n=>n.type==='Modal');assert.doesNotMatch(text(modal),/PRIVATE_REFERENCE|R999/);assert.match(text(modal),/Jimmy Person/);
 });
+
+test('older A request cannot clear the newer A request pending marker', async () => {
+ const c=setup();c.props.groupId='eight';c.render();c.props.groupId='travel';c.render();
+ await c.reply(0);c.ui.focus();assert.equal(c.requests.length,3);
+ await c.reply(1,'eight');c.ui.focus();assert.equal(c.requests.length,3);
+ await c.reply(2,'travel',[{id:'latest',name:'Latest Travel',profile_photo:null,role:'member'}]);
+ assert.match(text(c.render()),/Latest Travel/);assert.doesNotMatch(text(c.render()),/Jimmy Person/);
+});

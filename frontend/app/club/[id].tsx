@@ -1,6 +1,6 @@
 import React, { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
-import { Redirect, useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
+import { Redirect, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import axios from 'axios';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../contexts/AuthContext';
@@ -78,7 +78,7 @@ export default function ClubHome() {
             <Text>Outstanding: {money('outstanding')}</Text><Text>Awaiting Confirmation: {money('awaiting_confirmation')}</Text>
           </>}
         </View>
-        {entry('Members', memberDetail)}
+        {entry('Members', () => router.push({ pathname: '/club/[id]/members', params: { id: data.club.id, from: params.from || 'member' } } as unknown as Href))}
         {entry('My Contributions', memberDetail)}
         {entry('Payments and Proofs', () => router.push({ pathname: '/(member)/proofs', params: { group_id: data.club.id, month: String(data.period.month), year: String(data.period.year), contribution_id: '' } }))}
         {entry('Payouts and Claims', () => router.push('/(member)/claims'))}

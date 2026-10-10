@@ -16,7 +16,7 @@ export default function ClubMemberDirectory({ groupId, search = '', renderDetail
   const context = `${user?.id}:${token}:${groupId}`;
   const latest = useRef(context); latest.current = context;
   const sequence = useRef(0);
-  const pending = useRef<string | null>(null);
+  const pending = useRef<{ context: string; ticket: number } | null>(null);
   const [owner, setOwner] = useState<string | null>(null);
   const [members, setMembers] = useState<DirectoryMember[]>([]);
   const [loading, setLoading] = useState(false);
@@ -25,9 +25,9 @@ export default function ClubMemberDirectory({ groupId, search = '', renderDetail
   const [photo, setPhoto] = useState<DirectoryMember | null>(null);
   const [selectionOwner, setSelectionOwner] = useState<string | null>(null);
   const fetchDirectory = useCallback(async () => {
-    if (!user?.id || !token || !groupId || pending.current === context) return;
+    if (!user?.id || !token || !groupId || pending.current?.context === context) return;
     const ticket = ++sequence.current;
-    pending.current = context;
+    pending.current = { context, ticket };
     setLoading(true); setError(null); setProfile(null); setPhoto(null);
     try {
       const response = await axios.get(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api/groups/${groupId}/directory`, {
@@ -45,7 +45,7 @@ export default function ClubMemberDirectory({ groupId, search = '', renderDetail
       if (latest.current !== context || ticket !== sequence.current) return;
       setMembers([]); setOwner(context); setError('Unable to load club members. Please try again.');
     } finally {
-      if (pending.current === context) pending.current = null;
+      if (pending.current?.ticket === ticket) pending.current = null;
       if (latest.current === context && ticket === sequence.current) setLoading(false);
     }
   }, [context, groupId, user?.id, token]);
