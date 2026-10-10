@@ -147,13 +147,8 @@ export default function AuthScreen() {
     setLoading(true);
     try {
       // Send only phone_number and password - no role
-      const result = await login(phoneNumber, password);
-      
-      if (result.roles.includes('admin') || result.roles.includes('treasurer')) {
-  router.replace('/(treasurer)/dashboard');
-} else {
-  router.replace('/(member)/home');
-}
+      await login(phoneNumber, password);
+      router.replace('/(member)/home');
       
     } catch (error: any) {
       if (error.message.includes('Invalid phone number or password')) {
