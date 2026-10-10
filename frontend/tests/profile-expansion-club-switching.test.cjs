@@ -45,3 +45,11 @@ test('Members focus refresh keeps manually selected Eighty8 rather than restorin
  const c=setup({groupId:'travel'});await c.ready();c.select('Eighty8');c.requests.at(-1).resolve({data:{members:[member('Eight Member')]}});await tick();c.render();c.ui.blur();c.ui.focus();
  c.requests.at(-1).resolve({data:{clubs:[{id:'travel',name:'WeTraveling'},{id:'eight',name:'Eighty8'}]}});await tick();c.render();assert.match(c.requests.at(-1).url,/club\/eight\?/);
 });
+
+test('Members WeTraveling → Eighty8 → WeTraveling rejects both older clubs responses',async()=>{
+ const c=setup();await c.ready();const firstTravel=c.requests[1];c.select('Eighty8');const eight=c.requests[2];c.select('WeTraveling');const latestTravel=c.requests[3];
+ latestTravel.resolve({data:{members:[member('Current Travel Member')]}});await tick();c.render();
+ eight.resolve({data:{members:[member('Wrong Eight Member')]}});firstTravel.resolve({data:{members:[member('Stale Travel Member')]}});await tick();
+ assert.match(text(c.render()),/Current Travel Member/);assert.doesNotMatch(text(c.render()),/Wrong Eight Member|Stale Travel Member/);
+ for(const request of [firstTravel,eight,latestTravel])assert.equal(request.options.headers.Authorization,'Bearer signed');
+});

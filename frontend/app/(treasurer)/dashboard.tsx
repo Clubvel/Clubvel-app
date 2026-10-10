@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Linking, Alert, Modal, Image, TextInput, KeyboardAvoidingView, Platform, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
@@ -54,10 +54,10 @@ export default function AdminDashboardScreen() {
   const [photoExpanded, setPhotoExpanded] = useState(false);
   const dashboardScroll = useRef<ScrollView>(null);
   const clubsOffset = useRef(0);
-  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
-  const [dashboardCountAvailable, setDashboardCountAvailable] = useState(false);
-  const [loading, setLoading] = useState(true);
-  const [dashboardError, setDashboardError] = useState<string | null>(null);
+  const [storedDashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [storedCountAvailable, setDashboardCountAvailable] = useState(false);
+  const [storedLoading, setLoading] = useState(true);
+  const [storedDashboardError, setDashboardError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -74,6 +74,28 @@ export default function AdminDashboardScreen() {
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
   const reminderInFlight = useRef(false);
 
+  const sessionKey = JSON.stringify([API_URL, user?.id, token]);
+  const latestSession = useRef(sessionKey);
+  latestSession.current = sessionKey;
+  const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
+  const [errorOwner, setErrorOwner] = useState<string | null>(null);
+  const dashboardData = dashboardOwner === sessionKey ? storedDashboardData : null;
+  const dashboardError = errorOwner === sessionKey ? storedDashboardError : null;
+  const loading = storedLoading || (!dashboardData && !dashboardError);
+  const dashboardCountAvailable = dashboardData !== null && storedCountAvailable;
+  useEffect(() => {
+    setDashboardData(null);
+    setDashboardOwner(null);
+    setDashboardError(null);
+    setErrorOwner(null);
+    setLoading(true);
+    setRefreshing(false);
+    setDashboardCountAvailable(false);
+    setShowProfileMenu(false);
+    setShowDeleteModal(false);
+    setShowCreateClubModal(false);
+    setPhotoExpanded(false);
+  }, [sessionKey]);
   const dashboardRequest = useRef(0);
   const dashboardInFlight = useRef<{ key: string; promise: Promise<void> } | null>(null);
   const fetchDashboard = useCallback((force = false) => {
@@ -87,17 +109,17 @@ export default function AdminDashboardScreen() {
         const response = await axios.get(`${API_URL}/api/admin/dashboard/${user.id}`, {
           headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
         });
-        if (request !== dashboardRequest.current) return;
-        setDashboardData(response.data);
+        if (request !== dashboardRequest.current || latestSession.current !== key) return;
+        setDashboardData(response.data); setDashboardOwner(key);
         const count = response.data?.summary?.total_clubs;
         setDashboardCountAvailable(Number.isInteger(count) && count >= 0);
       } catch (error) {
-        if (request !== dashboardRequest.current) return;
+        if (request !== dashboardRequest.current || latestSession.current !== key) return;
         setDashboardCountAvailable(false);
-        setDashboardError('Could not refresh your dashboard.');
+        setDashboardError('Could not refresh your dashboard.'); setErrorOwner(key);
         console.error('Error fetching admin dashboard:', error);
       } finally {
-        if (request === dashboardRequest.current) {
+        if (request === dashboardRequest.current && latestSession.current === key) {
           setLoading(false); setRefreshing(false); dashboardInFlight.current = null;
         }
       }

@@ -1,4 +1,4 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image, TextInput, Platform, KeyboardAvoidingView } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
@@ -54,9 +54,9 @@ export default function MemberHomeScreen() {
   const [photoExpanded, setPhotoExpanded] = useState(false);
   const dashboardScroll = useRef<ScrollView>(null);
   const clubsOffset = useRef(0);
-  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
-  const [dashboardError, setDashboardError] = useState<string | null>(null);
+  const [storedDashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [storedLoading, setLoading] = useState(true);
+  const [storedDashboardError, setDashboardError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -67,13 +67,45 @@ export default function MemberHomeScreen() {
   const [groupType, setGroupType] = useState('savings');
   const [monthlyContribution, setMonthlyContribution] = useState('');
   const [paymentDueDate, setPaymentDueDate] = useState('25');
-  const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([]);
+  const [storedInvitations, setStoredInvitations] = useState<PendingInvitation[]>([]);
   const [acceptingInvitation, setAcceptingInvitation] = useState<string | null>(null);
   const [showInvitations, setShowInvitations] = useState(false);
   const [invitationsLoading, setInvitationsLoading] = useState(false);
   const [invitationsError, setInvitationsError] = useState<string | null>(null);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+  const sessionKey = JSON.stringify([API_URL, user?.id, token]);
+  const latestSession = useRef(sessionKey);
+  latestSession.current = sessionKey;
+  const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
+  const [errorOwner, setErrorOwner] = useState<string | null>(null);
+  const dashboardData = dashboardOwner === sessionKey ? storedDashboardData : null;
+  const dashboardError = errorOwner === sessionKey ? storedDashboardError : null;
+  const loading = storedLoading || (!dashboardData && !dashboardError);
+  const [invitationOwner, setInvitationOwner] = useState<string | null>(null);
+  const pendingInvitations = invitationOwner === sessionKey ? storedInvitations : [];
+  const setPendingInvitations = useCallback((invitations: PendingInvitation[]) => {
+    setStoredInvitations(invitations);
+    setInvitationOwner(sessionKey);
+  }, [sessionKey]);
+  useEffect(() => {
+    setDashboardData(null);
+    setDashboardOwner(null);
+    setDashboardError(null);
+    setErrorOwner(null);
+    setLoading(true);
+    setRefreshing(false);
+    setStoredInvitations([]);
+    setInvitationOwner(null);
+    setShowInvitations(false);
+    setInvitationsError(null);
+    setInvitationsLoading(false);
+    setAcceptingInvitation(null);
+    setShowProfileMenu(false);
+    setShowDeleteModal(false);
+    setShowCreateGroup(false);
+    setPhotoExpanded(false);
+  }, [sessionKey]);
   const dashboardRequest = useRef(0);
   const dashboardInFlight = useRef<{ key: string; promise: Promise<void> } | null>(null);
 
@@ -163,27 +195,27 @@ export default function MemberHomeScreen() {
         const invitationsPromise = axios.get(`${API_URL}/api/invitations/pending/${user.id}`, {
           headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
         }).then(response => {
-          if (request === dashboardRequest.current) setPendingInvitations(response.data.invitations || []);
+          if (request === dashboardRequest.current && latestSession.current === key) setPendingInvitations(response.data.invitations || []);
         }).catch(() => {
-          if (request === dashboardRequest.current) setInvitationsError('Could not refresh invitations. Open invitations to retry.');
+          if (request === dashboardRequest.current && latestSession.current === key) setInvitationsError('Could not refresh invitations. Open invitations to retry.');
         });
         try {
           const response = await dashboardPromise;
-          if (request === dashboardRequest.current) setDashboardData(response.data);
+          if (request === dashboardRequest.current && latestSession.current === key) { setDashboardData(response.data); setDashboardOwner(key); }
         } catch (error) {
-          if (request === dashboardRequest.current) setDashboardError('Could not refresh your dashboard.');
+          if (request === dashboardRequest.current && latestSession.current === key) { setDashboardError('Could not refresh your dashboard.'); setErrorOwner(key); }
           console.error('Error fetching dashboard:', error);
         } finally {
-          if (request === dashboardRequest.current) { setLoading(false); setRefreshing(false); }
+          if (request === dashboardRequest.current && latestSession.current === key) { setLoading(false); setRefreshing(false); }
         }
         await invitationsPromise;
       } finally {
-        if (request === dashboardRequest.current) dashboardInFlight.current = null;
+        if (request === dashboardRequest.current && latestSession.current === key) dashboardInFlight.current = null;
       }
     })();
     dashboardInFlight.current = { key, promise };
     return promise;
-  }, [API_URL, user?.id, token]);
+  }, [API_URL, user?.id, token, setPendingInvitations]);
 
   useFocusEffect(useCallback(() => {
     void fetchDashboard();
@@ -277,6 +309,8 @@ export default function MemberHomeScreen() {
   };
 
   const openInvitations = async () => {
+    if (!user?.id || !token) return;
+    const key = sessionKey;
     const request = dashboardRequest.current;
     setShowInvitations(true);
     setInvitationsLoading(true);
@@ -285,11 +319,11 @@ export default function MemberHomeScreen() {
       const response = await axios.get(`${API_URL}/api/invitations/pending/${user?.id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (request === dashboardRequest.current) setPendingInvitations(response.data.invitations || []);
+      if (request === dashboardRequest.current && latestSession.current === key) setPendingInvitations(response.data.invitations || []);
     } catch (error: any) {
-      setInvitationsError(error.response?.data?.detail || 'Could not load invitations. Please try again.');
+      if (latestSession.current === key && request === dashboardRequest.current) setInvitationsError(error.response?.data?.detail || 'Could not load invitations. Please try again.');
     } finally {
-      setInvitationsLoading(false);
+      if (latestSession.current === key && request === dashboardRequest.current) setInvitationsLoading(false);
     }
   };
 

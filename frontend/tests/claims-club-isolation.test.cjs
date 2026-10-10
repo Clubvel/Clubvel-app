@@ -5,7 +5,8 @@ function setup(params={}) {
  const Screen=load('app/(treasurer)/claims.tsx',{react:ui.react,'react-native':{...native,TextInput:'TextInput',Platform:{OS:'android'}},'expo-router':{useFocusEffect:ui.useFocusEffect,useRouter:()=>({push(){}}),useLocalSearchParams:()=>params},'../../contexts/AuthContext':{useAuth:()=>({user:{id:'admin'},token:'signed'})},'../../components/ProfilePhotoViewer':{default:'ProfilePhotoViewer'},'../../components/ClaimPaymentRecord':{ClaimPaymentRecord:'ClaimPaymentRecord'},'../../components/ClaimPayoutDate':{ClaimPayoutDate:'ClaimPayoutDate'},'../../components/AdBanner':{AdBanner:'AdBanner'},'../../constants/Colors':{Colors:colors},'@expo/vector-icons':{Ionicons:'Icon'},axios:{get:(url,options)=>new Promise((resolve,reject)=>requests.push({url,options,resolve,reject}))}}).default;
  const render=()=>ui.render(Screen);render();
  const ready=async()=>{requests[0].resolve({data:{clubs:[{id:'travel',name:'WeTraveling'},{id:'eight',name:'Eighty8'}]}});await tick();render();};
- const select=()=>{button(render(),'WeTraveling').props.onPress();button(render(),'Eighty8').props.onPress();render();};
+ let current='WeTraveling';
+ const select=(name='Eighty8')=>{button(render(),current).props.onPress();button(render(),name).props.onPress();current=name;render();};
  return {ui,requests,render,ready,select};
 }
 const claim=(id,group,name)=>({claim_id:id,group_id:group,member_name:name,amount:100,status:'approved',actual_amount_paid:0});
@@ -23,4 +24,13 @@ test('post-payment callback from a previously selected club cannot refresh that 
 test('Claims focus refresh retains Eighty8 even when the original route requested WeTraveling',async()=>{
  const c=setup({groupId:'travel'});await c.ready();c.select();c.requests[2].resolve({data:{claims:[claim('e','eight','Eight Member')]}});await tick();c.render();c.ui.blur();c.ui.focus();
  const groups=c.requests.findLast(r=>r.url.includes('/dashboard/'));groups.resolve({data:{clubs:[{id:'travel',name:'WeTraveling'},{id:'eight',name:'Eighty8'}]}});await tick();c.render();assert.match(c.requests.at(-1).url,/groups\/eight\/claims/);
+});
+
+test('Claims WeTraveling → Eighty8 → WeTraveling keeps only the latest financial records',async()=>{
+ const c=setup();await c.ready();const firstTravel=c.requests[1];c.select('Eighty8');const eight=c.requests[2];c.select('WeTraveling');const latestTravel=c.requests[3];
+ latestTravel.resolve({data:{claims:[{...claim('current','travel','Current Travel Claim'),amount:375,actual_amount_paid:25}]}});await tick();c.render();
+ eight.resolve({data:{claims:[{...claim('wrong','eight','Wrong Eight Claim'),amount:9999}]}});firstTravel.resolve({data:{claims:[claim('stale','travel','Stale Travel Claim')]}});await tick();
+ const tree=c.render();assert.match(text(tree),/Current Travel Claim/);assert.doesNotMatch(text(tree),/Wrong Eight Claim|Stale Travel Claim/);
+ const payment=nodes(tree).find(n=>n.type==='ClaimPaymentRecord');assert.equal(payment.props.approvedAmount,375);assert.equal(payment.props.actualAmountPaid,25);
+ for(const request of [firstTravel,eight,latestTravel])assert.equal(request.options.headers.Authorization,'Bearer signed');
 });

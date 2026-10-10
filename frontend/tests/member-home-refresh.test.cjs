@@ -3,7 +3,7 @@ const assert = require('node:assert/strict');
 const { load, engine, tick, nodes, text, button, native, colors } = require('./ui-harness.cjs');
 
 function setup(screen = 'member', holdInvitations = false) {
-  const ui = engine(), requests = [], routes = [];
+  const ui = engine(), requests = [], invitations = [], routes = [];
   const auth = { user: { id: 'member', full_name: 'Test Member', first_name: 'Test' }, token: 'session' };
   const Screen = load(screen === 'member' ? 'app/(member)/home.tsx' : 'app/(treasurer)/dashboard.tsx', {
     react: ui.react,
@@ -18,7 +18,7 @@ function setup(screen = 'member', holdInvitations = false) {
     '../../services/paymentReminder': { addPaymentReminder: async () => {} },
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '@react-native-async-storage/async-storage': {},
-    axios: { get: url => url.includes('/invitations/') ? (holdInvitations ? new Promise(() => {}) : Promise.resolve({ data: { invitations: [] } }))
+    axios: { get: url => url.includes('/invitations/') ? (holdInvitations ? new Promise(resolve => invitations.push({url,resolve})) : Promise.resolve({ data: { invitations: [] } }))
       : new Promise(resolve => requests.push({ url, resolve })) },
   }).default;
   const render = () => ui.render(Screen);
@@ -30,7 +30,7 @@ function setup(screen = 'member', holdInvitations = false) {
   };
   const refresh = () => nodes(render()).find(n => n.type === 'ScrollView').props.refreshControl.props.onRefresh();
   render();
-  return { ui, render, requests, routes, respond, refresh };
+  return { ui, auth, render, requests, invitations, routes, respond, refresh };
 }
 
 test('initial Home load uses the existing dashboard endpoint once', async () => {
@@ -174,4 +174,37 @@ test('both Homes retain real identity and menu while initial requests are pendin
   const c=setup(role);assert.ok(nodes(c.render()).some(n=>n.props?.accessibilityLabel==='Open profile menu'));
   assert.ok(nodes(c.render()).some(n=>n.type==='ActivityIndicator'));
  }
+});
+
+for (const role of ['member', 'admin']) {
+ test(`${role} Home hides the prior account snapshot immediately and accepts only the new account response`, async () => {
+  const c=setup(role); await c.respond(0,'WeTraveling'); assert.match(text(c.render()),/WeTraveling/);
+  c.auth.user={id:'other',full_name:'Other Member'}; c.auth.token='other-session';
+  assert.doesNotMatch(text(c.render()),/WeTraveling/); assert.equal(c.requests.length,2);
+  await c.respond(1,'Eighty8'); assert.match(text(c.render()),/Eighty8/);
+ });
+ test(`${role} Home rejects an old response after logout even without a replacement request`, async () => {
+  const c=setup(role); c.auth.user=null; c.auth.token=null; c.render();
+  await c.respond(0,'Old Account Club'); assert.doesNotMatch(text(c.render()),/Old Account Club/);
+ });
+ test(`${role} Home rejects old-session responses during account switching and keeps current-session background data`, async () => {
+  const c=setup(role); await c.respond(0,'WeTraveling'); c.render(); c.refresh();
+  assert.match(text(c.render()),/WeTraveling/);
+  c.auth.token='new-session'; assert.doesNotMatch(text(c.render()),/WeTraveling/);
+  await c.respond(2,'Eighty8'); await c.respond(1,'Old Account Club');
+  assert.match(text(c.render()),/Eighty8/); assert.doesNotMatch(text(c.render()),/Old Account Club/);
+ });
+}
+
+test('Member Home never carries pending invitations into another account',async()=>{
+ const c=setup('member',true);await c.respond(0,'WeTraveling');
+ c.invitations[0].resolve({data:{invitations:[{id:'private-invite',group_id:'private-group',group_name:'Private Old Account Club',expires_at:'2099-01-01'}]}});await tick();
+ assert.match(text(c.render()),/Private Old Account Club/);
+ c.auth.user={id:'other',full_name:'Other Account'};c.auth.token='other-session';assert.doesNotMatch(text(c.render()),/Private Old Account Club/);
+ await c.respond(1,'Eighty8');assert.doesNotMatch(text(c.render()),/Private Old Account Club/);
+});
+test('Member Home ignores late invitations belonging to a logged-out session',async()=>{
+ const c=setup('member',true);c.auth.user=null;c.auth.token=null;c.render();
+ c.invitations[0].resolve({data:{invitations:[{id:'old',group_name:'Wrong Session Invitation',expires_at:'2099-01-01'}]}});await tick();
+ assert.doesNotMatch(text(c.render()),/Wrong Session Invitation/);
 });
