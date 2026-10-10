@@ -10,6 +10,7 @@ from slowapi.errors import RateLimitExceeded
 import os
 import logging
 import math
+import unicodedata
 from decimal import Decimal
 from pathlib import Path
 from pydantic import BaseModel, Field
@@ -2032,6 +2033,32 @@ async def get_group_details(group_id: str, user_id: str, authorization: str | No
 
 
 # ==================== MEMBER ROUTES ====================
+
+class PersonalProfileUpdate(BaseModel):
+    full_name: str
+
+    model_config = {'extra': 'forbid'}
+
+
+@api_router.put("/user/profile")
+async def update_personal_profile(data: PersonalProfileUpdate, authorization: Optional[str] = Header(None)):
+    """Update only the authenticated person's display name, never identity or roles."""
+    actor = authenticated_user_id(authorization)
+    name = ' '.join(data.full_name.split())
+    if not 2 <= len(name) <= 100 or not any(character.isalpha() for character in name):
+        raise HTTPException(status_code=422, detail="Enter a name between 2 and 100 characters")
+    if any(ord(character) < 32 for character in data.full_name):
+        raise HTTPException(status_code=422, detail="Name must not contain control characters")
+    if not all(unicodedata.category(character)[0] in ('L', 'M') or character in " '-.‘’" for character in name):
+        raise HTTPException(status_code=422, detail="Use letters, spaces, apostrophes, periods or hyphens in your name")
+    user = await db.users.find_one({"id": actor, "status": {"$ne": "inactive"}})
+    if not user:
+        raise HTTPException(status_code=404, detail="Active user not found")
+    result = await db.users.update_one({"id": actor, "status": {"$ne": "inactive"}}, {"$set": {"full_name": name}})
+    if not result.matched_count:
+        raise HTTPException(status_code=404, detail="Active user not found")
+    return {"full_name": name}
+
 
 class ProfilePhotoUpdate(BaseModel):
     user_id: str
