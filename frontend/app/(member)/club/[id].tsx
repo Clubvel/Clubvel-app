@@ -1,7 +1,7 @@
 import ClubMemberDirectory from '../../../components/ClubMemberDirectory';
 import { paymentStateLabel, paymentMoney } from '../../../services/paymentSummaryRecords';
 import React, { useCallback, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, Alert, Platform } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, Alert, Platform, BackHandler } from 'react-native';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../../contexts/AuthContext';
 import { StatusPill } from '../../../components/StatusPill';
@@ -55,8 +55,11 @@ interface ClubDetails {
 }
 
 export default function ClubDetailScreen() {
-  const params = useLocalSearchParams<{ id?: string | string[]; month?: string; year?: string; contribution_id?: string }>();
+  const params = useLocalSearchParams<{ id?: string | string[]; month?: string; year?: string; contribution_id?: string; scope?: string; from?: string }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
+  const routeKey = JSON.stringify([id, params.month, params.year, params.contribution_id]);
+  const [appliedRoute, setAppliedRoute] = useState(routeKey);
+  const invalidPeriod = !!(params.month || params.year) && !(Number.isInteger(Number(params.month)) && Number(params.month) >= 1 && Number(params.month) <= 12 && Number.isInteger(Number(params.year)) && Number(params.year) >= 1 && Number(params.year) <= 9999);
   const { user, token } = useAuth();
   const router = useRouter();
   const [clubData, setClubData] = useState<ClubDetails | null>(null);
@@ -72,21 +75,34 @@ export default function ClubDetailScreen() {
 
   const clubRequest = useRef<{ key: string; sequence: number } | null>(null);
   const clubSequence = useRef(0);
-  const requestContext = `${id}:${user?.id}:${token}:${period.year}:${period.month}`;
+  const requestContext = `${id}:${user?.id}:${token}:${period.year}:${period.month}:${params.month || ""}:${params.year || ""}`;
   const latestContext = useRef(requestContext);
   latestContext.current = requestContext;
   const latestSelection = useRef(selectedContributionId);
   latestSelection.current = selectedContributionId;
+  const screenActive = useRef(true);
+  const actionTicket = useRef(0);
+  const uploadPending = useRef(false);
+  const actionOwner = `${requestContext}:${selectedContributionId}:${params.contribution_id || ""}`;
+  const previousAction = useRef(actionOwner);
+  if (previousAction.current !== actionOwner) {
+    previousAction.current = actionOwner;
+    ++actionTicket.current;
+    uploadPending.current = false;
+  }
+  React.useEffect(() => { setUploading(false); setDeletingProof(false); }, [actionOwner]);
   React.useEffect(() => {
+    setAppliedRoute(routeKey);
     setSelectedContributionId(params.contribution_id || null);
     if (Number(params.month) >= 1 && Number(params.month) <= 12 && Number(params.year) >= 1 && Number(params.year) <= 9999) {
       setPeriod(current => current.month === Number(params.month) && current.year === Number(params.year) ? current : { month: Number(params.month), year: Number(params.year) });
     }
-  }, [id, params.month, params.year, params.contribution_id]);
+  }, [id, params.month, params.year, params.contribution_id, routeKey]);
 
   const fetchClubDetails = useCallback(async (force = false) => {
-    if (!id || !user?.id || !token) { setLoading(false); setClubData(null); setError('Unable to open this club. Please sign in again.'); return; }
-    const key = `${id}:${user?.id}:${token}:${period.year}:${period.month}`;
+    if (appliedRoute !== routeKey) return;
+    if (invalidPeriod || !id || !user?.id || !token) { setLoading(false); setClubData(null); setError(invalidPeriod ? 'Invalid contribution period.' : 'Unable to open this club. Please sign in again.'); return; }
+    const key = requestContext;
     if (!force && clubRequest.current?.key === key) return;
     const sequence = ++clubSequence.current;
     clubRequest.current = { key, sequence };
@@ -104,9 +120,9 @@ export default function ClubDetailScreen() {
           data.payment_history.some((payment: any) => !payment || typeof payment.amount !== 'number' || !Number.isFinite(payment.amount))) {
         throw new Error('Invalid club response');
       }
-      if (sequence === clubSequence.current && latestContext.current === key) { setClubData(data); setLoadedContext(key); }
+      if (screenActive.current && sequence === clubSequence.current && latestContext.current === key) { setClubData(data); setLoadedContext(key); }
     } catch (error: any) {
-      if (sequence !== clubSequence.current || latestContext.current !== key) return;
+      if (!screenActive.current || sequence !== clubSequence.current || latestContext.current !== key) return;
       setClubData(null);
       setError(error.response?.status === 403 ? 'You no longer have access to this club.' : 'Unable to load this club. Please try again.');
     } finally {
@@ -115,111 +131,103 @@ export default function ClubDetailScreen() {
         setLoading(false);
       }
     }
-  }, [API_URL, id, user?.id, token, period]);
+  }, [API_URL, id, user?.id, token, period, invalidPeriod, requestContext, appliedRoute, routeKey]);
 
   useFocusEffect(useCallback(() => {
+    screenActive.current = true;
     void fetchClubDetails();
+    return () => {
+      screenActive.current = false;
+      ++actionTicket.current;
+      uploadPending.current = false;
+      setUploading(false);
+      setDeletingProof(false);
+    };
   }, [fetchClubDetails]));
 
-  const selectedContribution = clubData?.contributions?.find(row => row.contribution_id === selectedContributionId) || clubData?.contributions?.[0];
-  const displayedClub = clubData && selectedContribution ? { ...clubData, current_contribution: { ...selectedContribution, id: selectedContribution.contribution_id } } : clubData;
+  const matchingContributions = clubData?.contributions?.filter(row => row.contribution_id === selectedContributionId);
+  const selectedContribution = selectedContributionId ? matchingContributions?.length === 1 ? matchingContributions[0] : undefined : clubData?.contributions?.length === 1 ? clubData.contributions[0] : undefined;
+  const displayedClub = clubData?.contributions ? { ...clubData, current_contribution: selectedContribution ? { ...selectedContribution, id: selectedContribution.contribution_id } : null } : selectedContributionId && clubData?.current_contribution?.id !== selectedContributionId ? { ...clubData, current_contribution: null } : clubData;
+
+  const back = () => params.scope === 'club' ? router.replace({ pathname: '/club/[id]', params: { id: id || '', month: String(period.month), year: String(period.year), contribution_id: selectedContributionId || '', from: params.from || 'member' } }) : router.back();
+  useFocusEffect(useCallback(() => {
+    if (params.scope !== 'club') return;
+    const subscription = BackHandler?.addEventListener('hardwareBackPress', () => {
+      router.replace({ pathname: '/club/[id]', params: { id: id || '', month: String(period.month), year: String(period.year), contribution_id: selectedContributionId || '', from: params.from || 'member' } });
+      return true;
+    });
+    return () => subscription?.remove();
+  }, [router, params.scope, params.from, id, period.month, period.year, selectedContributionId]));
 
   const handleDeleteProof = () => {
     const contribution = displayedClub?.current_contribution;
-    if (!contribution || !token || deletingProof) return;
+    if (!screenActive.current || latestContext.current !== requestContext || previousAction.current !== actionOwner || !contribution || !token || deletingProof) return;
     const actionContext = requestContext;
     const selection = selectedContributionId;
+    const dialogTicket = actionTicket.current;
     Alert.alert('Delete Pending Proof', 'Remove this proof? Your contribution will remain unpaid.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
-        if (latestContext.current !== actionContext || latestSelection.current !== selection) return;
+        if (!screenActive.current || latestContext.current !== actionContext || latestSelection.current !== selection || actionTicket.current !== dialogTicket || uploadPending.current) return;
+        const ticket = ++actionTicket.current;
+        uploadPending.current = true;
         setDeletingProof(true);
         try {
           await axios.delete(`${API_URL}/api/contributions/${contribution.id}/proof`, {
             data: { proof_version: contribution.proof_version },
             headers: { Authorization: `Bearer ${token}` }
           });
-          await fetchClubDetails(true);
+          if (screenActive.current && latestContext.current === actionContext && latestSelection.current === selection && actionTicket.current === ticket) await fetchClubDetails(true);
         } catch (error: any) {
-          if (latestContext.current !== actionContext) return;
+          if (!screenActive.current || latestContext.current !== actionContext || latestSelection.current !== selection || actionTicket.current !== ticket) return;
           Alert.alert('Error', error.response?.data?.detail || 'Failed to delete pending proof');
         } finally {
-          setDeletingProof(false);
+          if (screenActive.current && latestContext.current === actionContext && latestSelection.current === selection && actionTicket.current === ticket) { uploadPending.current = false; setDeletingProof(false); }
         }
       } }
     ]);
   };
 
   const handleUploadProof = async () => {
-    if (!clubData?.current_contribution || !token || uploading) return;
+    if (latestContext.current !== requestContext || previousAction.current !== actionOwner || !screenActive.current || !displayedClub?.current_contribution || !user?.id || !token || uploadPending.current) return;
     if (selectedContribution?.historical_only || selectedContribution?.proof_eligible === false) return;
-    const uploadContext = requestContext;
-    const target = displayedClub?.current_contribution;
-    const reference = selectedContribution?.payment_reference || clubData.payment_reference.reference_code;
-    const actor = user?.id;
+    const owner = actionOwner;
+    const ticket = ++actionTicket.current;
+    const current = () => screenActive.current && previousAction.current === owner && actionTicket.current === ticket;
+    const target = displayedClub.current_contribution;
+    const reference = selectedContribution?.payment_reference || clubData?.payment_reference.reference_code;
+    const actor = user.id;
     const sessionToken = token;
-    const result = await DocumentPicker.getDocumentAsync({
-      type: ['application/pdf', 'image/*'],
-      copyToCacheDirectory: true,
-      multiple: false,
-    });
-
-    if (result.canceled || !result.assets[0]) {
-      return;
-    }
-
-    const asset = result.assets[0];
-
-    if (asset.size && asset.size > 5 * 1024 * 1024) {
-      Alert.alert('File Too Large', 'Please select a proof of payment smaller than 5 MB.');
-      return;
-    }
-
-    const mimeType =
-      asset.mimeType ||
-      (asset.name?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
-
-    const base64 = await FileSystem.readAsStringAsync(asset.uri, {
-      encoding: FileSystem.EncodingType.Base64,
-    });
-
-    if (latestContext.current !== uploadContext || !target || latestSelection.current !== selectedContributionId) return;
-    const proofData = `data:${mimeType};base64,${base64}`;
-
-    setUploading(true);
-
+    uploadPending.current = true;
     try {
-      await axios.post(`${API_URL}/api/contributions/upload-proof`, {
-        contribution_id: target.id,
-        proof_image: proofData,
-        proof_mime_type: mimeType,
-        proof_file_name: asset.name || null,
-        reference_number: reference,
-        user_id: actor,
-      }, { headers: { Authorization: `Bearer ${sessionToken}` } });
-
-      if (latestContext.current !== uploadContext) return;
-      Alert.alert(
-        'Success',
-        'Proof of payment uploaded successfully! Your treasurer will confirm shortly.'
-      );
-      fetchClubDetails(true);
+      const result = await DocumentPicker.getDocumentAsync({ type: ['application/pdf', 'image/*'], copyToCacheDirectory: true, multiple: false });
+      if (!current() || result.canceled || !result.assets[0]) return;
+      const asset = result.assets[0];
+      if (asset.size && asset.size > 5 * 1024 * 1024) {
+        Alert.alert('File Too Large', 'Please select a proof of payment smaller than 5 MB.');
+        return;
+      }
+      const mimeType = asset.mimeType || (asset.name?.toLowerCase().endsWith('.pdf') ? 'application/pdf' : 'image/jpeg');
+      const base64 = await FileSystem.readAsStringAsync(asset.uri, { encoding: FileSystem.EncodingType.Base64 });
+      if (!current()) return;
+      setUploading(true);
+      await axios.post(`${API_URL}/api/contributions/upload-proof`, { contribution_id: target.id, proof_image: `data:${mimeType};base64,${base64}`, proof_mime_type: mimeType, proof_file_name: asset.name || null, reference_number: reference, user_id: actor }, { headers: { Authorization: `Bearer ${sessionToken}` } });
+      if (!current()) return;
+      Alert.alert('Success', 'Proof of payment uploaded successfully! Your treasurer will confirm shortly.');
+      await fetchClubDetails(true);
     } catch (error: any) {
-      if (latestContext.current !== uploadContext) return;
-      Alert.alert(
-        'Error',
-        error.response?.data?.detail || 'Failed to upload proof of payment'
-      );
+      if (!current()) return;
+      Alert.alert('Error', error.response?.data?.detail || 'Failed to upload proof of payment. Retry proof upload only.');
     } finally {
-      setUploading(false);
+      if (current()) { uploadPending.current = false; setUploading(false); }
     }
   };
 
-  if (!clubData || clubData.group.id !== id || loadedContext !== requestContext) {
+  if (appliedRoute !== routeKey || !clubData || clubData.group.id !== id || loadedContext !== requestContext) {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
-          <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+          <TouchableOpacity onPress={back} style={styles.backButton}>
             <Ionicons name="arrow-back" size={24} color={Colors.white} />
           </TouchableOpacity>
           <Text style={styles.headerTitle}>Club</Text>
@@ -242,7 +250,7 @@ export default function ClubDetailScreen() {
     <View style={styles.container}>
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.back()} style={styles.backButton}>
+        <TouchableOpacity onPress={back} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={Colors.white} />
         </TouchableOpacity>
         <Text style={styles.headerTitle}>{clubData.group.name}</Text>
@@ -250,8 +258,8 @@ export default function ClubDetailScreen() {
       </View>
 
       <ScrollView>
-        <ClubMemberDirectory groupId={id} />
-        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open club payments" onPress={() => router.push({ pathname: "/(member)/proofs", params: { group_id: id, month: String(period.month), year: String(period.year), contribution_id: selectedContribution?.contribution_id || "" } })}><Text>Payments and contribution records</Text></TouchableOpacity>
+        {params.scope !== 'club' && <ClubMemberDirectory groupId={id} />}
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open club payments" onPress={() => router.push({ pathname: "/(member)/proofs", params: { group_id: id, month: String(period.month), year: String(period.year), contribution_id: selectedContribution?.contribution_id || selectedContributionId || "", scope: params.scope, from: params.from } })}><Text>Payments and contribution records</Text></TouchableOpacity>
         <View style={styles.cardHeader}>
           <TouchableOpacity accessibilityLabel="Previous contribution month" onPress={() => { const d = new Date(period.year, period.month - 2, 1); setSelectedContributionId(null); setPeriod({ year: d.getFullYear(), month: d.getMonth() + 1 }); }}><Text>‹</Text></TouchableOpacity>
           <Text>{getMonthName(period.month)} {period.year}</Text>
@@ -324,7 +332,7 @@ export default function ClubDetailScreen() {
                 </Text>
               </TouchableOpacity>
             )}
-            </> : <Text style={styles.infoText}>No contribution recorded for this month.</Text>}
+            </> : <Text style={styles.infoText}>{selectedContributionId ? 'Requested contribution unavailable. Select a recorded contribution.' : (clubData.contributions?.length || 0) > 1 ? 'Select a contribution record.' : 'No contribution recorded for this month.'}</Text>}
           </View>
         </View>
 
@@ -334,7 +342,7 @@ export default function ClubDetailScreen() {
           <View style={[styles.card, styles.referenceCard]}>
             <View style={styles.referenceCodeContainer}>
               <Text style={styles.referenceLabel}>Reference Code</Text>
-              <Text style={styles.referenceCode}>{selectedContribution?.payment_reference || clubData.payment_reference.reference_code || 'Not available'}</Text>
+              <Text style={styles.referenceCode}>{selectedContribution?.payment_reference || clubData?.payment_reference.reference_code || 'Not available'}</Text>
             </View>
 
             <View style={styles.divider} />

@@ -18,10 +18,10 @@ type Context = {
 
 export default function ClubHome() {
   const { user, token, loading: restoring } = useAuth();
-  const params = useLocalSearchParams<{ id: string; from?: string }>();
+  const params = useLocalSearchParams<{ id: string; from?: string; month?: string; year?: string; contribution_id?: string }>();
   const router = useRouter();
   const insets = useSafeAreaInsets();
-  const key = JSON.stringify([user?.id, token, params.id]);
+  const key = JSON.stringify([user?.id, token, params.id, params.month, params.year]);
   const latest = useRef(key); latest.current = key;
   const sequence = useRef(0);
   const pending = useRef<{ key: string; ticket: number } | null>(null);
@@ -34,7 +34,7 @@ export default function ClubHome() {
     setRefreshing(true);
     try {
       const { data } = await axios.get(`${process.env.EXPO_PUBLIC_BACKEND_URL}/api/groups/${params.id}/context`, {
-        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+        params: { month: params.month, year: params.year }, headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
       });
       if (latest.current !== key || sequence.current !== ticket) return;
       if (data?.club?.id !== params.id || typeof data.club.name !== 'string' || data.membership?.status !== 'active' ||
@@ -48,7 +48,7 @@ export default function ClubHome() {
       if (pending.current?.ticket === ticket) pending.current = null;
       if (latest.current === key && sequence.current === ticket) setRefreshing(false);
     }
-  }, [key, params.id, user?.id, token]);
+  }, [key, params.id, params.month, params.year, user?.id, token]);
   useFocusEffect(useCallback(() => {
     void load();
     return () => { ++sequence.current; pending.current = null; };
@@ -58,12 +58,12 @@ export default function ClubHome() {
   const data = current?.data;
   const admin = data?.membership.role === 'admin' || data?.membership.role === 'treasurer';
   const back = () => router.replace(params.from === 'admin' ? '/(treasurer)/dashboard' : '/(member)/home');
-  const memberDetail = () => data && router.push({ pathname: '/(member)/club/[id]', params: { id: data.club.id, month: String(data.period.month), year: String(data.period.year) } });
+  const memberDetail = () => data && router.push({ pathname: '/(member)/club/[id]', params: { id: data.club.id, month: String(data.period.month), year: String(data.period.year), contribution_id: params.contribution_id || '', scope: 'club', from: params.from || 'member' } });
   const money = (field: keyof Context['own_financial_summary']) => {
     const value = data?.own_financial_summary[field];
     return data?.availability[field] === 'AVAILABLE' && typeof value === 'number' && Number.isFinite(value) ? `R${value.toFixed(2)}` : 'Unavailable';
   };
-  const entry = (label: string, action: () => void) => <TouchableOpacity key={label} accessibilityRole="button" accessibilityLabel={label} style={styles.entry} onPress={action}><Text style={styles.entryText}>{label}</Text><Text>›</Text></TouchableOpacity>;
+  const entry = (label: string, action: () => void) => <TouchableOpacity key={label} accessibilityRole="button" accessibilityLabel={label} style={styles.entry} onPress={() => { if (latest.current === key) action(); }}><Text style={styles.entryText}>{label}</Text><Text>›</Text></TouchableOpacity>;
   return <View style={styles.screen}>
     <View style={[styles.header, { paddingTop: Math.max(insets.top, 16) }]}><TouchableOpacity accessibilityLabel="Back to account Home" onPress={back}><Text style={styles.back}>‹ Back</Text></TouchableOpacity><Text style={styles.title}>{data?.club.name || 'Club Home'}</Text></View>
     <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 16) + 24 }]}>
@@ -71,7 +71,7 @@ export default function ClubHome() {
       {current?.error && <View><Text>{current.error}</Text>{entry('Retry Club Home', () => void load())}</View>}
       {data && <>
         <Text style={styles.heading}>Switch club</Text>
-        <View style={styles.switcher}>{data.clubs.map(club => <TouchableOpacity key={club.id} accessibilityRole="button" accessibilityLabel={`Open ${club.name}`} onPress={() => { if (club.id !== data.club.id) { ++sequence.current; pending.current = null; setState(null); router.replace({ pathname: '/club/[id]', params: { id: club.id, from: params.from || 'member' } }); } }} style={styles.club}><Text>{club.name}{club.id === data.club.id ? ' ✓' : ''}</Text></TouchableOpacity>)}</View>
+        <View style={styles.switcher}>{data.clubs.map(club => <TouchableOpacity key={club.id} accessibilityRole="button" accessibilityLabel={`Open ${club.name}`} onPress={() => { if (latest.current !== key) return; if (club.id !== data.club.id) { ++sequence.current; pending.current = null; setState(null); router.replace({ pathname: '/club/[id]', params: { id: club.id, from: params.from || 'member' } }); } }} style={styles.club}><Text>{club.name}{club.id === data.club.id ? ' ✓' : ''}</Text></TouchableOpacity>)}</View>
         <View style={styles.card}><Text style={styles.heading}>Your contributions</Text><Text>{data.period.month}/{data.period.year}</Text>
           {data.record_count === 0 ? <Text>No contribution recorded for this month.</Text> : <>
             <Text>Expected: {money('total_expected')}</Text><Text>Confirmed Collected: {money('collected')}</Text>
@@ -80,7 +80,7 @@ export default function ClubHome() {
         </View>
         {entry('Members', () => router.push({ pathname: '/club/[id]/members', params: { id: data.club.id, from: params.from || 'member' } } as unknown as Href))}
         {entry('My Contributions', memberDetail)}
-        {entry('Payments and Proofs', () => router.push({ pathname: '/(member)/proofs', params: { group_id: data.club.id, month: String(data.period.month), year: String(data.period.year), contribution_id: '' } }))}
+        {entry('Payments and Proofs', () => router.push({ pathname: '/(member)/proofs', params: { group_id: data.club.id, month: String(data.period.month), year: String(data.period.year), contribution_id: params.contribution_id || '', scope: 'club', from: params.from || 'member' } }))}
         {entry('Payouts and Claims', () => router.push('/(member)/claims'))}
         <Text style={styles.caption}>Claims currently opens your personal claims across your active clubs.</Text>
         {admin && <><Text style={styles.heading}>Club management</Text>

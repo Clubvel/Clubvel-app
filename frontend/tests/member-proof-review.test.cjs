@@ -50,7 +50,7 @@ async function setup(screen = 'proofs', review = 'declined', approved = false, d
       KeyboardAvoidingView: 'KeyboardAvoidingView', Platform: { OS: 'android' },
       Alert: { alert: (...args) => alerts.push(args) } },
     'expo-router': { useFocusEffect: ui.useFocusEffect, useLocalSearchParams: () => params,
-      useRouter: () => ({ back: () => routes.push('back'), push: route => routes.push(route) }) },
+      useRouter: () => ({ replace: route => routes.push(route), back: () => routes.push('back'), push: route => routes.push(route) }) },
     '../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
     '../../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
     '../../constants/Colors': { Colors: colors }, '../../../constants/Colors': { Colors: colors },
@@ -172,6 +172,8 @@ test('member club ignores an older request after navigating to a different club'
   c.state.get = url => new Promise(resolve => pending.push({ url, resolve }));
   c.ui.blur(); c.ui.focus(); c.render();
   c.params.id = 'group-b'; c.render();
+  // Commit the route-context effect before starting the new club read, as React does.
+  c.render(); assert.equal(pending.length, 2);
   pending[1].resolve({ data: { group: { id: 'group-b', name: 'New Club' }, current_contribution: c.record,
     payment_reference: { amount: 150 }, payment_history: [] } }); await tick(); c.render();
   pending[0].resolve({ data: { group: { id: 'group-a', name: 'Old Club' }, current_contribution: c.record,
@@ -273,7 +275,9 @@ test('member selects distinct monthly contributions and uploads only the selecte
  const second={...c.record,contribution_id:'second',amount_due:200,status:'pending',payment_state:'awaiting_payment',confirmed_amount:0,outstanding_amount:200,proof_uploaded:false,proof_eligible:true};
  c.state.club={group:{id:'group-a',name:'Club A'},current_contribution:{...first,id:'first'},contributions:[first,second],payment_reference:{amount:0,reference_code:'REF'},payment_history:[]};
  c.ui.blur();c.ui.focus();await tick();
- assert.ok(button(c.render(),'Payment Confirmed'));
+ assert.match(text(c.render()),/Select a contribution record/);
+  button(c.render(),'Contribution 1').props.onPress();
+  assert.ok(button(c.render(),'Payment Confirmed'));
  button(c.render(),'Contribution 2').props.onPress();
  assert.match(text(c.render()),/Awaiting Payment/);
  assert.match(text(c.render()),/Outstanding: R200.00/);

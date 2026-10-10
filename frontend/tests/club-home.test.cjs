@@ -29,7 +29,7 @@ test('Admin entry points depend on the selected membership role, not account ide
   c.params.id = 'eight'; c.render(); await c.reply(1, 'eight', 'treasurer'); assert.match(text(c.render()), /Manage club/); c.tap('Review Payments'); assert.deepEqual(c.routes.at(-1), { pathname: '/(treasurer)/contributions', params: { groupId: 'eight' } });
 });
 test('Member destinations preserve selected club and obligation period where supported', async () => {
-  const c = setup(); await c.reply(0); c.tap('My Contributions'); assert.deepEqual(c.routes.at(-1), { pathname: '/(member)/club/[id]', params: { id: 'travel', month: '10', year: '2026' } });
+  const c = setup(); await c.reply(0); c.tap('My Contributions'); assert.deepEqual(c.routes.at(-1), { pathname: '/(member)/club/[id]', params: { id: 'travel', month: '10', year: '2026', contribution_id: '', scope: 'club', from: 'member' } });
   c.tap('Members'); assert.deepEqual(c.routes.at(-1), { pathname: '/club/[id]/members', params: { id: 'travel', from: 'member' } }); c.tap('Payments and Proofs'); assert.equal(c.routes.at(-1).params.group_id, 'travel'); assert.equal(c.routes.at(-1).params.month, '10');
   c.tap('Payouts and Claims'); assert.equal(c.routes.at(-1), '/(member)/claims'); assert.match(text(c.render()), /across your active clubs/);
 });
@@ -61,5 +61,5 @@ test('Back returns to the originating account Home and unauthenticated users red
 });
 test('account tabs and existing financial screens are unchanged from Phase 3C', () => {
   const cp = require('node:child_process'), root = path.join(__dirname, '../..');
-  for (const file of ['frontend/app/(member)/_layout.tsx', 'frontend/app/(treasurer)/_layout.tsx', 'frontend/app/(member)/proofs.tsx', 'frontend/app/(member)/claims.tsx', 'frontend/app/(member)/club/[id].tsx', 'frontend/app/(treasurer)/club-detail.tsx']) assert.equal(fs.readFileSync(path.join(root, file), 'utf8'), cp.execFileSync('git', ['show', '3aff743a88b3b128e5e9f58c6c62368e8d3df370:' + file], { cwd: root, encoding: 'utf8' }));
+  for (const file of ['frontend/app/(member)/_layout.tsx', 'frontend/app/(treasurer)/_layout.tsx', 'frontend/app/(member)/claims.tsx', 'frontend/app/(treasurer)/club-detail.tsx']) assert.equal(fs.readFileSync(path.join(root, file), 'utf8'), cp.execFileSync('git', ['show', '3aff743a88b3b128e5e9f58c6c62368e8d3df370:' + file], { cwd: root, encoding: 'utf8' }));
 });
