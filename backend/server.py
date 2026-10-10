@@ -2433,6 +2433,43 @@ async def get_member_dashboard(user_id: str, authorization: str | None = Header(
         "clubs": clubs
     }
 
+@api_router.get("/groups/{group_id}/context")
+async def get_club_home_context(group_id: str, authorization: Optional[str] = Header(None), month: int | None = None, year: int | None = None):
+    """Read-only active club context and the caller's recorded obligations only."""
+    actor = authenticated_user_id(authorization)
+    person = await db.users.find_one({"id": actor})
+    if not person or person.get("status", "active") != "active":
+        raise HTTPException(status_code=403, detail="Active account required")
+    memberships = await db.members.find({"user_id": actor, "status": "active"}).to_list(None)
+    groups = await db.groups.find({"id": {"$in": [row["group_id"] for row in memberships]}, "status": "active"}).to_list(None)
+    groups_by_id = {row["id"]: row for row in groups}
+    club_memberships = [row for row in memberships if row["group_id"] == group_id]
+    membership = next((row for row in club_memberships if row.get("role_in_group") in ("admin", "treasurer")), next(iter(club_memberships), None))
+    group = groups_by_id.get(group_id)
+    if not membership or not group:
+        raise HTTPException(status_code=403, detail="Active club membership required")
+    now = datetime.now(BUSINESS_TIMEZONE)
+    month = now.month if month is None else month
+    year = now.year if year is None else year
+    if not 1 <= month <= 12 or not 1 <= year <= 9999:
+        raise HTTPException(status_code=422, detail="Invalid contribution period")
+    records = await db.contributions.aggregate([
+        {"$match": {"member_id": {"$in": [row["id"] for row in club_memberships]}, "group_id": group_id, "month": month, "year": year}},
+        {"$project": contribution_metadata_projection()},
+    ]).to_list(None)
+    details = [financial_details(row, contribution_outstanding) for row in records]
+    totals = financial_totals(details)
+    return {
+        "club": {"id": group_id, "name": group["group_name"]},
+        "membership": {"id": membership["id"], "role": membership.get("role_in_group", "member"), "status": "active"},
+        "clubs": [{"id": row["id"], "name": row["group_name"]} for row in groups],
+        "period": {"month": month, "year": year, "timezone": "Africa/Johannesburg"},
+        "own_financial_summary": totals,
+        "availability": {key: "AVAILABLE" if value is not None else "UNAVAILABLE" for key, value in totals.items()},
+        "record_count": len(records),
+    }
+
+
 @api_router.get("/groups/{group_id}/directory")
 async def get_club_directory(group_id: str, authorization: Optional[str] = Header(None)):
     """Public-to-active-club-members identity fields only; no financial or account data."""

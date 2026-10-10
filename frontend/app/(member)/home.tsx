@@ -252,14 +252,7 @@ export default function MemberHomeScreen() {
   };
 
   const openClub = (club: Club) => {
-    if (club.role === 'admin' || club.role === 'treasurer') {
-      router.push({
-        pathname: '/(treasurer)/club-detail',
-        params: { id: club.id, name: club.name, from: 'member' }
-      });
-      return;
-    }
-    router.push(`/(member)/club/${club.id}`);
+    router.push({ pathname: '/club/[id]', params: { id: club.id, from: 'member' } });
   };
 
   const createGroup = async () => {

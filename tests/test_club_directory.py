@@ -72,7 +72,7 @@ class DirectoryTests(unittest.IsolatedAsyncioTestCase):
         root=Path(__file__).resolve().parents[1]
         functions=lambda source:{n.name:ast.dump(n) for n in ast.parse(source).body if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef))}
         old=functions(subprocess.check_output(['git','show','d632d6b62f52911a5bb7218ef826ef385464bf97:backend/server.py'],cwd=root,text=True));new=functions((root/'backend/server.py').read_text())
-        self.assertEqual(set(new)-set(old),{'get_club_directory'})
+        self.assertEqual(set(new)-set(old),{'get_club_directory', 'get_club_home_context'})
         for name,body in old.items():self.assertEqual(new[name],body,name)
 
     async def test_inactive_or_missing_user_records_are_not_exposed(self):

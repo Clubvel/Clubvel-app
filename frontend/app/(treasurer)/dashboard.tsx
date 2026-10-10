@@ -400,8 +400,8 @@ export default function AdminDashboardScreen() {
               key={club.id} 
               style={styles.clubCard}
               onPress={() => router.push({
-                pathname: '/(treasurer)/club-detail',
-                params: { id: club.id, name: club.name }
+                pathname: '/club/[id]',
+                params: { id: club.id, from: 'admin' }
               })}
               activeOpacity={0.7}
             >

@@ -73,14 +73,14 @@ test('focus during an existing refresh reuses its request', async () => {
   assert.ok(text(c.render()).includes('WeTraveling'));
 });
 
-test('member and administrator club navigation remains unchanged', async () => {
+test('member and administrator club cards enter the shared Club Home', async () => {
   const c = setup(); await c.respond(0, 'WeTraveling');
   button(c.render(), 'WeTraveling').props.onPress();
-  assert.deepEqual(c.routes, ['/(member)/club/group-a']);
+  assert.deepEqual(c.routes, [{ pathname: '/club/[id]', params: { id: 'group-a', from: 'member' } }]);
   c.refresh(); await c.respond(1, 'WeTraveling', 'admin');
   button(c.render(), 'WeTraveling').props.onPress();
-  assert.deepEqual(c.routes[1], { pathname: '/(treasurer)/club-detail',
-    params: { id: 'group-a', name: 'WeTraveling', from: 'member' } });
+  assert.deepEqual(c.routes[1], { pathname: '/club/[id]',
+    params: { id: 'group-a', from: 'member' } });
 });
 
 test('Home displays its existing header while the first dashboard response is unresolved', async () => {
