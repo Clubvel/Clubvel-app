@@ -2433,6 +2433,33 @@ async def get_member_dashboard(user_id: str, authorization: str | None = Header(
         "clubs": clubs
     }
 
+@api_router.get("/groups/{group_id}/directory")
+async def get_club_directory(group_id: str, authorization: Optional[str] = Header(None)):
+    """Public-to-active-club-members identity fields only; no financial or account data."""
+    actor = authenticated_user_id(authorization)
+    group = await db.groups.find_one({"id": group_id, "status": "active"})
+    if not group:
+        raise HTTPException(status_code=404, detail="Active club not found")
+    membership = await db.members.find_one({"user_id": actor, "group_id": group_id, "status": "active"})
+    if not membership:
+        raise HTTPException(status_code=403, detail="Active club membership required")
+    memberships = await db.members.find({"group_id": group_id, "status": "active"},
+                                       {"_id": 0, "id": 1, "user_id": 1, "role_in_group": 1}).to_list(None)
+    identities = await db.users.find({"id": {"$in": [row["user_id"] for row in memberships]}},
+                                     {"_id": 0, "id": 1, "full_name": 1, "profile_photo": 1, "status": 1}).to_list(None)
+    users = {row["id"]: row for row in identities if row.get("status", "active") == "active"}
+    if actor not in users:
+        raise HTTPException(status_code=403, detail="Active account required")
+    members = []
+    for row in memberships:
+        person = users.get(row["user_id"])
+        if person:
+            members.append({"id": row["id"], "name": person.get("full_name") or "Member",
+                            "profile_photo": person.get("profile_photo"),
+                            "role": row.get("role_in_group", "member")})
+    return {"group_id": group_id, "members": members}
+
+
 @api_router.get("/member/club/{group_id}/user/{user_id}")
 async def get_member_club_details(group_id: str, user_id: str, authorization: str | None = Header(None), month: int | None = None, year: int | None = None):
     require_account_owner(user_id, authorization)

@@ -1,3 +1,4 @@
+import ClubMemberDirectory from '../../../components/ClubMemberDirectory';
 import { paymentStateLabel, paymentMoney } from '../../../services/paymentSummaryRecords';
 import React, { useCallback, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Image, Alert, Platform } from 'react-native';
@@ -249,6 +250,7 @@ export default function ClubDetailScreen() {
       </View>
 
       <ScrollView>
+        <ClubMemberDirectory groupId={id} />
         <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open club payments" onPress={() => router.push({ pathname: "/(member)/proofs", params: { group_id: id, month: String(period.month), year: String(period.year), contribution_id: selectedContribution?.contribution_id || "" } })}><Text>Payments and contribution records</Text></TouchableOpacity>
         <View style={styles.cardHeader}>
           <TouchableOpacity accessibilityLabel="Previous contribution month" onPress={() => { const d = new Date(period.year, period.month - 2, 1); setSelectedContributionId(null); setPeriod({ year: d.getFullYear(), month: d.getMonth() + 1 }); }}><Text>‹</Text></TouchableOpacity>

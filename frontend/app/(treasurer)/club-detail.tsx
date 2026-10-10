@@ -1,3 +1,4 @@
+import ClubMemberDirectory from '../../components/ClubMemberDirectory';
 import { paymentStateLabel, paymentMoney } from '../../services/paymentSummaryRecords';
 import ClubSummary from '../../components/ClubSummary';
 import { ClaimPaymentRecord } from '../../components/ClaimPaymentRecord';
@@ -651,24 +652,7 @@ export default function ClubDetailScreen() {
       >
         {activeTab === 'members' && (
           <View style={styles.section}>
-            {clubData.members.map((member) => (
-              <View key={member.id} style={styles.memberCard}>
-                <View style={styles.memberInfo}>
-                  <View style={styles.memberAvatar}>
-                    <Text style={styles.memberAvatarText}>{member.name.charAt(0)}</Text>
-                  </View>
-                  <View style={styles.memberDetails}>
-                    <Text style={styles.memberName}>{member.name}</Text>
-                    <Text style={styles.memberPhone}>{member.phone}</Text>
-                  </View>
-                </View>
-                <View style={[styles.statusBadge, { backgroundColor: Colors.mediumGreen + '20' }]}>
-                  <Text style={[styles.statusText, { color: getStatusColor(member.membership_status) }]}>
-                    {getStatusLabel(member.membership_status)}
-                  </Text>
-                </View>
-              </View>
-            ))}
+            <ClubMemberDirectory groupId={id} />
           </View>
         )}
 

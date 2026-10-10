@@ -7,7 +7,8 @@ function setup(params={}) {
   react:ui.react,'react-native':{...native,TextInput:'TextInput',KeyboardAvoidingView:'KeyboardAvoidingView',Platform:{OS:'android'},Linking:{}},
   'expo-router':{useFocusEffect:ui.useFocusEffect,useRouter:()=>({push(){}}),useLocalSearchParams:()=>params},
   '../../contexts/AuthContext':{useAuth:()=>({user:{id:'admin',full_name:'Admin',profile_photo:'photo'},token:'signed'})},
-  '../../components/ProfilePhotoViewer':{default:'ProfilePhotoViewer'},
+  '../../components/ClubMemberDirectory': { __esModule: true, default: 'ClubMemberDirectory' },
+    '../../components/ProfilePhotoViewer':{default:'ProfilePhotoViewer'},
   '../../components/StatusPill':{StatusPill:'StatusPill'},'../../components/AdBanner':{AdBanner:'AdBanner'},
   '../../constants/Colors':{Colors:colors},'@expo/vector-icons':{Ionicons:'Icon'},
   axios:{get:(url,options)=>new Promise((resolve,reject)=>requests.push({url,options,resolve,reject}))},
@@ -25,7 +26,7 @@ test('rapid WeTraveling to Eighty8 switch cannot display a late response from th
  const c=setup();await c.ready();c.select('Eighty8');
  const travel=c.requests.find(r=>r.url.includes('/club/travel?')),eight=c.requests.find(r=>r.url.includes('/club/eight?'));assert.ok(travel&&eight);
  eight.resolve({data:{members:[member('Eight member')]}});await tick();c.render();travel.resolve({data:{members:[member('Travel member')]}});await tick();
- assert.match(text(c.render()),/Eight member/);assert.doesNotMatch(text(c.render()),/Travel member/);
+ const directory=nodes(c.render()).find(n=>n.type==='ClubMemberDirectory');assert.equal(directory.props.groupId,'eight');assert.ok(directory.props.renderDetails('Eight member'));assert.equal(directory.props.renderDetails('Travel member'),null);
 });
 test('selected club failure offers Retry without retaining another clubs members',async()=>{
  const c=setup();await c.ready();c.requests[1].resolve({data:{members:[member('Travel member')]}});await tick();c.render();c.select('Eighty8');
@@ -50,6 +51,6 @@ test('Members WeTraveling → Eighty8 → WeTraveling rejects both older clubs r
  const c=setup();await c.ready();const firstTravel=c.requests[1];c.select('Eighty8');const eight=c.requests[2];c.select('WeTraveling');const latestTravel=c.requests[3];
  latestTravel.resolve({data:{members:[member('Current Travel Member')]}});await tick();c.render();
  eight.resolve({data:{members:[member('Wrong Eight Member')]}});firstTravel.resolve({data:{members:[member('Stale Travel Member')]}});await tick();
- assert.match(text(c.render()),/Current Travel Member/);assert.doesNotMatch(text(c.render()),/Wrong Eight Member|Stale Travel Member/);
+ const directory=nodes(c.render()).find(n=>n.type==='ClubMemberDirectory');assert.equal(directory.props.groupId,'travel');assert.ok(directory.props.renderDetails('Current Travel Member'));assert.equal(directory.props.renderDetails('Wrong Eight Member'),null);assert.equal(directory.props.renderDetails('Stale Travel Member'),null);
  for(const request of [firstTravel,eight,latestTravel])assert.equal(request.options.headers.Authorization,'Bearer signed');
 });

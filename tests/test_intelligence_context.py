@@ -232,7 +232,7 @@ class ContextTests(unittest.TestCase):
         def functions(source):
             return {n.name: ast.get_source_segment(source, n) for n in ast.parse(source).body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
         old, new = functions(previous), functions(current)
-        self.assertEqual(set(new) - set(old), {'get_intelligence_summary', 'update_personal_profile'})
+        self.assertEqual(set(new) - set(old), {'get_intelligence_summary', 'update_personal_profile', 'get_club_directory'})
         # Stage 3A explicitly changes these read contracts; offline route tests cover them.
         approved_reads = {'get_group_payment_records', 'get_person_contribution_records', 'personal_contribution_view', 'get_personal_contributions', 'get_member_club_details', 'get_group_contributions', 'get_club_detail', 'get_member_dashboard'}
         for name in old:

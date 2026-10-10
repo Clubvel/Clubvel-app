@@ -1,3 +1,4 @@
+import ClubMemberDirectory from '../../components/ClubMemberDirectory';
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, Alert, ActivityIndicator, Image, KeyboardAvoidingView, Platform, Linking } from 'react-native';
 import { Colors } from '../../constants/Colors';
@@ -46,6 +47,7 @@ export default function MembersScreen() {
   const sessionContext = `${user?.id}:${token}`;
   const latestSession = useRef(sessionContext);
   latestSession.current = sessionContext;
+  const [loadedMembersSession, setLoadedMembersSession] = useState<string | null>(null);
   const [loadedMembersGroup, setLoadedMembersGroup] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
@@ -71,6 +73,7 @@ export default function MembersScreen() {
       );
       if (requestId !== membersRequestId.current || session !== latestSession.current || selectedClubRef.current?.id !== groupId) return;
       setLoadedMembersGroup(groupId);
+      setLoadedMembersSession(session);
       setMembers((response.data.members || []).map((member: any) => ({
         id: member.id,
         name: member.name,
@@ -140,17 +143,6 @@ export default function MembersScreen() {
   const lateCount = members.filter(m => m.paymentStatus === 'late').length;
   const paidCount = members.filter(m => m.paymentStatus === 'confirmed').length;
   const dueCount = members.filter(m => m.paymentStatus === 'due').length;
-
-  const getAvatarColor = (status: string) => {
-    switch (status) {
-      case 'late':
-        return Colors.statusLate;
-      case 'confirmed':
-        return Colors.statusPaid;
-      default:
-        return Colors.statusUpcoming;
-    }
-  };
 
   const formatPhoneNumber = (phone: string) => {
     // Remove any non-digit characters
@@ -280,26 +272,10 @@ export default function MembersScreen() {
 
         {/* Member List */}
         <View style={styles.memberList}>
-          {(loadedMembersGroup === selectedClub?.id ? members : [])
-            .filter(m => m.name.toLowerCase().includes(searchQuery.toLowerCase()))
-            .map((member) => (
-              <TouchableOpacity key={member.id} style={styles.memberCard}>
-                <View style={[styles.memberAvatar, { backgroundColor: getAvatarColor(member.status) }]}>
-                  <Text style={styles.memberAvatarText}>{member.initials}</Text>
-                </View>
-
-                <View style={styles.memberInfo}>
-                  <Text style={styles.memberName}>{member.name}</Text>
-                  <View style={styles.memberMeta}>
-                    <Text style={styles.memberMetaText}>{member.reference}</Text>
-                    <Text style={styles.memberMetaText}> • </Text>
-                    <Text style={styles.memberMetaText}>R{member.amount}</Text>
-                  </View>
-                </View>
-
-                <StatusPill status={member.status} />
-              </TouchableOpacity>
-            ))}
+          <ClubMemberDirectory groupId={selectedClub?.id} search={searchQuery} renderDetails={memberId => {
+            const member = loadedMembersSession === sessionContext && loadedMembersGroup === selectedClub?.id ? members.find(row => row.id === memberId) : null;
+            return member ? <View><View style={styles.memberMeta}><Text style={styles.memberMetaText}>{member.reference}</Text><Text style={styles.memberMetaText}> • </Text><Text style={styles.memberMetaText}>R{member.amount}</Text></View><StatusPill status={member.status} /></View> : null;
+          }} />
         </View>
 
         {/* Invite Member Button */}

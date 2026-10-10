@@ -116,6 +116,7 @@ test('integration leaves existing tabs and actions unchanged and no Member expos
     '../../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 0 }) },
+    '../../components/ClubMemberDirectory': { __esModule: true, default: 'ClubMemberDirectory' },
     '../../components/ClubSummary': { default: 'ClubSummary' },
     '../../components/ClaimPaymentRecord': { ClaimPaymentRecord: 'ClaimPaymentRecord' },
     '../../components/ClaimPayoutDate': { ClaimPayoutDate: 'ClaimPayoutDate' },
