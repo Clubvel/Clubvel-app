@@ -181,6 +181,7 @@ export default function MemberHomeScreen() {
   const fetchDashboard = useCallback((force = false) => {
     if (!user?.id || !token) return Promise.resolve();
     const key = JSON.stringify([API_URL, user.id, token]);
+    if (latestSession.current !== key) return Promise.resolve();
     if (!force && dashboardInFlight.current?.key === key) {
       return dashboardInFlight.current.promise;
     }
@@ -222,6 +223,7 @@ export default function MemberHomeScreen() {
   }, [fetchDashboard]));
 
   const onRefresh = () => {
+    if (latestSession.current !== sessionKey) return;
     setRefreshing(true);
     void fetchDashboard(true);
   };
@@ -311,6 +313,7 @@ export default function MemberHomeScreen() {
   const openInvitations = async () => {
     if (!user?.id || !token) return;
     const key = sessionKey;
+    if (latestSession.current !== key) return;
     const request = dashboardRequest.current;
     setShowInvitations(true);
     setInvitationsLoading(true);
@@ -328,6 +331,8 @@ export default function MemberHomeScreen() {
   };
 
   const acceptInvitation = async (invitation: PendingInvitation) => {
+    const key = sessionKey;
+    if (latestSession.current !== key) return;
     ++dashboardRequest.current;
     dashboardInFlight.current = null;
     setAcceptingInvitation(invitation.id);
@@ -338,7 +343,9 @@ export default function MemberHomeScreen() {
       }, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (latestSession.current !== key) return;
       await fetchDashboard(true);
+      if (latestSession.current !== key) return;
       if (invitation.intended_role === 'admin') {
         const active = response.data.admin_access === true;
         Alert.alert(active ? 'Admin invitation accepted' : 'Invitation processed',
@@ -348,14 +355,17 @@ export default function MemberHomeScreen() {
         Alert.alert('Group joined', `You are now a member of ${invitation.group_name}.`);
       }
     } catch (error: any) {
+      if (latestSession.current !== key) return;
       void fetchDashboard(true);
       Alert.alert('Could not accept invitation', error.response?.data?.detail || 'Please try again.');
     } finally {
-      setAcceptingInvitation(null);
+      if (latestSession.current === key) setAcceptingInvitation(null);
     }
   };
 
   const declineInvitation = async (invitation: PendingInvitation) => {
+    const key = sessionKey;
+    if (latestSession.current !== key) return;
     ++dashboardRequest.current;
     dashboardInFlight.current = null;
     setAcceptingInvitation(invitation.id);
@@ -363,12 +373,15 @@ export default function MemberHomeScreen() {
       await axios.post(`${API_URL}/api/invitations/decline`, {
         invitation_id: invitation.id, user_id: user?.id,
       }, { headers: { Authorization: `Bearer ${token}` } });
+      if (latestSession.current !== key) return;
       await fetchDashboard(true);
+      if (latestSession.current !== key) return;
       Alert.alert('Invitation declined', 'No membership or Admin access was granted.');
     } catch (error: any) {
+      if (latestSession.current !== key) return;
       void fetchDashboard(true);
       Alert.alert('Could not decline invitation', error.response?.data?.detail || 'Please try again.');
-    } finally { setAcceptingInvitation(null); }
+    } finally { if (latestSession.current === key) setAcceptingInvitation(null); }
   };
 
 

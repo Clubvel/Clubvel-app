@@ -3,11 +3,11 @@ const assert = require('node:assert/strict');
 const { load, engine, tick, nodes, text, button, native, colors } = require('./ui-harness.cjs');
 
 function setup(screen = 'member', holdInvitations = false) {
-  const ui = engine(), requests = [], invitations = [], routes = [];
+  const ui = engine(), requests = [], invitations = [], actions = [], alerts = [], routes = [];
   const auth = { user: { id: 'member', full_name: 'Test Member', first_name: 'Test' }, token: 'session' };
   const Screen = load(screen === 'member' ? 'app/(member)/home.tsx' : 'app/(treasurer)/dashboard.tsx', {
     react: ui.react,
-    'react-native': { ...native, RefreshControl: 'RefreshControl', TextInput: 'TextInput',
+    'react-native': { ...native, Alert: {alert: (...args) => alerts.push(args)}, RefreshControl: 'RefreshControl', TextInput: 'TextInput',
       KeyboardAvoidingView: 'KeyboardAvoidingView', Platform: { OS: 'android' },
       Keyboard: { dismiss() {} }, TouchableWithoutFeedback: 'TouchableWithoutFeedback' },
     'expo-router': { useFocusEffect: ui.useFocusEffect, useRouter: () => ({ push: r => routes.push(r) }) },
@@ -19,7 +19,7 @@ function setup(screen = 'member', holdInvitations = false) {
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '@react-native-async-storage/async-storage': {},
     axios: { get: url => url.includes('/invitations/') ? (holdInvitations ? new Promise(resolve => invitations.push({url,resolve})) : Promise.resolve({ data: { invitations: [] } }))
-      : new Promise(resolve => requests.push({ url, resolve })) },
+      : new Promise(resolve => requests.push({ url, resolve })), post: (url,body,options) => new Promise((resolve,reject)=>actions.push({url,body,options,resolve,reject})) },
   }).default;
   const render = () => ui.render(Screen);
   const respond = async (index, name, role = 'member') => {
@@ -30,7 +30,7 @@ function setup(screen = 'member', holdInvitations = false) {
   };
   const refresh = () => nodes(render()).find(n => n.type === 'ScrollView').props.refreshControl.props.onRefresh();
   render();
-  return { ui, auth, render, requests, invitations, routes, respond, refresh };
+  return { ui, auth, render, requests, invitations, actions, alerts, routes, respond, refresh };
 }
 
 test('initial Home load uses the existing dashboard endpoint once', async () => {
@@ -207,4 +207,18 @@ test('Member Home ignores late invitations belonging to a logged-out session',as
  const c=setup('member',true);c.auth.user=null;c.auth.token=null;c.render();
  c.invitations[0].resolve({data:{invitations:[{id:'old',group_name:'Wrong Session Invitation',expires_at:'2099-01-01'}]}});await tick();
  assert.doesNotMatch(text(c.render()),/Wrong Session Invitation/);
+});
+
+for(const role of ['member','admin'])test(`${role} old dashboard callback cannot supersede the new account request`,async()=>{
+ const c=setup(role);await c.respond(0,'WeTraveling');const oldRefresh=nodes(c.render()).find(n=>n.type==='ScrollView').props.refreshControl.props.onRefresh;
+ c.auth.user={id:'other',full_name:'Other Account'};c.auth.token='other-session';c.render();assert.equal(c.requests.length,2);
+ oldRefresh();assert.equal(c.requests.length,2);await c.respond(1,'Eighty8');assert.match(text(c.render()),/Eighty8/);
+});
+for(const action of ['Accept','Decline'])test(`Member old-account invitation ${action} completion cannot refresh or alert in the new account`,async()=>{
+ const c=setup('member',true);await c.respond(0,'WeTraveling');
+ c.invitations[0].resolve({data:{invitations:[{id:'old-invitation',group_id:'old-group',group_name:'Old Private Club',expires_at:'2099-01-01'}]}});await tick();
+ const work=button(c.render(),action).props.onPress();assert.equal(c.actions.length,1);assert.equal(c.actions[0].options.headers.Authorization,'Bearer session');
+ c.auth.user={id:'other',full_name:'Other Account'};c.auth.token='other-session';c.render();assert.equal(c.requests.length,2);
+ c.actions[0].resolve({data:{}});await tick();assert.equal(c.requests.length,2);await work;
+ assert.deepEqual(c.alerts,[]);await c.respond(1,'Eighty8');assert.match(text(c.render()),/Eighty8/);assert.doesNotMatch(text(c.render()),/Old Private Club/);
 });

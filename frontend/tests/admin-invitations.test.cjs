@@ -105,6 +105,7 @@ test('Member Home clearly identifies Admin privilege, retains Member wording and
 test('Home Accept/Decline post selected invitation with bearer token; Admin acceptance success is explicit', async () => {
   const calls = [], alerts = [];
   const bindings = { API_URL: 'https://staging.invalid', token: 'session', user: { id: 'recipient' },
+    sessionKey: 'current-session', latestSession: { current: 'current-session' },
     dashboardRequest: { current: 0 }, dashboardInFlight: { current: null },
     setAcceptingInvitation() {}, fetchDashboard: async () => {},
     axios: { post: async (...args) => { calls.push(args); return { data: { admin_access: true } }; } }, Alert: { alert: (...args) => alerts.push(args) } };

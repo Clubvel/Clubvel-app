@@ -101,6 +101,7 @@ export default function AdminDashboardScreen() {
   const fetchDashboard = useCallback((force = false) => {
     if (!user?.id || !token) return Promise.resolve();
     const key = JSON.stringify([API_URL, user.id, token]);
+    if (latestSession.current !== key) return Promise.resolve();
     if (!force && dashboardInFlight.current?.key === key) return dashboardInFlight.current.promise;
     const request = ++dashboardRequest.current;
     const promise = (async () => {
@@ -131,6 +132,7 @@ export default function AdminDashboardScreen() {
   useFocusEffect(useCallback(() => { void fetchDashboard(); }, [fetchDashboard]));
 
   const onRefresh = () => {
+    if (latestSession.current !== sessionKey) return;
     setRefreshing(true);
     void fetchDashboard(true);
   };
