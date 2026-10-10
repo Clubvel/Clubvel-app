@@ -31,12 +31,12 @@ interface ClubDetails {
     proof_review_status?: 'pending' | 'declined' | 'approved' | null;
     proof_decline_reason?: string | null;
     proof_delete_eligible?: boolean;
-  };
+  } | null;
   payment_reference: {
     reference_code: string;
     bank_name: string;
     account_number: string;
-    amount: number;
+    amount: number | null;
   };
   payment_history: Array<{
     month: number;
@@ -48,10 +48,12 @@ interface ClubDetails {
 }
 
 export default function ClubDetailScreen() {
-  const { id } = useLocalSearchParams();
+  const params = useLocalSearchParams<{ id?: string | string[] }>();
+  const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const { user, token } = useAuth();
   const router = useRouter();
   const [clubData, setClubData] = useState<ClubDetails | null>(null);
+  const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
   const [deletingProof, setDeletingProof] = useState(false);
@@ -60,24 +62,35 @@ export default function ClubDetailScreen() {
 
   const clubRequest = useRef<{ key: string; sequence: number } | null>(null);
   const clubSequence = useRef(0);
-  const requestContext = `${id}:${user?.id}`;
+  const requestContext = `${id}:${user?.id}:${token}`;
   const latestContext = useRef(requestContext);
   latestContext.current = requestContext;
 
   const fetchClubDetails = useCallback(async (force = false) => {
-    const key = `${id}:${user?.id}`;
+    if (!id || !user?.id || !token) { setLoading(false); setClubData(null); setError('Unable to open this club. Please sign in again.'); return; }
+    const key = `${id}:${user?.id}:${token}`;
     if (!force && clubRequest.current?.key === key) return;
     const sequence = ++clubSequence.current;
     clubRequest.current = { key, sequence };
 
+    setError(null);
     try {
       const response = await axios.get(`${API_URL}/api/member/club/${id}/user/${user?.id}`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000
       });
-      if (sequence === clubSequence.current && latestContext.current === key) setClubData(response.data);
-    } catch (error) {
+      const data = response.data;
+      if (!data?.group || data.group.id !== id || typeof data.group.name !== 'string' ||
+          !data.payment_reference || !Array.isArray(data.payment_history) ||
+          (data.current_contribution != null && (typeof data.current_contribution.amount_due !== 'number' || !Number.isFinite(data.current_contribution.amount_due))) ||
+          (data.payment_reference.amount != null && (typeof data.payment_reference.amount !== 'number' || !Number.isFinite(data.payment_reference.amount))) ||
+          data.payment_history.some((payment: any) => !payment || typeof payment.amount !== 'number' || !Number.isFinite(payment.amount))) {
+        throw new Error('Invalid club response');
+      }
+      if (sequence === clubSequence.current && latestContext.current === key) setClubData(data);
+    } catch (error: any) {
       if (sequence !== clubSequence.current || latestContext.current !== key) return;
-      console.error('Error fetching club details:', error);
+      setClubData(null);
+      setError(error.response?.status === 403 ? 'You no longer have access to this club.' : 'Unable to load this club. Please try again.');
     } finally {
       if (clubRequest.current?.sequence === sequence) {
         clubRequest.current = null;
@@ -87,8 +100,8 @@ export default function ClubDetailScreen() {
   }, [API_URL, id, user?.id, token]);
 
   useFocusEffect(useCallback(() => {
-    if (user?.id && id) void fetchClubDetails();
-  }, [fetchClubDetails, user?.id, id]));
+    void fetchClubDetails();
+  }, [fetchClubDetails]));
 
   const handleDeleteProof = () => {
     const contribution = clubData?.current_contribution;
@@ -113,6 +126,7 @@ export default function ClubDetailScreen() {
   };
 
   const handleUploadProof = async () => {
+    if (!clubData?.current_contribution || !token || uploading) return;
     const result = await DocumentPicker.getDocumentAsync({
       type: ['application/pdf', 'image/*'],
       copyToCacheDirectory: true,
@@ -144,7 +158,7 @@ export default function ClubDetailScreen() {
 
     try {
       await axios.post(`${API_URL}/api/contributions/upload-proof`, {
-        contribution_id: clubData?.current_contribution.id,
+        contribution_id: clubData?.current_contribution?.id,
         proof_image: proofData,
         proof_mime_type: mimeType,
         proof_file_name: asset.name || null,
@@ -167,7 +181,7 @@ export default function ClubDetailScreen() {
     }
   };
 
-  if (!clubData) {
+  if (!clubData || clubData.group.id !== id) {
     return (
       <View style={styles.container}>
         <View style={styles.header}>
@@ -179,7 +193,7 @@ export default function ClubDetailScreen() {
         </View>
         <View style={styles.loadingContainer}>
           {loading ? <ActivityIndicator size="large" color={Colors.mediumGreen} /> :
-            <Text style={styles.errorText}>Failed to load club details</Text>}
+            <View><Text style={styles.errorText}>{error || 'Unable to load club details'}</Text><TouchableOpacity onPress={() => void fetchClubDetails(true)}><Text style={styles.errorText}>Retry</Text></TouchableOpacity></View>}
         </View>
       </View>
     );
@@ -205,6 +219,7 @@ export default function ClubDetailScreen() {
         {/* Current Contribution Status */}
         <View style={styles.section}>
           <View style={styles.card}>
+            {clubData.current_contribution ? <>
             <View style={styles.cardHeader}>
               <Text style={styles.cardTitle}>Current Month</Text>
               <StatusPill status={clubData.current_contribution.proof_review_status === 'declined' ? 'proof_declined' : clubData.current_contribution.status} />
@@ -264,6 +279,7 @@ export default function ClubDetailScreen() {
                 </Text>
               </TouchableOpacity>
             )}
+            </> : <Text style={styles.infoText}>No contribution recorded for this month.</Text>}
           </View>
         </View>
 
@@ -289,7 +305,7 @@ export default function ClubDetailScreen() {
               </View>
               <View style={styles.bankDetailRow}>
                 <Text style={styles.bankDetailLabel}>Amount</Text>
-                <Text style={styles.bankDetailValue}>R{clubData.payment_reference.amount.toFixed(2)}</Text>
+                <Text style={styles.bankDetailValue}>{clubData.payment_reference.amount == null ? 'Not recorded' : `R${clubData.payment_reference.amount.toFixed(2)}`} </Text>
               </View>
             </View>
           </View>

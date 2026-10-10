@@ -1,3 +1,4 @@
+import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -43,6 +44,7 @@ const formatDate = (value: string | null) => {
 };
 
 export default function ClaimsScreen() {
+  const [photoExpanded, setPhotoExpanded] = React.useState(false);
   const { user, token } = useAuth();
   const router = useRouter();
   const { claim_id: selectedClaimId, view } = useLocalSearchParams<{ claim_id?: string; view?: string }>();
@@ -242,13 +244,13 @@ export default function ClaimsScreen() {
 
   return (
     <View style={styles.container}>
+      <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
       <View style={styles.header}>
-        <Text style={styles.headerTitle}>Claims</Text>
         <TouchableOpacity
           accessibilityRole="button"
-          accessibilityLabel="Open profile"
+          accessibilityLabel="Expand profile photo"
           style={styles.profileButton}
-          onPress={() => router.push('/(member)/profile')}
+          onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(member)/profile')}
         >
           {user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
@@ -258,6 +260,8 @@ export default function ClaimsScreen() {
             </View>
           )}
         </TouchableOpacity>
+        <Text style={styles.headerTitle}>Claims</Text>
+      
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
@@ -485,7 +489,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.mediumGreen,
+    backgroundColor: Colors.primary,
     paddingTop: 60,
     paddingBottom: 20,
     paddingHorizontal: 24,
@@ -502,16 +506,16 @@ const styles = StyleSheet.create({
   },
   profileButton: { padding: 4, flexShrink: 0 },
   profileImage: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     borderWidth: 2,
     borderColor: Colors.accent,
   },
   profilePlaceholder: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     backgroundColor: Colors.accent,
     justifyContent: 'center',
     alignItems: 'center',

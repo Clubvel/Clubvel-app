@@ -22,7 +22,7 @@ async function setup(screen = 'proofs', review = 'declined', approved = false, d
       requests.push({ url, options });
       if (state.get) return state.get(url);
       if (url.includes('/api/member/contributions/')) return { data: { contributions: JSON.parse(JSON.stringify(state.records || [record])) } };
-      if (url.includes('/api/member/club/')) return { data: {
+      if (url.includes('/api/member/club/')) return { data: state.club || {
         group: { id: 'group-a', name: 'Club A' }, current_contribution: { ...record, id: record.contribution_id },
         payment_reference: { amount: 150, reference_code: 'REF' }, payment_history: []
       } };
@@ -50,6 +50,7 @@ async function setup(screen = 'proofs', review = 'declined', approved = false, d
     'expo-router': { useFocusEffect: ui.useFocusEffect, useLocalSearchParams: () => params,
       useRouter: () => ({ back: () => routes.push('back'), push: route => routes.push(route) }) },
     '../../constants/Colors': { Colors: colors }, '../../../constants/Colors': { Colors: colors },
+    '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': auth, '../../../contexts/AuthContext': auth,
     '../../components/StatusPill': { StatusPill: statusPill }, '../../../components/StatusPill': { StatusPill: statusPill },
     '../../components/AdBanner': { AdBanner: 'AdBanner' },
@@ -230,4 +231,31 @@ test('Proof cards use identical count/list predicates, whole-card accessibility 
  tap('Show pending').props.onPress();assert.match(text(c.render()),/Pending Club/);assert.doesNotMatch(text(c.render()),/Confirmed Club|Declined Club|Paid Club/);
  tap('Show all proofs').props.onPress();assert.match(text(c.render()),/Declined Club/);tap('Show total proofs').props.onPress();assert.equal(tap('Show all proofs'),undefined);
  c.state.records=[];c.ui.blur();c.ui.focus();await tick();tap('Show confirmed').props.onPress();assert.match(text(c.render()),/No proofs match this filter/);assert.ok(tap('Show all proofs'));
+});
+
+
+test('new member with no contribution opens club without inventing an obligation', async () => {
+  const c = await setup('club');
+  c.state.club = { group: { id: 'group-a', name: 'Club A' }, current_contribution: null,
+    payment_reference: { amount: null, reference_code: 'REF' }, payment_history: [] };
+  c.ui.blur(); c.ui.focus(); await tick();
+  assert.ok(text(c.render()).includes('No contribution recorded for this month.'));
+  assert.ok(text(c.render()).includes('Not recorded'));
+  assert.equal(button(c.render(), 'Upload Proof of Payment'), undefined);
+});
+
+test('revoked club access clears financial content and offers Retry', async () => {
+  const c = await setup('club');
+  c.state.get = async () => { throw { response: { status: 403 } }; };
+  c.ui.blur(); c.ui.focus(); await tick();
+  assert.ok(text(c.render()).includes('You no longer have access'));
+  assert.ok(button(c.render(), 'Retry'));
+  assert.ok(!text(c.render()).includes('Wrong reference'));
+});
+
+test('malformed club response becomes controlled retry instead of render exception', async () => {
+  const c = await setup('club');
+  c.state.club = { group: { id: 'group-a', name: 'Club A' }, payment_reference: {}, payment_history: null };
+  c.ui.blur(); c.ui.focus(); await tick();
+  assert.ok(button(c.render(), 'Retry'));
 });

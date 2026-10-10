@@ -1,10 +1,11 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, Alert, ActivityIndicator, Image, KeyboardAvoidingView, Platform, Linking } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
-import { useRouter } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
+import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import { AdBanner } from '../../components/AdBanner';
 import axios from 'axios';
 
@@ -27,6 +28,9 @@ interface Club {
 export default function MembersScreen() {
   const { user, token } = useAuth();
   const router = useRouter();
+  const params = useLocalSearchParams<{ groupId?: string; id?: string }>();
+  const [photoExpanded, setPhotoExpanded] = useState(false);
+  const [showMembersClubPicker, setShowMembersClubPicker] = useState(false);
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
   
   const [searchQuery, setSearchQuery] = useState('');
@@ -38,25 +42,35 @@ export default function MembersScreen() {
   const [showClubPicker, setShowClubPicker] = useState(false);
   const [sending, setSending] = useState(false);
   const invitationInFlight = useRef(false);
+  const membersRequestId = useRef(0);
+  const sessionContext = `${user?.id}:${token}`;
+  const latestSession = useRef(sessionContext);
+  latestSession.current = sessionContext;
+  const [loadedMembersGroup, setLoadedMembersGroup] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    fetchData();
-  }, []);
+  const [membersLoading, setMembersLoading] = useState(false);
+  const [membersError, setMembersError] = useState<string | null>(null);
 
   useEffect(() => {
     if (selectedClub) {
-      fetchMembers(selectedClub.id);
+      void fetchMembers(selectedClub.id);
     }
-  }, [selectedClub]);
+  }, [selectedClub?.id]);
 
-  const fetchMembers = async (groupId: string) => {
+  const fetchMembers = useCallback(async (groupId: string) => {
+    const requestId = ++membersRequestId.current;
+    const session = sessionContext;
+    setMembers([]);
+    setMembersError(null);
+    setMembersLoading(true);
     try {
       const response = await axios.get(
         `${API_URL}/api/treasurer/club/${groupId}?treasurer_id=${user?.id}`,
-        { headers: { Authorization: `Bearer ${token}` } },
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 },
       );
+      if (requestId !== membersRequestId.current || session !== latestSession.current || selectedClubRef.current?.id !== groupId) return;
+      setLoadedMembersGroup(groupId);
       setMembers((response.data.members || []).map((member: any) => ({
         id: member.id,
         name: member.name,
@@ -73,15 +87,27 @@ export default function MembersScreen() {
         phone: member.phone,
       })));
     } catch (error) {
+      if (requestId !== membersRequestId.current || session !== latestSession.current || selectedClubRef.current?.id !== groupId) return;
       console.error('Error fetching members:', error);
+      setMembersError('Unable to load members for this club. Please try again.');
       setMembers([]);
+    } finally {
+      if (requestId === membersRequestId.current && session === latestSession.current && selectedClubRef.current?.id === groupId) setMembersLoading(false);
     }
-  };
+  }, [API_URL, user?.id, token, sessionContext]);
 
-  const fetchData = async () => {
+  const selectedClubRef = useRef(selectedClub);
+  selectedClubRef.current = selectedClub;
+  const clubsSequence = useRef(0);
+  const lastRequestedClub = useRef<string | undefined>(undefined);
+  const fetchData = useCallback(async () => {
+    if (!user?.id || !token) return;
+    const ticket = ++clubsSequence.current;
+    const session = sessionContext;
     try {
       // Fetch treasurer's clubs
-      const dashboardRes = await axios.get(`${API_URL}/api/treasurer/dashboard/${user?.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      const dashboardRes = await axios.get(`${API_URL}/api/treasurer/dashboard/${user?.id}`, { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 });
+      if (ticket !== clubsSequence.current || session !== latestSession.current) return;
       if (dashboardRes.data.clubs) {
         const clubList = dashboardRes.data.clubs.map((c: any) => ({
           id: c.id,
@@ -89,15 +115,27 @@ export default function MembersScreen() {
         }));
         setClubs(clubList);
         if (clubList.length > 0) {
-          setSelectedClub(clubList[0]);
+          const requestedId = params.groupId || params.id;
+          const routeChanged = requestedId !== lastRequestedClub.current;
+          lastRequestedClub.current = requestedId;
+          const requestedClub = routeChanged ? clubList.find((club: Club) => club.id === requestedId) : null;
+          const currentClub = clubList.find((club: Club) => club.id === selectedClubRef.current?.id);
+          const nextClub = requestedClub || currentClub || clubList[0];
+          setSelectedClub(nextClub);
+          if (nextClub.id === selectedClubRef.current?.id) void fetchMembers(nextClub.id);
+        } else {
+          setSelectedClub(null); setMembers([]);
         }
       }
     } catch (error) {
+      if (ticket !== clubsSequence.current || session !== latestSession.current) return;
       console.error('Error fetching data:', error);
     } finally {
-      setLoading(false);
+      if (ticket === clubsSequence.current && session === latestSession.current) setLoading(false);
     }
-  };
+  }, [API_URL, user?.id, token, params.groupId, params.id, fetchMembers, sessionContext]);
+
+  useFocusEffect(useCallback(() => { void fetchData(); }, [fetchData]));
 
   const lateCount = members.filter(m => m.paymentStatus === 'late').length;
   const paidCount = members.filter(m => m.paymentStatus === 'confirmed').length;
@@ -182,13 +220,10 @@ export default function MembersScreen() {
 
   return (
     <View style={styles.container}>
+      <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
       {/* Header with Profile Photo */}
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle}>Members</Text>
-          <Text style={styles.headerSubtitle}>{selectedClub?.name || 'Select a club'}</Text>
-        </View>
-        <TouchableOpacity onPress={() => router.push('/(treasurer)/profile')} style={styles.profileButton}>
+        <TouchableOpacity onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(treasurer)/profile')} style={styles.profileButton}>
           {user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
@@ -197,9 +232,21 @@ export default function MembersScreen() {
             </View>
           )}
         </TouchableOpacity>
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerTitle}>Members</Text>
+          <Text style={styles.headerSubtitle}>{selectedClub?.name || 'Select a club'}</Text>
+        </View>
+      
       </View>
 
       <ScrollView style={styles.content}>
+        <TouchableOpacity style={styles.membersClubSelector} onPress={() => setShowMembersClubPicker(!showMembersClubPicker)} accessibilityRole="button" accessibilityLabel="Select club for members">
+          <Text style={styles.membersClubSelectorText}>{selectedClub?.name || 'Select a club'}</Text>
+          <Ionicons name={showMembersClubPicker ? 'chevron-up' : 'chevron-down'} size={24} color={Colors.textSecondary} />
+        </TouchableOpacity>
+        {showMembersClubPicker && <View style={styles.membersClubOptions}>{clubs.map(club => <TouchableOpacity key={club.id} style={styles.clubPickerItem} onPress={() => { setSelectedClub(club); setShowMembersClubPicker(false); setSearchQuery(''); }}><Text style={styles.clubPickerItemText}>{club.name}</Text>{selectedClub?.id === club.id && <Ionicons name="checkmark" size={20} color={Colors.mediumGreen} />}</TouchableOpacity>)}</View>}
+        {membersLoading && <ActivityIndicator accessibilityLabel="Loading club members" color={Colors.mediumGreen} />}
+        {membersError && <View style={{ paddingVertical: 12 }}><Text style={{ color: Colors.textSecondary }}>{membersError}</Text><TouchableOpacity accessibilityRole="button" onPress={() => selectedClub && void fetchMembers(selectedClub.id)}><Text style={{ color: Colors.mediumGreen, fontWeight: 'bold', paddingTop: 8 }}>Retry</Text></TouchableOpacity></View>}
         {/* Summary Row */}
         <View style={styles.summaryRow}>
           <View style={[styles.summaryItem, styles.summaryItemPaid]}>
@@ -233,7 +280,7 @@ export default function MembersScreen() {
 
         {/* Member List */}
         <View style={styles.memberList}>
-          {members
+          {(loadedMembersGroup === selectedClub?.id ? members : [])
             .filter(m => m.name.toLowerCase().includes(searchQuery.toLowerCase()))
             .map((member) => (
               <TouchableOpacity key={member.id} style={styles.memberCard}>
@@ -391,7 +438,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.mediumGreen,
+    backgroundColor: Colors.primary,
     paddingTop: 60,
     paddingBottom: 20,
     paddingHorizontal: 24,
@@ -418,16 +465,16 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   profileImage: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
   profilePlaceholder: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
@@ -435,6 +482,9 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
+  membersClubSelector: { marginHorizontal: 24, marginTop: 16, padding: 16, borderRadius: 12, backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.cardBorder, flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center' },
+  membersClubSelectorText: { fontSize: 18, fontWeight: '600', color: Colors.textPrimary },
+  membersClubOptions: { marginHorizontal: 24, padding: 8, backgroundColor: Colors.white, borderRadius: 12, borderWidth: 1, borderColor: Colors.cardBorder },
   summaryRow: {
     flexDirection: 'row',
     paddingHorizontal: 24,

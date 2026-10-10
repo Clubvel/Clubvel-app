@@ -14,6 +14,7 @@ async function setup(from = 'member', uploaded = true) {
   const proof = { proof_image: 'data:image/jpeg;base64,image' };
   const state = { available: true, failProof: false, failConfirm: false, clubGet: null };
   const params = { id: 'club-1', from };
+  const auth = { user: { id: 'treasurer-1' }, token: 'session' };
   const Screen = load('app/(treasurer)/club-detail.tsx', {
     react: ui.react,
     'react-native': { ...native, RefreshControl: 'RefreshControl', TextInput: 'TextInput',
@@ -29,7 +30,7 @@ async function setup(from = 'member', uploaded = true) {
   '../../components/ClaimPayoutDate': { ClaimPayoutDate: 'ClaimPayoutDate' },
     '../../constants/Colors': { Colors: colors },
     '@expo/vector-icons': { Ionicons: 'Ionicons' },
-    '../../contexts/AuthContext': { useAuth: () => ({ user: { id: 'treasurer-1' }, token: 'session' }) },
+    '../../contexts/AuthContext': { useAuth: () => auth },
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 0 }) },
     'expo-file-system/legacy': { documentDirectory: 'files/', EncodingType: { Base64: 'base64' },
       writeAsStringAsync: async (...args) => files.push(args) },
@@ -64,7 +65,7 @@ async function setup(from = 'member', uploaded = true) {
   const render = () => ui.render(Screen);
   button(render(), 'Payments').props.onPress();
   await tick();
-  return { render, requests, alerts, files, opened, routes, proof, state, member, ui, params, club };
+  return { render, requests, alerts, files, opened, routes, proof, state, member, ui, params, club, auth };
 }
 
 test('review opens the selected image, confirms its contribution ID and refreshes', async () => {
@@ -272,4 +273,35 @@ test('club data, proof viewing and approval all use bearer authorization', async
   for (const request of c.requests) {
     assert.equal(request.options.headers.Authorization, 'Bearer session', request.url);
   }
+});
+
+
+test('revoked Admin access removes club data and payment controls', async () => {
+  const c = await setup();
+  c.state.clubGet = async () => { throw { response: { status: 403 } }; };
+  c.ui.blur(); c.ui.focus(); await tick();
+  assert.ok(text(c.render()).includes('Access denied'));
+  assert.equal(button(c.render(), 'Approve Payment'), undefined);
+  assert.equal(button(c.render(), 'View Proof'), undefined);
+});
+
+test('malformed Admin club response displays controlled error without financial controls', async () => {
+  const c = await setup();
+  c.state.clubGet = async () => ({ data: { id: 'club-1', name: 'Club', members: null } });
+  c.ui.blur(); c.ui.focus(); await tick();
+  assert.ok(text(c.render()).includes('Failed to load club details'));
+  assert.equal(button(c.render(), 'Approve Payment'), undefined);
+});
+
+
+test('stale club response from previous bearer session cannot overwrite current session data', async () => {
+  const c = await setup(); const pending = [];
+  c.state.clubGet = url => new Promise(resolve => pending.push({ url, resolve }));
+  c.ui.blur(); c.ui.focus(); c.render();
+  c.auth.token = 'new-session'; c.render();
+  assert.equal(pending.length, 2);
+  pending[1].resolve({ data: { ...c.club, name: 'Current session club' } }); await tick(); c.render();
+  pending[0].resolve({ data: { ...c.club, name: 'Stale session club' } }); await tick();
+  assert.match(text(c.render()), /Current session club/); assert.doesNotMatch(text(c.render()), /Stale session club/);
+  assert.equal(c.requests.at(-1).options.headers.Authorization, 'Bearer new-session');
 });

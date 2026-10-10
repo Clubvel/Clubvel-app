@@ -1,3 +1,4 @@
+import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import React, { useCallback, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, RefreshControl, Image } from 'react-native';
 import { Colors } from '../../constants/Colors';
@@ -17,6 +18,7 @@ import {
 export default function ReportsScreen() {
   const { user, token } = useAuth();
   const router = useRouter();
+  const [photoExpanded, setPhotoExpanded] = React.useState(false);
   const { group_id, clubId } = useLocalSearchParams<{ group_id?: string; clubId?: string }>();
   const [isGenerating, setIsGenerating] = useState(false);
   const [generatingType, setGeneratingType] = useState<string | null>(null);
@@ -343,18 +345,16 @@ export default function ReportsScreen() {
 
   return (
     <View style={styles.container}>
+      <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => router.push('/(treasurer)/profile')} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={Colors.white} />
         </TouchableOpacity>
-        <View style={styles.headerTitleContainer}>
-          <Text style={styles.headerTitle}>Reports</Text>
-        </View>
         <TouchableOpacity
           accessibilityRole="button"
-          accessibilityLabel="Open profile"
-          onPress={() => router.push('/(treasurer)/profile')}
+          accessibilityLabel="Expand profile photo"
+          onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(treasurer)/profile')}
           style={styles.profileButton}
         >
           {user?.profile_photo ? (
@@ -365,6 +365,7 @@ export default function ReportsScreen() {
             </View>
           )}
         </TouchableOpacity>
+        <View style={styles.headerTitleContainer}><Text style={styles.headerTitle}>Reports</Text></View>
       </View>
 
       <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={refreshing} onRefresh={() => void fetchReportData(true)} />}>
@@ -423,7 +424,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.mediumGreen,
+    backgroundColor: Colors.primary,
     paddingTop: 60,
     paddingBottom: 20,
     paddingHorizontal: 24,
@@ -443,16 +444,16 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   profileImage: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
   profilePlaceholder: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     borderWidth: 2,
     borderColor: Colors.gold,
     backgroundColor: Colors.gold,

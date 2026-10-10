@@ -12,8 +12,9 @@ async function setup() {
       Alert: { alert: (...args) => alerts.push(args) } },
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '../../components/StatusPill': { StatusPill: 'StatusPill' }, '../../components/AdBanner': { AdBanner: 'AdBanner' },
+    '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': { useAuth: () => ({ user: { id: 'admin', full_name: 'Admin' }, token: 'session' }) },
-    'expo-router': { useRouter: () => ({ push() {} }) },
+    'expo-router': { useFocusEffect: ui.useFocusEffect, useLocalSearchParams: () => ({}), useRouter: () => ({ push() {} }) },
     axios: {
       get: async url => ({ data: url.includes('/dashboard/') ? { clubs: [{ id: 'club', name: 'Old local name' }] } : { members: [] } }),
       post: async (url, data, options) => {

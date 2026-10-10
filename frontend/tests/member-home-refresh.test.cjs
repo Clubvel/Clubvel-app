@@ -2,23 +2,24 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { load, engine, tick, nodes, text, button, native, colors } = require('./ui-harness.cjs');
 
-function setup(screen = 'member') {
-  const ui = engine(), requests = [], routes = [];
+function setup(screen = 'member', holdInvitations = false) {
+  const ui = engine(), requests = [], invitations = [], actions = [], alerts = [], routes = [];
   const auth = { user: { id: 'member', full_name: 'Test Member', first_name: 'Test' }, token: 'session' };
   const Screen = load(screen === 'member' ? 'app/(member)/home.tsx' : 'app/(treasurer)/dashboard.tsx', {
     react: ui.react,
-    'react-native': { ...native, RefreshControl: 'RefreshControl', TextInput: 'TextInput',
+    'react-native': { ...native, Alert: {alert: (...args) => alerts.push(args)}, RefreshControl: 'RefreshControl', TextInput: 'TextInput',
       KeyboardAvoidingView: 'KeyboardAvoidingView', Platform: { OS: 'android' },
       Keyboard: { dismiss() {} }, TouchableWithoutFeedback: 'TouchableWithoutFeedback' },
     'expo-router': { useFocusEffect: ui.useFocusEffect, useRouter: () => ({ push: r => routes.push(r) }) },
+    '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': { useAuth: () => auth },
     '../../components/StatusPill': { StatusPill: 'StatusPill' },
     '../../components/AdBanner': { AdBanner: 'AdBanner' },
     '../../services/paymentReminder': { addPaymentReminder: async () => {} },
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '@react-native-async-storage/async-storage': {},
-    axios: { get: url => url.includes('/invitations/') ? Promise.resolve({ data: { invitations: [] } })
-      : new Promise(resolve => requests.push({ url, resolve })) },
+    axios: { get: url => url.includes('/invitations/') ? (holdInvitations ? new Promise(resolve => invitations.push({url,resolve})) : Promise.resolve({ data: { invitations: [] } }))
+      : new Promise(resolve => requests.push({ url, resolve })), post: (url,body,options) => new Promise((resolve,reject)=>actions.push({url,body,options,resolve,reject})) },
   }).default;
   const render = () => ui.render(Screen);
   const respond = async (index, name, role = 'member') => {
@@ -29,7 +30,7 @@ function setup(screen = 'member') {
   };
   const refresh = () => nodes(render()).find(n => n.type === 'ScrollView').props.refreshControl.props.onRefresh();
   render();
-  return { ui, render, requests, routes, respond, refresh };
+  return { ui, auth, render, requests, invitations, actions, alerts, routes, respond, refresh };
 }
 
 test('initial Home load uses the existing dashboard endpoint once', async () => {
@@ -156,3 +157,68 @@ for (const role of ['member', 'admin']) for (const count of [0, 3]) {
     }
   });
 }
+
+test('Member dashboard is usable without waiting for a slow invitations request', async () => {
+ const c=setup('member',true);await c.respond(0,'WeTraveling');
+ assert.match(text(c.render()),/WeTraveling/);
+ assert.equal(nodes(c.render()).some(n=>n.type==='Text'&&text(n)==='Loading dashboard…'),false);
+});
+test('Admin focus refresh coalesces an active request and stale refresh cannot overwrite latest',async()=>{
+ const c=setup('admin');c.ui.blur();c.ui.focus();assert.equal(c.requests.length,1);
+ await c.respond(0,'WeTraveling');c.refresh();c.refresh();await c.respond(2,'Eighty8');await c.respond(1,'WeTraveling');
+ assert.match(text(c.render()),/Eighty8/);assert.doesNotMatch(text(c.render()),/WeTraveling/);
+ c.ui.blur();c.ui.focus();assert.equal(c.requests.length,4);
+});
+test('both Homes retain real identity and menu while initial requests are pending',()=>{
+ for(const role of ['member','admin']) {
+  const c=setup(role);assert.ok(nodes(c.render()).some(n=>n.props?.accessibilityLabel==='Open profile menu'));
+  assert.ok(nodes(c.render()).some(n=>n.type==='ActivityIndicator'));
+ }
+});
+
+for (const role of ['member', 'admin']) {
+ test(`${role} Home hides the prior account snapshot immediately and accepts only the new account response`, async () => {
+  const c=setup(role); await c.respond(0,'WeTraveling'); assert.match(text(c.render()),/WeTraveling/);
+  c.auth.user={id:'other',full_name:'Other Member'}; c.auth.token='other-session';
+  assert.doesNotMatch(text(c.render()),/WeTraveling/); assert.equal(c.requests.length,2);
+  await c.respond(1,'Eighty8'); assert.match(text(c.render()),/Eighty8/);
+ });
+ test(`${role} Home rejects an old response after logout even without a replacement request`, async () => {
+  const c=setup(role); c.auth.user=null; c.auth.token=null; c.render();
+  await c.respond(0,'Old Account Club'); assert.doesNotMatch(text(c.render()),/Old Account Club/);
+ });
+ test(`${role} Home rejects old-session responses during account switching and keeps current-session background data`, async () => {
+  const c=setup(role); await c.respond(0,'WeTraveling'); c.render(); c.refresh();
+  assert.match(text(c.render()),/WeTraveling/);
+  c.auth.token='new-session'; assert.doesNotMatch(text(c.render()),/WeTraveling/);
+  await c.respond(2,'Eighty8'); await c.respond(1,'Old Account Club');
+  assert.match(text(c.render()),/Eighty8/); assert.doesNotMatch(text(c.render()),/Old Account Club/);
+ });
+}
+
+test('Member Home never carries pending invitations into another account',async()=>{
+ const c=setup('member',true);await c.respond(0,'WeTraveling');
+ c.invitations[0].resolve({data:{invitations:[{id:'private-invite',group_id:'private-group',group_name:'Private Old Account Club',expires_at:'2099-01-01'}]}});await tick();
+ assert.match(text(c.render()),/Private Old Account Club/);
+ c.auth.user={id:'other',full_name:'Other Account'};c.auth.token='other-session';assert.doesNotMatch(text(c.render()),/Private Old Account Club/);
+ await c.respond(1,'Eighty8');assert.doesNotMatch(text(c.render()),/Private Old Account Club/);
+});
+test('Member Home ignores late invitations belonging to a logged-out session',async()=>{
+ const c=setup('member',true);c.auth.user=null;c.auth.token=null;c.render();
+ c.invitations[0].resolve({data:{invitations:[{id:'old',group_name:'Wrong Session Invitation',expires_at:'2099-01-01'}]}});await tick();
+ assert.doesNotMatch(text(c.render()),/Wrong Session Invitation/);
+});
+
+for(const role of ['member','admin'])test(`${role} old dashboard callback cannot supersede the new account request`,async()=>{
+ const c=setup(role);await c.respond(0,'WeTraveling');const oldRefresh=nodes(c.render()).find(n=>n.type==='ScrollView').props.refreshControl.props.onRefresh;
+ c.auth.user={id:'other',full_name:'Other Account'};c.auth.token='other-session';c.render();assert.equal(c.requests.length,2);
+ oldRefresh();assert.equal(c.requests.length,2);await c.respond(1,'Eighty8');assert.match(text(c.render()),/Eighty8/);
+});
+for(const action of ['Accept','Decline'])test(`Member old-account invitation ${action} completion cannot refresh or alert in the new account`,async()=>{
+ const c=setup('member',true);await c.respond(0,'WeTraveling');
+ c.invitations[0].resolve({data:{invitations:[{id:'old-invitation',group_id:'old-group',group_name:'Old Private Club',expires_at:'2099-01-01'}]}});await tick();
+ const work=button(c.render(),action).props.onPress();assert.equal(c.actions.length,1);assert.equal(c.actions[0].options.headers.Authorization,'Bearer session');
+ c.auth.user={id:'other',full_name:'Other Account'};c.auth.token='other-session';c.render();assert.equal(c.requests.length,2);
+ c.actions[0].resolve({data:{}});await tick();assert.equal(c.requests.length,2);await work;
+ assert.deepEqual(c.alerts,[]);await c.respond(1,'Eighty8');assert.match(text(c.render()),/Eighty8/);assert.doesNotMatch(text(c.render()),/Old Private Club/);
+});

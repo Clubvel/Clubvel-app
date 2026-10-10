@@ -1,7 +1,8 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image, TextInput, Platform, KeyboardAvoidingView } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
+import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import { StatusPill } from '../../components/StatusPill';
 import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
@@ -50,10 +51,12 @@ interface PendingInvitation {
 export default function MemberHomeScreen() {
   const { user, token, logout } = useAuth();
   const router = useRouter();
+  const [photoExpanded, setPhotoExpanded] = useState(false);
   const dashboardScroll = useRef<ScrollView>(null);
   const clubsOffset = useRef(0);
-  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [storedDashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [storedLoading, setLoading] = useState(true);
+  const [storedDashboardError, setDashboardError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -64,13 +67,45 @@ export default function MemberHomeScreen() {
   const [groupType, setGroupType] = useState('savings');
   const [monthlyContribution, setMonthlyContribution] = useState('');
   const [paymentDueDate, setPaymentDueDate] = useState('25');
-  const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([]);
+  const [storedInvitations, setStoredInvitations] = useState<PendingInvitation[]>([]);
   const [acceptingInvitation, setAcceptingInvitation] = useState<string | null>(null);
   const [showInvitations, setShowInvitations] = useState(false);
   const [invitationsLoading, setInvitationsLoading] = useState(false);
   const [invitationsError, setInvitationsError] = useState<string | null>(null);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+  const sessionKey = JSON.stringify([API_URL, user?.id, token]);
+  const latestSession = useRef(sessionKey);
+  latestSession.current = sessionKey;
+  const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
+  const [errorOwner, setErrorOwner] = useState<string | null>(null);
+  const dashboardData = dashboardOwner === sessionKey ? storedDashboardData : null;
+  const dashboardError = errorOwner === sessionKey ? storedDashboardError : null;
+  const loading = storedLoading || (!dashboardData && !dashboardError);
+  const [invitationOwner, setInvitationOwner] = useState<string | null>(null);
+  const pendingInvitations = invitationOwner === sessionKey ? storedInvitations : [];
+  const setPendingInvitations = useCallback((invitations: PendingInvitation[]) => {
+    setStoredInvitations(invitations);
+    setInvitationOwner(sessionKey);
+  }, [sessionKey]);
+  useEffect(() => {
+    setDashboardData(null);
+    setDashboardOwner(null);
+    setDashboardError(null);
+    setErrorOwner(null);
+    setLoading(true);
+    setRefreshing(false);
+    setStoredInvitations([]);
+    setInvitationOwner(null);
+    setShowInvitations(false);
+    setInvitationsError(null);
+    setInvitationsLoading(false);
+    setAcceptingInvitation(null);
+    setShowProfileMenu(false);
+    setShowDeleteModal(false);
+    setShowCreateGroup(false);
+    setPhotoExpanded(false);
+  }, [sessionKey]);
   const dashboardRequest = useRef(0);
   const dashboardInFlight = useRef<{ key: string; promise: Promise<void> } | null>(null);
 
@@ -146,43 +181,49 @@ export default function MemberHomeScreen() {
   const fetchDashboard = useCallback((force = false) => {
     if (!user?.id || !token) return Promise.resolve();
     const key = JSON.stringify([API_URL, user.id, token]);
+    if (latestSession.current !== key) return Promise.resolve();
     if (!force && dashboardInFlight.current?.key === key) {
       return dashboardInFlight.current.promise;
     }
     const request = ++dashboardRequest.current;
     const promise = (async () => {
       try {
-        const [dashboardResponse, invitationsResponse] = await Promise.all([
-          axios.get(`${API_URL}/api/member/dashboard/${user.id}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-          axios.get(`${API_URL}/api/invitations/pending/${user.id}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-        ]);
-        if (request === dashboardRequest.current) {
-          setDashboardData(dashboardResponse.data);
-          setPendingInvitations(invitationsResponse.data.invitations || []);
+        setDashboardError(null);
+        const dashboardPromise = axios.get(`${API_URL}/api/member/dashboard/${user.id}`, {
+          headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+        });
+        // Invitations must not block an otherwise ready dashboard.
+        const invitationsPromise = axios.get(`${API_URL}/api/invitations/pending/${user.id}`, {
+          headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+        }).then(response => {
+          if (request === dashboardRequest.current && latestSession.current === key) setPendingInvitations(response.data.invitations || []);
+        }).catch(() => {
+          if (request === dashboardRequest.current && latestSession.current === key) setInvitationsError('Could not refresh invitations. Open invitations to retry.');
+        });
+        try {
+          const response = await dashboardPromise;
+          if (request === dashboardRequest.current && latestSession.current === key) { setDashboardData(response.data); setDashboardOwner(key); }
+        } catch (error) {
+          if (request === dashboardRequest.current && latestSession.current === key) { setDashboardError('Could not refresh your dashboard.'); setErrorOwner(key); }
+          console.error('Error fetching dashboard:', error);
+        } finally {
+          if (request === dashboardRequest.current && latestSession.current === key) { setLoading(false); setRefreshing(false); }
         }
-      } catch (error) {
-        console.error('Error fetching dashboard:', error);
+        await invitationsPromise;
       } finally {
-        if (request === dashboardRequest.current) {
-          setLoading(false);
-          setRefreshing(false);
-          dashboardInFlight.current = null;
-        }
+        if (request === dashboardRequest.current && latestSession.current === key) dashboardInFlight.current = null;
       }
     })();
     dashboardInFlight.current = { key, promise };
     return promise;
-  }, [API_URL, user?.id, token]);
+  }, [API_URL, user?.id, token, setPendingInvitations]);
 
   useFocusEffect(useCallback(() => {
     void fetchDashboard();
   }, [fetchDashboard]));
 
   const onRefresh = () => {
+    if (latestSession.current !== sessionKey) return;
     setRefreshing(true);
     void fetchDashboard(true);
   };
@@ -270,6 +311,9 @@ export default function MemberHomeScreen() {
   };
 
   const openInvitations = async () => {
+    if (!user?.id || !token) return;
+    const key = sessionKey;
+    if (latestSession.current !== key) return;
     const request = dashboardRequest.current;
     setShowInvitations(true);
     setInvitationsLoading(true);
@@ -278,15 +322,17 @@ export default function MemberHomeScreen() {
       const response = await axios.get(`${API_URL}/api/invitations/pending/${user?.id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (request === dashboardRequest.current) setPendingInvitations(response.data.invitations || []);
+      if (request === dashboardRequest.current && latestSession.current === key) setPendingInvitations(response.data.invitations || []);
     } catch (error: any) {
-      setInvitationsError(error.response?.data?.detail || 'Could not load invitations. Please try again.');
+      if (latestSession.current === key && request === dashboardRequest.current) setInvitationsError(error.response?.data?.detail || 'Could not load invitations. Please try again.');
     } finally {
-      setInvitationsLoading(false);
+      if (latestSession.current === key && request === dashboardRequest.current) setInvitationsLoading(false);
     }
   };
 
   const acceptInvitation = async (invitation: PendingInvitation) => {
+    const key = sessionKey;
+    if (latestSession.current !== key) return;
     ++dashboardRequest.current;
     dashboardInFlight.current = null;
     setAcceptingInvitation(invitation.id);
@@ -297,7 +343,9 @@ export default function MemberHomeScreen() {
       }, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (latestSession.current !== key) return;
       await fetchDashboard(true);
+      if (latestSession.current !== key) return;
       if (invitation.intended_role === 'admin') {
         const active = response.data.admin_access === true;
         Alert.alert(active ? 'Admin invitation accepted' : 'Invitation processed',
@@ -307,14 +355,17 @@ export default function MemberHomeScreen() {
         Alert.alert('Group joined', `You are now a member of ${invitation.group_name}.`);
       }
     } catch (error: any) {
+      if (latestSession.current !== key) return;
       void fetchDashboard(true);
       Alert.alert('Could not accept invitation', error.response?.data?.detail || 'Please try again.');
     } finally {
-      setAcceptingInvitation(null);
+      if (latestSession.current === key) setAcceptingInvitation(null);
     }
   };
 
   const declineInvitation = async (invitation: PendingInvitation) => {
+    const key = sessionKey;
+    if (latestSession.current !== key) return;
     ++dashboardRequest.current;
     dashboardInFlight.current = null;
     setAcceptingInvitation(invitation.id);
@@ -322,29 +373,21 @@ export default function MemberHomeScreen() {
       await axios.post(`${API_URL}/api/invitations/decline`, {
         invitation_id: invitation.id, user_id: user?.id,
       }, { headers: { Authorization: `Bearer ${token}` } });
+      if (latestSession.current !== key) return;
       await fetchDashboard(true);
+      if (latestSession.current !== key) return;
       Alert.alert('Invitation declined', 'No membership or Admin access was granted.');
     } catch (error: any) {
+      if (latestSession.current !== key) return;
       void fetchDashboard(true);
       Alert.alert('Could not decline invitation', error.response?.data?.detail || 'Please try again.');
-    } finally { setAcceptingInvitation(null); }
+    } finally { if (latestSession.current === key) setAcceptingInvitation(null); }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.brandName}>Clubvel</Text>
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.mediumGreen} />
-        </View>
-      </View>
-    );
-  }
 
   return (
     <View style={{ flex: 1 }}>
+      <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
       <ScrollView ref={dashboardScroll}
         style={styles.container}
         refreshControl={
@@ -353,12 +396,11 @@ export default function MemberHomeScreen() {
       >
         {/* Header */}
         <View style={styles.header}>
-          <Text style={styles.brandName}>Clubvel</Text>
           <TouchableOpacity 
             style={styles.avatarButton}
             accessibilityRole="button"
-            accessibilityLabel="Open profile menu"
-            onPress={() => setShowProfileMenu(true)}
+            accessibilityLabel="Expand profile photo"
+            onPress={() => user?.profile_photo ? setPhotoExpanded(true) : setShowProfileMenu(true)}
           >
             {user?.profile_photo ? (
               <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
@@ -368,9 +410,19 @@ export default function MemberHomeScreen() {
               </View>
             )}
           </TouchableOpacity>
+          <Text style={styles.brandName}>Clubvel</Text>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open profile menu" onPress={() => setShowProfileMenu(true)} style={{ padding: 8, flexShrink: 0 }}>
+            <Ionicons name="menu" size={24} color={Colors.white} />
+          </TouchableOpacity>
         </View>
 
-        {/* Summary Cards */}
+        {!!dashboardError && !!dashboardData && <Text accessibilityRole="alert">{dashboardError} Pull down to refresh.</Text>}
+      {loading ? (
+        <View style={styles.loadingContainer}><ActivityIndicator size="large" color={Colors.mediumGreen} /><Text>Loading dashboard…</Text></View>
+      ) : dashboardError && !dashboardData ? (
+        <View style={styles.loadingContainer}><Text>{dashboardError}</Text><TouchableOpacity onPress={() => { setLoading(true); void fetchDashboard(); }}><Text>Retry</Text></TouchableOpacity></View>
+      ) : (<>
+      {/* Summary Cards */}
         <View style={styles.summaryContainer}>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Contributions</Text>
@@ -495,6 +547,7 @@ export default function MemberHomeScreen() {
 
       {/* Advertisement Banner */}
       <AdBanner size="banner" />
+     </>)}
     </ScrollView>
 
     {/* Member Account Panel */}
@@ -514,24 +567,26 @@ export default function MemberHomeScreen() {
         />
         <View style={styles.dropdownMenu} accessibilityViewIsModal>
           <View style={styles.accountToolbar}>
-            <Text style={styles.accountTitle}>My Clubvel</Text>
+            <Text style={styles.accountTitle}>Clubvel</Text>
             <TouchableOpacity style={styles.accountClose} onPress={() => setShowProfileMenu(false)} accessibilityRole="button" accessibilityLabel="Close account panel">
-              <Ionicons name="close" size={26} color={Colors.textPrimary} />
+              <Ionicons name="close" size={26} color={Colors.white} />
             </TouchableOpacity>
           </View>
           <ScrollView style={styles.accountScroll} contentContainerStyle={styles.accountContent}>
             <View style={styles.dropdownHeader}>
+              <TouchableOpacity style={{ minWidth: 112, minHeight: 112 }} onPress={() => { if (user?.profile_photo) { setShowProfileMenu(false); setPhotoExpanded(true); } }} accessibilityRole="button" accessibilityLabel="View full-size profile photo">
               {user?.profile_photo ? (
                 <Image source={{ uri: user.profile_photo }} style={styles.dropdownAvatar} resizeMode="cover" />
               ) : (
                 <View style={styles.dropdownAvatar}>
-                  <Text style={styles.dropdownAvatarText}>{dashboardData?.user.first_name.charAt(0)}</Text>
+                  <Text style={styles.dropdownAvatarText}>{(user?.full_name || '').trim().charAt(0).toUpperCase() || '?'}</Text>
                 </View>
               )}
+              </TouchableOpacity>
               <View style={styles.dropdownUserInfo}>
-                <Text style={styles.dropdownUserName}>{dashboardData?.user.full_name}</Text>
+                <Text style={styles.dropdownUserName}>{user?.full_name}</Text>
                 <Text style={styles.dropdownUserRole}>
-                  {dashboardData ? `Member of ${dashboardData.summary.active_clubs} ${dashboardData.summary.active_clubs === 1 ? 'Clubvel' : 'Clubvels'}` : 'Member'}
+                  {dashboardData ? `Member of ${dashboardData.summary.active_clubs} ${dashboardData.summary.active_clubs === 1 ? 'Group' : 'Groups'}` : 'Member'}
                 </Text>
               </View>
             </View>
@@ -789,14 +844,14 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.darkGreen,
+    backgroundColor: Colors.primary,
     paddingTop: 52,
     paddingBottom: 16,
     paddingHorizontal: 24,
     flexDirection: 'row',
-    justifyContent: 'space-between',
+    justifyContent: 'flex-start',
     alignItems: 'center',
-    gap: 16,
+    gap: 12,
   },
   brandName: {
     flexShrink: 1,
@@ -950,17 +1005,17 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   avatar: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
   },
   avatarImage: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
@@ -982,20 +1037,22 @@ const styles = StyleSheet.create({
   accountToolbar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingLeft: 24, paddingRight: 12, paddingVertical: 8, gap: 12,
+    backgroundColor: Colors.primary,
   },
-  accountTitle: { color: Colors.textPrimary, fontSize: 18, fontWeight: '700', flexShrink: 1 },
+  accountTitle: { color: Colors.white, fontSize: 24, fontWeight: '700', flexShrink: 1 },
   accountClose: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
   accountScroll: { flex: 1 },
   accountContent: { paddingBottom: 24 },
   dropdownHeader: {
-    padding: 24,
-    paddingTop: 12,
-    backgroundColor: Colors.lightBackground,
+    padding: 16,
+    paddingTop: 0,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
   },
   dropdownAvatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     borderWidth: 2,
     borderColor: Colors.gold,
     backgroundColor: Colors.gold,
@@ -1003,9 +1060,9 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   dropdownAvatarText: { fontSize: 30, fontWeight: 'bold', color: Colors.white },
-  dropdownUserInfo: { marginTop: 16, alignSelf: 'stretch' },
-  dropdownUserName: { fontSize: 26, fontWeight: 'bold', color: Colors.textPrimary },
-  dropdownUserRole: { fontSize: 15, color: Colors.textSecondary, marginTop: 6 },
+  dropdownUserInfo: { marginTop: 12, alignSelf: 'stretch' },
+  dropdownUserName: { fontSize: 20, fontWeight: 'bold', color: Colors.white, textAlign: 'center' },
+  dropdownUserRole: { fontSize: 15, color: Colors.white, marginTop: 6, textAlign: 'center' },
   dropdownDivider: { height: 1, backgroundColor: Colors.cardBorder, marginHorizontal: 24 },
   dropdownItem: {
     flexDirection: 'row', alignItems: 'center', minHeight: 64,

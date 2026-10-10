@@ -44,7 +44,8 @@ test('Member Home renders approved payout monetary total separately from unchang
  const Home=load('app/(member)/home.tsx',{
   react:ui.react,'react-native':{...native,RefreshControl:'RefreshControl',TextInput:'TextInput',KeyboardAvoidingView:'KeyboardAvoidingView',Platform:{OS:'android'}},
   'expo-router':{useFocusEffect:ui.useFocusEffect,useRouter:()=>({push(){}})},
-  '../../contexts/AuthContext':{useAuth:()=>({user:{id:'member'},token:'session'})},
+  '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
+    '../../contexts/AuthContext':{useAuth:()=>({user:{id:'member'},token:'session'})},
   '../../components/StatusPill':{StatusPill:'StatusPill'},'../../components/AdBanner':{AdBanner:'AdBanner'},
   '../../constants/Colors':{Colors:colors},'@expo/vector-icons':{Ionicons:'Ionicons'},'@react-native-async-storage/async-storage':{},
   axios:{get:async()=>({data:{summary,user:{first_name:'Jimmy',full_name:'Jimmy'},clubs:[],invitations:[]}})},

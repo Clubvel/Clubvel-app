@@ -1,10 +1,11 @@
+import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import React, { useCallback, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Image, Modal, TextInput, RefreshControl } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { AdBanner } from '../../components/AdBanner';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -27,8 +28,10 @@ interface Contribution {
 }
 
 export default function ContributionsScreen() {
+  const [photoExpanded, setPhotoExpanded] = React.useState(false);
   const { user, token } = useAuth();
   const router = useRouter();
+  const params = useLocalSearchParams<{ groupId?: string; group_id?: string; id?: string }>();
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
   const [loading, setLoading] = useState(true);
   const [contributions, setContributions] = useState<Contribution[]>([]);
@@ -57,6 +60,7 @@ export default function ContributionsScreen() {
   const request = useRef<{ key: string; sequence: number } | null>(null);
   const sequence = useRef(0);
   const clubsRequest = useRef<string | null>(null);
+  const lastRequestedClub = useRef<string | undefined>(undefined);
   const clubsContext = `${user?.id}:${token}`;
   const latestClubsContext = useRef(clubsContext);
   latestClubsContext.current = clubsContext;
@@ -71,8 +75,16 @@ export default function ContributionsScreen() {
       if (latestClubsContext.current !== key) return;
       const managed = response.data.clubs;
       setClubs(managed);
-      setGroupId(previous => managed.some((club: { id: string }) => club.id === previous) ? previous : managed[0]?.id ?? null);
+      const requestedId = params.groupId || params.group_id || params.id;
+      const routeChanged = requestedId !== lastRequestedClub.current;
+      lastRequestedClub.current = requestedId;
+      setGroupId(previous => requestedId && routeChanged
+        ? managed.find((club: { id: string }) => club.id === requestedId)?.id ?? null
+        : managed.some((club: { id: string }) => club.id === previous) ? previous : managed[0]?.id ?? null);
       if (!managed.length) setLoading(false);
+      if (requestedId && routeChanged && !managed.some((club: { id: string }) => club.id === requestedId)) {
+        setError('This club is not available. Select an authorized club.'); setLoading(false);
+      }
     } catch (err: any) {
       if (latestClubsContext.current !== key) return;
       setError(err.response?.data?.detail || 'Unable to load clubs. Please try again.');
@@ -80,7 +92,7 @@ export default function ContributionsScreen() {
     } finally {
       if (clubsRequest.current === key) clubsRequest.current = null;
     }
-  }, [API_URL, user?.id, token]);
+  }, [API_URL, user?.id, token, params.groupId, params.group_id, params.id]);
 
   const fetchContributions = useCallback(async (force = false) => {
     if (!groupId || !user?.id) return;
@@ -184,12 +196,10 @@ export default function ContributionsScreen() {
 
   return (
     <View style={styles.container}>
+      <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
       {/* Header with Month Navigation and Profile */}
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle}>Payments</Text>
-        </View>
-        <TouchableOpacity onPress={() => router.push('/(treasurer)/profile')} style={styles.profileButton}>
+        <TouchableOpacity onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(treasurer)/profile')} style={styles.profileButton}>
           {user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
@@ -198,6 +208,10 @@ export default function ContributionsScreen() {
             </View>
           )}
         </TouchableOpacity>
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerTitle}>Payments</Text>
+        </View>
+      
       </View>
 
       <View style={styles.monthNav}>
@@ -372,7 +386,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.darkGreen,
+    backgroundColor: Colors.primary,
     paddingTop: 60,
     paddingBottom: 20,
     paddingHorizontal: 24,
@@ -394,16 +408,16 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   profileImage: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
   profilePlaceholder: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',

@@ -11,6 +11,7 @@ function setup() {
       KeyboardAvoidingView: 'KeyboardAvoidingView', Platform: { OS: 'android' },
       Alert: { alert: (...args) => alerts.push(args) } },
     'expo-router': { useFocusEffect: ui.useFocusEffect, useRouter: () => ({ push: route => routes.push(route) }) },
+    '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': { useAuth: () => ({ user: { id: 'recipient' }, token: 'session' }) },
     '../../components/StatusPill': { StatusPill: 'StatusPill' }, '../../components/AdBanner': { AdBanner: 'AdBanner' },
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },

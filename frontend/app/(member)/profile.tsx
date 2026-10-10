@@ -6,6 +6,8 @@ import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
+import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
+import EditProfile from '../../components/EditProfile';
 
 interface UserStats {
   clubs_count: number;
@@ -32,6 +34,7 @@ export default function ProfileScreen() {
   const { user, token, logout, updateProfilePhoto } = useAuth();
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
+  const [photoExpanded, setPhotoExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<UserStats>({ clubs_count: 0, total_saved: 0, on_time_percentage: 0, trust_score: null, date_joined: null });
   const [clubs, setClubs] = useState<Club[]>([]);
@@ -154,10 +157,11 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.container}>
+      <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.avatarContainer} onPress={handleChangePhoto} disabled={uploading}
-          accessibilityRole="button" accessibilityLabel="Change profile photo">
+        <TouchableOpacity style={styles.avatarContainer} onPress={() => user?.profile_photo ? setPhotoExpanded(true) : handleChangePhoto()} disabled={uploading}
+          accessibilityRole="button" accessibilityLabel={user?.profile_photo ? "View full-size profile photo" : "Add profile photo"}>
           {user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
           ) : (
@@ -177,6 +181,7 @@ export default function ProfileScreen() {
           <Text style={styles.photoActionText}>{uploading ? 'Updating photo…' : 'Change photo'}</Text>
         </TouchableOpacity>
         <Text style={styles.name}>{user?.full_name}</Text>
+        <EditProfile />
         {stats.date_joined && (
           <Text style={styles.memberSince}>Joined {new Date(stats.date_joined).toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' })}</Text>
         )}
@@ -371,7 +376,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.darkGreen,
+    backgroundColor: Colors.primary,
     paddingTop: 50,
     paddingBottom: 20,
     paddingHorizontal: 24,
@@ -384,9 +389,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
@@ -396,9 +401,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   avatarImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     borderWidth: 3,
     borderColor: Colors.gold,
   },

@@ -232,7 +232,7 @@ class ContextTests(unittest.TestCase):
         def functions(source):
             return {n.name: ast.get_source_segment(source, n) for n in ast.parse(source).body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
         old, new = functions(previous), functions(current)
-        self.assertEqual(set(new) - set(old), {'get_intelligence_summary'})
+        self.assertEqual(set(new) - set(old), {'get_intelligence_summary', 'update_personal_profile'})
         for name in old:
             self.assertEqual(new[name], old[name], name)
         self.assertEqual((ROOT / 'backend/services/monthly_reports.py').read_bytes(),

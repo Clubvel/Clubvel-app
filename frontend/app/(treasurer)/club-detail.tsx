@@ -87,6 +87,9 @@ export default function ClubDetailScreen() {
   const [reviewingProof, setReviewingProof] = useState(false);
   const clubFetchInProgress = useRef<string | null>(null);
   const clubFetchSequence = useRef(0);
+  const latestClubContext = useRef(`${id}:${user?.id}:${token}`);
+  latestClubContext.current = `${id}:${user?.id}:${token}`;
+  const claimsSequence = useRef(0);
   const reminderInFlight = useRef(false);
   const adminInvitationInFlight = useRef(false);
   
@@ -107,7 +110,8 @@ export default function ClubDetailScreen() {
   const [actionLoading, setActionLoading] = useState(false);
 
   const fetchClubData = useCallback(async (force = false) => {
-    const requestKey = `${id}:${user?.id}`;
+    if (!id || !user?.id || !token) { setClubData(null); setLoading(false); setError('Please sign in to open this club.'); return; }
+    const requestKey = `${id}:${user?.id}:${token}`;
     if (!force && clubFetchInProgress.current === requestKey) return;
     clubFetchInProgress.current = requestKey;
     const sequence = ++clubFetchSequence.current;
@@ -115,11 +119,17 @@ export default function ClubDetailScreen() {
     try {
       // The bearer session authenticates the supplied treasurer ID.
       const response = await axios.get(`${API_URL}/api/treasurer/club/${id}?treasurer_id=${user?.id}`, {
-        headers: { Authorization: `Bearer ${token}` },
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
       });
-      if (sequence === clubFetchSequence.current && clubFetchInProgress.current === requestKey) setClubData(response.data);
+      const data = response.data;
+      if (!data || data.id !== id || typeof data.name !== 'string' || !Array.isArray(data.members) ||
+          !Number.isFinite(data.collected) || !Number.isFinite(data.expected) ||
+          data.members.some((member: any) => !member || typeof member.name !== 'string')) throw new Error('Invalid club response');
+      if (sequence === clubFetchSequence.current && latestClubContext.current === requestKey) setClubData(data);
     } catch (err: any) {
-      if (sequence !== clubFetchSequence.current || clubFetchInProgress.current !== requestKey) return;
+      if (sequence !== clubFetchSequence.current || latestClubContext.current !== requestKey) return;
+      setClubData(null);
+      setClaims([]);
       console.error('Error fetching club data:', err);
       if (err.response?.status === 403) {
         setError('Access denied: You are not the treasurer of this group');
@@ -136,14 +146,14 @@ export default function ClubDetailScreen() {
   }, [API_URL, id, user?.id, token]);
 
   useFocusEffect(useCallback(() => {
-    if (id && user?.id) {
-      void fetchClubData();
-    }
-  }, [fetchClubData, id, user?.id]));
+    void fetchClubData();
+  }, [fetchClubData]));
 
   const fetchClaims = async () => {
     if (!id || !token) return;
 
+    const context = `${id}:${user?.id}:${token}`;
+    const sequence = ++claimsSequence.current;
     setClaimsLoading(true);
     setClaimsError(null);
 
@@ -160,8 +170,11 @@ export default function ClubDetailScreen() {
         throw new Error('Invalid claims response');
       }
 
+      if (sequence !== claimsSequence.current || latestClubContext.current !== context) return;
       setClaims(response.data.claims);
     } catch (err: any) {
+      if (sequence !== claimsSequence.current || latestClubContext.current !== context) return;
+      setClaims([]);
       console.error('Error fetching claims:', err);
       setClaimsError(
         err.response?.status === 403
@@ -169,7 +182,7 @@ export default function ClubDetailScreen() {
           : 'Unable to load claims. Please try again.'
       );
     } finally {
-      setClaimsLoading(false);
+      if (sequence === claimsSequence.current && latestClubContext.current === context) setClaimsLoading(false);
     }
   };
 
@@ -519,7 +532,7 @@ export default function ClubDetailScreen() {
     }
   };
 
-  if (!clubData) {
+  if (!clubData || clubData.id !== id) {
     return (
       <View style={styles.container}>
         <View style={[styles.header, { paddingTop: insets.top + 16 }]}>
