@@ -1,7 +1,6 @@
 const test = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('node:fs');
-const cp = require('node:child_process');
 const { load, engine, tick, nodes, text, button, native, colors } = require('./ui-harness.cjs');
 const service = load('services/clubSummary.ts');
 const periods = load('services/monthlyReport.ts');
@@ -105,12 +104,48 @@ for (const mode of ['button', 'backdrop', 'android']) test(`${mode} closes sheet
   if (mode === 'android') nodes(c.render()).find(n => n.type === 'Modal').props.onRequestClose(); assert.equal(c.closed(), 1);
   assert.equal(nodes(c.render()).find(n => n.type === 'ScrollView').props.contentContainerStyle.paddingBottom, 24);
 });
-test('integration leaves existing tabs and actions unchanged and no Member exposure', () => {
-  const file = 'app/(treasurer)/club-detail.tsx', current = fs.readFileSync(require('node:path').join(__dirname, '..', file), 'utf8');
-  const baseline = cp.execFileSync('git', ['show', `HEAD:frontend/${file}`], { encoding: 'utf8' });
-  const stripped = current.replace("import ClubSummary from '../../components/ClubSummary';\n", '').replace('  const [showClubSummary, setShowClubSummary] = useState(false);\n', '')
-    .replace(/      <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open Club Summary"[\s\S]*?      \{\/\* Tabs \*\/\}/, '      {/* Tabs */}');
-  assert.equal(stripped, baseline);
+test('integration leaves existing tabs and actions unchanged and no Member exposure', async () => {
+  const ui = engine(), requests = [], routes = [];
+  const Screen = load('app/(treasurer)/club-detail.tsx', {
+    react: ui.react, 'react-native': { ...native, RefreshControl: 'RefreshControl', TextInput: 'TextInput',
+      KeyboardAvoidingView: 'KeyboardAvoidingView', Platform: { OS: 'android' }, Alert: { alert() {} }, Linking: {} },
+    'expo-router': { useLocalSearchParams: () => ({ id: 'club', name: 'WeTraveling', from: 'member' }),
+      useFocusEffect: ui.useFocusEffect, useRouter: () => ({ replace: route => routes.push(route), back: () => routes.push('back') }) },
+    '../../contexts/AuthContext': { useAuth: () => ({ user: { id: 'admin' }, token: 'session' }) },
+    '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
+    'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 0 }) },
+    '../../components/ClubSummary': { default: 'ClubSummary' },
+    '../../components/ClaimPaymentRecord': { ClaimPaymentRecord: 'ClaimPaymentRecord' },
+    '../../components/ClaimPayoutDate': { ClaimPayoutDate: 'ClaimPayoutDate' },
+    '../../services/paymentReminder': { addPaymentReminder: async () => {} },
+    'expo-file-system/legacy': {}, 'expo-sharing': {},
+    axios: { get: async (url, options) => {
+      requests.push({ url, options });
+      return { data: url.endsWith('/claims') ? { claims: [] } : {
+        id: 'club', name: 'WeTraveling', collected: 125, expected: 350, member_count: 1,
+        monthly_contribution: 350, members: [{ id: 'membership', user_id: 'member', name: 'Member One',
+          role_in_group: 'member', membership_status: 'active', status: 'pending', amount_paid: 0,
+          amount_due: 350, has_proof: false, contribution_id: 'contribution' }] } };
+    } }
+  }).default;
+  const render = () => ui.render(Screen);
+  render(); await tick();
+  for (const tab of ['Members', 'Payments', 'Claims', 'Settings']) assert.ok(button(render(), tab), tab);
+  assert.match(text(render()), /WeTraveling|Member One/);
+  button(render(), 'Payments').props.onPress(); await tick();
+  assert.match(text(render()), /R0.00 \/ R350.00/);
+  button(render(), 'Claims').props.onPress(); render(); await tick();
+  assert.ok(requests.some(r => r.url.endsWith('/api/treasurer/groups/club/claims')));
+  button(render(), 'Settings').props.onPress();
+  assert.ok(nodes(render()).some(n => n.props?.name === 'trash-outline'));
+  const summaryButton = nodes(render()).find(n => n.props?.accessibilityLabel === 'Open Club Summary');
+  assert.ok(summaryButton); summaryButton.props.onPress();
+  const summary = nodes(render()).find(n => n.props?.clubId === 'club' && typeof n.props?.onClose === 'function');
+  assert.equal(summary.props.clubId, 'club'); assert.equal(summary.props.token, 'session');
+  summary.props.onClose(); assert.equal(nodes(render()).find(n => n.props?.clubId === 'club' && typeof n.props?.onClose === 'function'), undefined);
+  nodes(render()).find(n => n.type === 'TouchableOpacity' && nodes(n).some(child => child.props?.name === 'arrow-back')).props.onPress();
+  assert.deepEqual(routes, ['/(member)/home']);
+  for (const request of requests) assert.equal(request.options.headers.Authorization, 'Bearer session');
   const memberDir = require('node:path').join(__dirname, '../app/(member)');
   for (const f of fs.readdirSync(memberDir).filter(f => f.endsWith('.tsx'))) assert.doesNotMatch(fs.readFileSync(require('node:path').join(memberDir, f), 'utf8'), /ClubSummary/);
 });

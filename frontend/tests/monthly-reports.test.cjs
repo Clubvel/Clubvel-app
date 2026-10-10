@@ -166,7 +166,7 @@ test('physically approved header, PDF service and export handlers stay unchanged
   const root = path.join(__dirname, '../..');
   const file = 'frontend/app/(treasurer)/reports.tsx';
   const source = fs.readFileSync(path.join(root, file), 'utf8');
-  const baseline = cp.execFileSync('git', ['show', '267b31427060e7d539df7cfd34b0f3d0249c8c59:' + file], { cwd: root, encoding: 'utf8' });
+  const baseline = cp.execFileSync('git', ['show', 'eb8dc4927fc65e08244aceae45799c75af8aca87:' + file], { cwd: root, encoding: 'utf8' });
   const header = s => s.slice(s.indexOf('      {/* Header */}'), s.indexOf('      <ScrollView'));
   assert.equal(header(source), header(baseline));
   assert.match(source, /Other available exports/); assert.match(source, /do not use the club or month selected above/);

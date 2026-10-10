@@ -86,6 +86,7 @@ test('Member Home clearly identifies Admin privilege, retains Member wording and
     'react-native': { ...native, RefreshControl: 'RefreshControl', TextInput: 'TextInput', KeyboardAvoidingView: 'KeyboardAvoidingView',
       Platform: { OS: 'android' }, Alert: { alert() {} }, TouchableWithoutFeedback: 'TouchableWithoutFeedback', Keyboard: { dismiss() {} } },
     'expo-router': { useRouter: () => ({ push() {}, replace() {} }), useFocusEffect: fn => ui.useFocusEffect(fn) },
+    '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': { useAuth: () => ({ user: { id: 'recipient' }, token: 'session', logout() {} }) },
     '../../components/AdBanner': { AdBanner: 'AdBanner' }, '../../components/StatusPill': { StatusPill: 'StatusPill' },
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },

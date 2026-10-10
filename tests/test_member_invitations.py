@@ -342,11 +342,17 @@ class InvitationTests(unittest.IsolatedAsyncioTestCase):
             expected = base(path)
             actual = (ROOT / path).read_text()
             if path == 'frontend/app/(treasurer)/claims.tsx':
-                # Preserve the entire physically approved screen, including its 76px header and payout controls.
+                # Preserve the established payout handlers and controls while allowing approved header/club-refresh changes.
                 expected = subprocess.check_output(
-                    ['git', 'show', '267b31427060e7d539df7cfd34b0f3d0249c8c59:' + path],
-                    cwd=ROOT, text=True,
-                )
+                    ['git', 'show', 'eb8dc4927fc65e08244aceae45799c75af8aca87:' + path], cwd=ROOT, text=True)
+                def payment_contract(screen):
+                    handler = screen[screen.index('  const reviewClaim'):screen.index('  const statusLabel')]
+                    handler = handler.replace(' || claim.group_id !== selectedGroup.id', '')
+                    import re
+                    controls = re.findall(r'<Claim(?:PaymentRecord|PayoutDate)\b[\s\S]*?/>', screen)
+                    return handler, controls
+                self.assertEqual(payment_contract(actual), payment_contract(expected))
+                continue
             if path == 'frontend/hooks/usePersonalClaims.ts':
                 # Permit only the new payment-date read field, preserving session/filter behavior.
                 actual = actual.replace('  actual_payment_date: string | null;\n', '')

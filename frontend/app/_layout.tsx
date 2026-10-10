@@ -1,6 +1,10 @@
 import React from 'react';
+import * as SplashScreen from 'expo-splash-screen';
+
 import { Stack } from 'expo-router';
 import { AuthProvider } from '../contexts/AuthContext';
+
+void SplashScreen.preventAutoHideAsync().catch(() => {});
 
 export default function RootLayout() {
   return (

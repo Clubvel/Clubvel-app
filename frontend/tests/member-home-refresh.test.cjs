@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { load, engine, tick, nodes, text, button, native, colors } = require('./ui-harness.cjs');
 
-function setup(screen = 'member') {
+function setup(screen = 'member', holdInvitations = false) {
   const ui = engine(), requests = [], routes = [];
   const auth = { user: { id: 'member', full_name: 'Test Member', first_name: 'Test' }, token: 'session' };
   const Screen = load(screen === 'member' ? 'app/(member)/home.tsx' : 'app/(treasurer)/dashboard.tsx', {
@@ -11,13 +11,14 @@ function setup(screen = 'member') {
       KeyboardAvoidingView: 'KeyboardAvoidingView', Platform: { OS: 'android' },
       Keyboard: { dismiss() {} }, TouchableWithoutFeedback: 'TouchableWithoutFeedback' },
     'expo-router': { useFocusEffect: ui.useFocusEffect, useRouter: () => ({ push: r => routes.push(r) }) },
+    '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': { useAuth: () => auth },
     '../../components/StatusPill': { StatusPill: 'StatusPill' },
     '../../components/AdBanner': { AdBanner: 'AdBanner' },
     '../../services/paymentReminder': { addPaymentReminder: async () => {} },
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '@react-native-async-storage/async-storage': {},
-    axios: { get: url => url.includes('/invitations/') ? Promise.resolve({ data: { invitations: [] } })
+    axios: { get: url => url.includes('/invitations/') ? (holdInvitations ? new Promise(() => {}) : Promise.resolve({ data: { invitations: [] } }))
       : new Promise(resolve => requests.push({ url, resolve })) },
   }).default;
   const render = () => ui.render(Screen);
@@ -156,3 +157,21 @@ for (const role of ['member', 'admin']) for (const count of [0, 3]) {
     }
   });
 }
+
+test('Member dashboard is usable without waiting for a slow invitations request', async () => {
+ const c=setup('member',true);await c.respond(0,'WeTraveling');
+ assert.match(text(c.render()),/WeTraveling/);
+ assert.equal(nodes(c.render()).some(n=>n.type==='Text'&&text(n)==='Loading dashboard…'),false);
+});
+test('Admin focus refresh coalesces an active request and stale refresh cannot overwrite latest',async()=>{
+ const c=setup('admin');c.ui.blur();c.ui.focus();assert.equal(c.requests.length,1);
+ await c.respond(0,'WeTraveling');c.refresh();c.refresh();await c.respond(2,'Eighty8');await c.respond(1,'WeTraveling');
+ assert.match(text(c.render()),/Eighty8/);assert.doesNotMatch(text(c.render()),/WeTraveling/);
+ c.ui.blur();c.ui.focus();assert.equal(c.requests.length,4);
+});
+test('both Homes retain real identity and menu while initial requests are pending',()=>{
+ for(const role of ['member','admin']) {
+  const c=setup(role);assert.ok(nodes(c.render()).some(n=>n.props?.accessibilityLabel==='Open profile menu'));
+  assert.ok(nodes(c.render()).some(n=>n.type==='ActivityIndicator'));
+ }
+});

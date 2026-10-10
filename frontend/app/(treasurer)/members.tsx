@@ -1,10 +1,10 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { View, Text, StyleSheet, ScrollView, TextInput, TouchableOpacity, Modal, Alert, ActivityIndicator, Image, KeyboardAvoidingView, Platform, Linking } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
-import { useRouter, useLocalSearchParams } from 'expo-router';
+import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import { AdBanner } from '../../components/AdBanner';
 import axios from 'axios';
@@ -43,14 +43,14 @@ export default function MembersScreen() {
   const [sending, setSending] = useState(false);
   const invitationInFlight = useRef(false);
   const membersRequestId = useRef(0);
+  const sessionContext = `${user?.id}:${token}`;
+  const latestSession = useRef(sessionContext);
+  latestSession.current = sessionContext;
+  const [loadedMembersGroup, setLoadedMembersGroup] = useState<string | null>(null);
   const [members, setMembers] = useState<Member[]>([]);
   const [loading, setLoading] = useState(true);
   const [membersLoading, setMembersLoading] = useState(false);
   const [membersError, setMembersError] = useState<string | null>(null);
-
-  useEffect(() => {
-    fetchData();
-  }, []);
 
   useEffect(() => {
     if (selectedClub) {
@@ -58,26 +58,19 @@ export default function MembersScreen() {
     }
   }, [selectedClub?.id]);
 
-  useEffect(() => {
-    const requestedId = params.groupId || params.id;
-    const requestedClub = clubs.find(club => club.id === requestedId);
-    if (requestedClub && selectedClub?.id !== requestedClub.id) {
-      setSelectedClub(requestedClub);
-      setSearchQuery('');
-    }
-  }, [params.groupId, params.id, clubs]);
-
-  const fetchMembers = async (groupId: string) => {
+  const fetchMembers = useCallback(async (groupId: string) => {
     const requestId = ++membersRequestId.current;
+    const session = sessionContext;
     setMembers([]);
     setMembersError(null);
     setMembersLoading(true);
     try {
       const response = await axios.get(
         `${API_URL}/api/treasurer/club/${groupId}?treasurer_id=${user?.id}`,
-        { headers: { Authorization: `Bearer ${token}` } },
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 },
       );
-      if (requestId !== membersRequestId.current) return;
+      if (requestId !== membersRequestId.current || session !== latestSession.current || selectedClubRef.current?.id !== groupId) return;
+      setLoadedMembersGroup(groupId);
       setMembers((response.data.members || []).map((member: any) => ({
         id: member.id,
         name: member.name,
@@ -94,19 +87,27 @@ export default function MembersScreen() {
         phone: member.phone,
       })));
     } catch (error) {
-      if (requestId !== membersRequestId.current) return;
+      if (requestId !== membersRequestId.current || session !== latestSession.current || selectedClubRef.current?.id !== groupId) return;
       console.error('Error fetching members:', error);
       setMembersError('Unable to load members for this club. Please try again.');
       setMembers([]);
     } finally {
-      if (requestId === membersRequestId.current) setMembersLoading(false);
+      if (requestId === membersRequestId.current && session === latestSession.current && selectedClubRef.current?.id === groupId) setMembersLoading(false);
     }
-  };
+  }, [API_URL, user?.id, token, sessionContext]);
 
-  const fetchData = async () => {
+  const selectedClubRef = useRef(selectedClub);
+  selectedClubRef.current = selectedClub;
+  const clubsSequence = useRef(0);
+  const lastRequestedClub = useRef<string | undefined>(undefined);
+  const fetchData = useCallback(async () => {
+    if (!user?.id || !token) return;
+    const ticket = ++clubsSequence.current;
+    const session = sessionContext;
     try {
       // Fetch treasurer's clubs
-      const dashboardRes = await axios.get(`${API_URL}/api/treasurer/dashboard/${user?.id}`, { headers: { Authorization: `Bearer ${token}` } });
+      const dashboardRes = await axios.get(`${API_URL}/api/treasurer/dashboard/${user?.id}`, { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 });
+      if (ticket !== clubsSequence.current || session !== latestSession.current) return;
       if (dashboardRes.data.clubs) {
         const clubList = dashboardRes.data.clubs.map((c: any) => ({
           id: c.id,
@@ -114,16 +115,27 @@ export default function MembersScreen() {
         }));
         setClubs(clubList);
         if (clubList.length > 0) {
-          const requestedClub = clubList.find((club: Club) => club.id === (params.groupId || params.id));
-          setSelectedClub(requestedClub || clubList[0]);
+          const requestedId = params.groupId || params.id;
+          const routeChanged = requestedId !== lastRequestedClub.current;
+          lastRequestedClub.current = requestedId;
+          const requestedClub = routeChanged ? clubList.find((club: Club) => club.id === requestedId) : null;
+          const currentClub = clubList.find((club: Club) => club.id === selectedClubRef.current?.id);
+          const nextClub = requestedClub || currentClub || clubList[0];
+          setSelectedClub(nextClub);
+          if (nextClub.id === selectedClubRef.current?.id) void fetchMembers(nextClub.id);
+        } else {
+          setSelectedClub(null); setMembers([]);
         }
       }
     } catch (error) {
+      if (ticket !== clubsSequence.current || session !== latestSession.current) return;
       console.error('Error fetching data:', error);
     } finally {
-      setLoading(false);
+      if (ticket === clubsSequence.current && session === latestSession.current) setLoading(false);
     }
-  };
+  }, [API_URL, user?.id, token, params.groupId, params.id, fetchMembers, sessionContext]);
+
+  useFocusEffect(useCallback(() => { void fetchData(); }, [fetchData]));
 
   const lateCount = members.filter(m => m.paymentStatus === 'late').length;
   const paidCount = members.filter(m => m.paymentStatus === 'confirmed').length;
@@ -268,7 +280,7 @@ export default function MembersScreen() {
 
         {/* Member List */}
         <View style={styles.memberList}>
-          {members
+          {(loadedMembersGroup === selectedClub?.id ? members : [])
             .filter(m => m.name.toLowerCase().includes(searchQuery.toLowerCase()))
             .map((member) => (
               <TouchableOpacity key={member.id} style={styles.memberCard}>
@@ -426,7 +438,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.mediumGreen,
+    backgroundColor: Colors.primary,
     paddingTop: 60,
     paddingBottom: 20,
     paddingHorizontal: 24,
@@ -453,16 +465,16 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   profileImage: {
-    width: 104,
-    height: 104,
-    borderRadius: 52,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
   profilePlaceholder: {
-    width: 104,
-    height: 104,
-    borderRadius: 52,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',

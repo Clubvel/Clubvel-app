@@ -20,8 +20,9 @@ async function setup(wait = false) {
     'react-native': { ...native, TextInput: 'TextInput', RefreshControl: 'RefreshControl', Alert: { alert: (...args) => alerts.push(args) } },
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '../../components/StatusPill': { StatusPill: 'StatusPill' }, '../../components/AdBanner': { AdBanner: 'AdBanner' },
+    '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': { useAuth: () => ({ user: { id: 'admin' }, token: 'session' }) },
-    'expo-router': { useFocusEffect: ui.useFocusEffect, useRouter: () => ({ push: path => routes.push(path) }) },
+    'expo-router': { useLocalSearchParams: () => ({}), useFocusEffect: ui.useFocusEffect, useRouter: () => ({ push: path => routes.push(path) }) },
     'expo-file-system/legacy': { documentDirectory: 'files/', EncodingType: { Base64: 'base64' }, writeAsStringAsync: async (...args) => files.push(args) },
     'expo-sharing': { isAvailableAsync: async () => true, shareAsync: async (...args) => opened.push(args) },
     axios: {

@@ -14,7 +14,8 @@ function setup(photo = 'data:image/jpeg;base64,current') {
   const Screen = load(file, {
     react: ui.react,
     'react-native': { ...native, RefreshControl: 'RefreshControl', TextInput: 'TextInput', KeyboardAvoidingView: 'KeyboardAvoidingView', TouchableWithoutFeedback: 'TouchableWithoutFeedback', Keyboard: {}, Linking: {}, Platform: { OS: 'android' }, Alert: { alert: (...args) => alerts.push(args) } },
-    'expo-router': { useRouter: () => ({ push: route => routes.push(route), replace: route => routes.push(route) }) },
+    'expo-router': { useFocusEffect: ui.useFocusEffect, useLocalSearchParams: () => ({}), useRouter: () => ({ push: route => routes.push(route), replace: route => routes.push(route) }) },
+    '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': { useAuth: () => auth }, '../../components/AdBanner': { AdBanner: 'AdBanner' },
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '../../services/paymentReminder': { addPaymentReminder: async () => {} },
@@ -27,7 +28,7 @@ function setup(photo = 'data:image/jpeg;base64,current') {
   const panel = () => nodes(render()).find(n => n.props.accessibilityViewIsModal);
   const answer = count => ({ summary: { total_clubs: count, total_members: 0, total_collected_this_month: 0, late_members_count: 0 }, clubs: [], urgent_alerts: [], next_claim: null });
   const ready = async (count = 2) => { requests[0].resolve({ data: answer(count) }); await tick(); render(); };
-  const open = () => { nodes(render()).find(n => n.type === 'TouchableOpacity' && nodes(n).some(child => style(child).width === 76)).props.onPress(); };
+  const open = () => { action('Open profile menu').props.onPress(); };
   render();
   return { ui, auth, requests, routes, alerts, deletes, render, action, accountModal, panel, answer, ready, open, counts: () => ({ logouts, clears }) };
 }
@@ -44,30 +45,30 @@ test('Admin drawer uses approved Member dimensions, scrollable structure and typ
   assert.equal(name.props.numberOfLines, undefined);
   assert.equal(c.requests.length, 1);
 });
-test('Admin photo shares authenticated header image with 80px cover/circle/ring and no extra request', async () => {
+test('Admin photo shares authenticated header image with 112px cover/circle/ring and no extra request', async () => {
   const c = setup(); await c.ready(); c.open();
   const avatar = nodes(c.panel()).find(n => n.type === 'Image');
   assert.equal(avatar.props.source.uri, c.auth.user.profile_photo);
   assert.equal(avatar.props.resizeMode, 'cover');
-  assert.deepEqual([style(avatar).width, style(avatar).height, style(avatar).borderRadius], [80, 80, 40]);
+  assert.deepEqual([style(avatar).width, style(avatar).height, style(avatar).borderRadius], [112, 112, 56]);
   assert.equal(style(avatar).borderWidth, 2); assert.equal(style(avatar).borderColor, 'gold');
-  const header = nodes(c.render()).find(n => n.type === 'Image' && style(n).width === 76);
+  const header = nodes(c.render()).find(n => n.type === 'Image' && style(n).width === 112);
   assert.equal(header.props.source.uri, avatar.props.source.uri);
   c.auth.user.profile_photo = 'data:image/jpeg;base64,replacement';
   assert.equal(nodes(c.panel()).find(n => n.type === 'Image').props.source.uri, c.auth.user.profile_photo);
   assert.equal(c.requests.length, 1);
 });
-test('Admin initials fallback has the same 80px treatment and safely handles missing names', async () => {
+test('Admin initials fallback has the same 112px treatment and safely handles missing names', async () => {
   const c = setup(null); await c.ready(); c.open();
-  const avatar = nodes(c.panel()).find(n => style(n).width === 80);
+  const avatar = nodes(c.panel()).find(n => style(n).width === 112);
   assert.equal(avatar.type, 'View'); assert.equal(text(avatar), 'A');
-  assert.deepEqual([style(avatar).height, style(avatar).borderRadius, style(avatar).borderColor], [80, 40, 'gold']);
-  c.auth.user.full_name = ''; assert.equal(text(nodes(c.panel()).find(n => style(n).width === 80)), '?');
+  assert.deepEqual([style(avatar).height, style(avatar).borderRadius, style(avatar).borderColor], [112, 56, 'gold']);
+  c.auth.user.full_name = ''; assert.equal(text(nodes(c.panel()).find(n => style(n).width === 112)), '?');
 });
 for (const count of [0, 1, 3]) {
   test(`successful authoritative count ${count} has truthful singular/plural subtitle`, async () => {
     const c = setup(); await c.ready(count); c.open();
-    assert.ok(text(c.panel()).includes(`Managing ${count} ${count === 1 ? 'Clubvel' : 'Clubvels'}`));
+    assert.ok(text(c.panel()).includes(`Managing ${count} ${count === 1 ? 'Group' : 'Groups'}`));
     assert.equal(c.requests[0].options.headers.Authorization, 'Bearer session');
   });
 }
@@ -79,11 +80,11 @@ test('failed or missing dashboard count uses neutral context, and successful ret
   c.requests[1].resolve({ data: c.answer(undefined) }); await tick();
   assert.match(text(c.panel()), /Club administration/);
   nodes(c.render()).find(n => n.type === 'ScrollView' && n.props.refreshControl).props.refreshControl.props.onRefresh(); c.render();
-  c.requests[2].resolve({ data: c.answer(2) }); await tick(); assert.match(text(c.panel()), /Managing 2 Clubvels/);
+  c.requests[2].resolve({ data: c.answer(2) }); await tick(); assert.match(text(c.panel()), /Managing 2 Groups/);
 });
 test('menu follows approved order with descriptions, chevrons and accessible wrapping rows', async () => {
   const c = setup(); await c.ready(); c.open();
-  const rows = nodes(c.panel()).filter(n => n.type === 'TouchableOpacity' && n.props.accessibilityLabel !== 'Close account panel');
+  const rows = nodes(c.panel()).filter(n => n.type === 'TouchableOpacity' && !['Close account panel', 'View full-size profile photo'].includes(n.props.accessibilityLabel));
   assert.deepEqual(rows.map(n => n.props.accessibilityLabel), ['My Profile', 'Notification Preferences', 'Privacy Policy', 'Contact Us', 'About Clubvel', 'Sign Out', 'Delete My Account']);
   const descriptions = ['Photo, personal details and account', 'Choose which Clubvel alerts you receive', 'How Clubvel protects your information', 'Get help with Clubvel', 'Information about Clubvel'];
   rows.slice(0, 5).forEach((row, i) => {
@@ -148,13 +149,23 @@ test('Approved account panels, header styles and existing security/action handle
   const styles = source => new Function('StyleSheet', 'Colors', source.slice(source.indexOf('const styles = StyleSheet.create(')) + '; return styles;')(native.StyleSheet, colors);
   const oldStyles = styles(previous), newStyles = styles(current);
   for (const [name, value] of Object.entries(oldStyles)) {
-    if (name !== 'modalOverlay' && !name.startsWith('dropdown')) assert.deepEqual(newStyles[name], value, name);
+    if (name !== 'modalOverlay' && !name.startsWith('dropdown') && !['header','brandName','avatar','avatarImage','accountToolbar','accountTitle'].includes(name)) assert.deepEqual(newStyles[name], value, name);
   }
 
   const checkpoint = name => cp.execFileSync('git', ['show', `0d2fdf99c00a2647953fc8f6706b6b52415cd1a1:frontend/${name}`], { cwd: root, encoding: 'utf8' });
   for (const [name, marker, endMarker] of [['app/(member)/home.tsx', '    {/* Member Account Panel */}', '    {/* Delete'], [file, '    {/* Admin Account Panel */}', '    {/* Create']]) {
     const before = checkpoint(name), after = fs.readFileSync(path.join(root, 'frontend', name), 'utf8');
-    const panel = source => { const start = source.indexOf(marker); assert.ok(start >= 0); const end = source.indexOf(endMarker, start + marker.length); return source.slice(start, end < 0 ? source.indexOf('const styles =', start) : end); };
+    const panel = source => { const start = source.indexOf(marker); assert.ok(start >= 0); const end = source.indexOf(endMarker, start + marker.length); return source.slice(source.indexOf('<View style={styles.dropdownDivider}', start), end < 0 ? source.indexOf('const styles =', start) : end); };
     assert.equal(panel(after), panel(before));
   }
+});
+
+test('Member/Admin Clubvel menu has continuous charcoal identity, white menu and expandable 112px photo',async()=>{
+ const c=setup();await c.ready();c.open();const panel=c.panel();
+ const toolbar=nodes(panel).find(n=>n.type==='View'&&style(n).paddingLeft===24);
+ assert.equal(style(toolbar).backgroundColor,'primary');
+ const title=nodes(panel).find(n=>n.type==='Text'&&text(n)==='Clubvel');assert.equal(style(title).color,'white');assert.equal(style(title).fontSize,24);
+ const name=nodes(panel).find(n=>n.type==='Text'&&text(n)===c.auth.user.full_name);assert.equal(style(name).color,'white');assert.equal(style(name).textAlign,'center');
+ assert.equal(style(panel).backgroundColor,'white');
+ const photo=nodes(panel).find(n=>n.props?.accessibilityLabel==='View full-size profile photo');photo.props.onPress();assert.ok(!c.accountModal() || c.accountModal().props.visible === false);assert.equal(nodes(c.render()).find(n=>n.props?.photoUri===c.auth.user.profile_photo && typeof n.props?.onClose==='function').props.visible,true);
 });

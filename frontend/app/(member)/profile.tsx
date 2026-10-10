@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
+import EditProfile from '../../components/EditProfile';
 
 interface UserStats {
   clubs_count: number;
@@ -180,6 +181,7 @@ export default function ProfileScreen() {
           <Text style={styles.photoActionText}>{uploading ? 'Updating photo…' : 'Change photo'}</Text>
         </TouchableOpacity>
         <Text style={styles.name}>{user?.full_name}</Text>
+        <EditProfile />
         {stats.date_joined && (
           <Text style={styles.memberSince}>Joined {new Date(stats.date_joined).toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' })}</Text>
         )}
@@ -374,7 +376,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.darkGreen,
+    backgroundColor: Colors.primary,
     paddingTop: 50,
     paddingBottom: 20,
     paddingHorizontal: 24,
@@ -387,9 +389,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
@@ -399,9 +401,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   avatarImage: {
-    width: 104,
-    height: 104,
-    borderRadius: 52,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     borderWidth: 3,
     borderColor: Colors.gold,
   },

@@ -24,6 +24,7 @@ interface AuthContextType {
   sendOTP: (phone: string) => Promise<OTPResult>;
   logout: () => Promise<void>;
   updateProfilePhoto: (photoBase64: string) => Promise<void>;
+  updateProfile: (fullName: string) => Promise<void>;
   refreshSession: () => void;
 }
 
@@ -37,6 +38,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const sessionCheckIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const appStateRef = useRef<AppStateStatus>(AppState.currentState);
 
+  const identityRef = useRef({ user, token });
+  identityRef.current = { user, token };
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
   
   const logout = useCallback(async () => {
@@ -150,14 +153,34 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
         profile_photo: photoBase64
       }, { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 });
       
-      if (user) {
-        const updatedUser = { ...user, profile_photo: photoBase64 };
+      if (identityRef.current.user?.id === user?.id && identityRef.current.token === token && identityRef.current.user) {
+        const updatedUser = { ...identityRef.current.user, profile_photo: photoBase64 };
+        identityRef.current.user = updatedUser;
         setUser(updatedUser);
         await AsyncStorage.setItem('user_data', JSON.stringify(updatedUser));
       }
     } catch (error: any) {
       console.error('Error updating profile photo:', error);
       throw new Error(error.response?.data?.detail || 'Failed to update profile photo');
+    }
+  };
+
+  const updateProfile = async (fullName: string) => {
+    if (!user?.id || !token) throw new Error('Please sign in again.');
+    const accountId = user.id;
+    const sessionToken = token;
+    try {
+      const response = await axios.put(`${API_URL}/api/user/profile`, { full_name: fullName }, {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+      });
+      if (identityRef.current.user?.id !== accountId || identityRef.current.token !== sessionToken) return;
+      if (typeof response.data?.full_name !== 'string' || !response.data.full_name.trim()) throw new Error('Invalid profile response.');
+      const updatedUser = { ...identityRef.current.user, full_name: response.data.full_name };
+      identityRef.current.user = updatedUser;
+      setUser(updatedUser);
+      await AsyncStorage.setItem('user_data', JSON.stringify(updatedUser));
+    } catch (error: any) {
+      throw new Error(error.response?.data?.detail || error.message || 'Could not update profile.');
     }
   };
 
@@ -171,7 +194,8 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       verifyOTP, 
       sendOTP,
       logout, 
-      updateProfilePhoto, 
+      updateProfilePhoto,
+      updateProfile,
       refreshSession,
     }}>
       <View style={{ flex: 1 }} onTouchStart={refreshSession}>{children}</View>

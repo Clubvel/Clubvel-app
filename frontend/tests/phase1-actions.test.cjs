@@ -97,7 +97,8 @@ test('Admin Home hides only the self-reminder action and sends the other contrib
     'react-native': { ...native, RefreshControl: 'RefreshControl', TextInput: 'TextInput', KeyboardAvoidingView: 'KeyboardAvoidingView',
       Platform: { OS: 'android' }, Keyboard: { dismiss() {} }, TouchableWithoutFeedback: 'TouchableWithoutFeedback',
       Alert: { alert: (...args) => messages.push(args) } },
-    'expo-router': { useRouter: () => ({ push() {} }) },
+    'expo-router': { useFocusEffect: ui.useFocusEffect, useLocalSearchParams: () => ({}), useRouter: () => ({ push() {} }) },
+    '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': { useAuth: () => ({ user: { id: 'admin', full_name: 'Admin' }, token: 'session' }) },
     '../../components/AdBanner': { AdBanner: 'AdBanner' }, '../../constants/Colors': { Colors: colors },
     '@expo/vector-icons': { Ionicons: 'Ionicons' }, '@react-native-async-storage/async-storage': {},
@@ -119,6 +120,7 @@ test('Reports keeps Quick Actions absent and retains functioning exports and han
   const Screen = load('app/(treasurer)/reports.tsx', {
     react: ui.react, 'react-native': native,
     'expo-router': { useFocusEffect: ui.useFocusEffect, useLocalSearchParams: () => ({}), useRouter: () => ({ push() {} }) },
+    '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': { useAuth: () => ({ user: { id: 'admin' }, token: 'session' }) },
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '../../components/MonthlyReport': { default: 'MonthlyReport' },

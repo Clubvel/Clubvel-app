@@ -1,7 +1,7 @@
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import { ClaimPaymentRecord } from '../../components/ClaimPaymentRecord';
 import { ClaimPayoutDate } from '../../components/ClaimPayoutDate';
-import React, { useEffect, useState } from 'react';
+import React, { useRef, useState, useCallback } from 'react';
 import {
   ActivityIndicator,
   Alert,
@@ -18,7 +18,7 @@ import {
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
-import { useRouter } from 'expo-router';
+import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { AdBanner } from '../../components/AdBanner';
 import axios from 'axios';
 
@@ -46,10 +46,18 @@ export default function TreasurerClaimsScreen() {
   const [photoExpanded, setPhotoExpanded] = React.useState(false);
   const { user, token } = useAuth();
   const router = useRouter();
+  const params = useLocalSearchParams<{ groupId?: string; group_id?: string; id?: string }>();
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
   const [groups, setGroups] = useState<Group[]>([]);
   const [selectedGroup, setSelectedGroup] = useState<Group | null>(null);
+  const latestGroup = useRef<string | null>(null);
+  latestGroup.current = selectedGroup?.id || null;
+  const claimsSequence = useRef(0);
+  const sessionContext = `${user?.id}:${token}`;
+  const latestSession = useRef(sessionContext);
+  latestSession.current = sessionContext;
+  const [loadedGroup, setLoadedGroup] = useState<string | null>(null);
   const [showGroupPicker, setShowGroupPicker] = useState(false);
   const [claims, setClaims] = useState<GroupClaim[]>([]);
   const [loadingGroups, setLoadingGroups] = useState(true);
@@ -59,40 +67,50 @@ export default function TreasurerClaimsScreen() {
   const [rejectingClaim, setRejectingClaim] = useState<GroupClaim | null>(null);
   const [rejectionReason, setRejectionReason] = useState('');
 
-  const fetchGroups = async () => {
-    if (!user?.id) return;
-
-    setLoadingGroups(true);
+  const groupsSequence = useRef(0);
+  const lastRequestedGroup = useRef<string | undefined>(undefined);
+  const fetchGroups = useCallback(async () => {
+    if (!user?.id || !token) return;
+    const ticket = ++groupsSequence.current;
+    const session = sessionContext;
 
     try {
       const response = await axios.get(
         `${API_URL}/api/treasurer/dashboard/${user.id}`,
-        { headers: { Authorization: `Bearer ${token}` } }
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 }
       );
 
+      if (ticket !== groupsSequence.current || session !== latestSession.current) return;
       const groupList: Group[] = (response.data.clubs || []).map((group: any) => ({
         id: group.id,
         name: group.name,
       }));
 
       setGroups(groupList);
+      const requestedId = params.groupId || params.group_id || params.id;
+      const routeChanged = requestedId !== lastRequestedGroup.current;
+      lastRequestedGroup.current = requestedId;
       setSelectedGroup(current => {
+        if (requestedId && routeChanged) return groupList.find(group => group.id === requestedId) || null;
         if (current && groupList.some(group => group.id === current.id)) {
-          return current;
+          return groupList.find(group => group.id === current.id) || null;
         }
         return groupList[0] || null;
       });
     } catch (error) {
+      if (ticket !== groupsSequence.current || session !== latestSession.current) return;
       console.error('Error fetching groups for claims:', error);
       setGroups([]);
       setSelectedGroup(null);
     } finally {
-      setLoadingGroups(false);
+      if (ticket === groupsSequence.current && session === latestSession.current) setLoadingGroups(false);
     }
-  };
+  }, [API_URL, user?.id, token, params.groupId, params.group_id, params.id, sessionContext]);
 
-  const fetchClaims = async (groupId: string) => {
-    if (!token) return;
+  const fetchClaims = useCallback(async (groupId: string) => {
+    if (!token || groupId !== latestGroup.current) return;
+    const ticket = ++claimsSequence.current;
+    const session = sessionContext;
 
     setClaimsLoading(true);
     setClaimsError(null);
@@ -106,12 +124,16 @@ export default function TreasurerClaimsScreen() {
         }
       );
 
+      if (ticket !== claimsSequence.current || groupId !== latestGroup.current || session !== latestSession.current) return;
       if (!response.data || !Array.isArray(response.data.claims)) {
         throw new Error('Invalid claims response');
       }
 
       setClaims(response.data.claims);
+      setLoadedGroup(groupId);
     } catch (err: any) {
+      if (ticket !== claimsSequence.current || groupId !== latestGroup.current || session !== latestSession.current) return;
+      setLoadedGroup(groupId);
       console.error('Error fetching claims:', err);
       setClaims([]);
       setClaimsError(
@@ -120,28 +142,23 @@ export default function TreasurerClaimsScreen() {
           : 'Unable to load claims. Please try again.'
       );
     } finally {
-      setClaimsLoading(false);
+      if (ticket === claimsSequence.current && groupId === latestGroup.current && session === latestSession.current) setClaimsLoading(false);
     }
-  };
+  }, [API_URL, token, sessionContext]);
 
-  useEffect(() => {
-    fetchGroups();
-  }, [user?.id]);
+  useFocusEffect(useCallback(() => { void fetchGroups(); }, [fetchGroups]));
 
-  useEffect(() => {
-    if (selectedGroup?.id && token) {
-      fetchClaims(selectedGroup.id);
-    } else {
-      setClaims([]);
-    }
-  }, [selectedGroup?.id, token]);
+  useFocusEffect(useCallback(() => {
+    if (selectedGroup?.id && token) void fetchClaims(selectedGroup.id);
+    else setClaims([]);
+  }, [selectedGroup?.id, token, fetchClaims]));
 
   const reviewClaim = async (
     claim: GroupClaim,
     action: 'approve' | 'reject',
     reason?: string
   ) => {
-    if (!selectedGroup || !token || reviewingClaim) return;
+    if (!selectedGroup || !token || reviewingClaim || claim.group_id !== selectedGroup.id) return;
 
     setReviewingClaim(claim.claim_id);
 
@@ -325,7 +342,7 @@ export default function TreasurerClaimsScreen() {
               </View>
             )}
 
-            {claimsLoading ? (
+            {!selectedGroup ? (<Text style={styles.emptySubtitle}>Select a Group to view its claims.</Text>) : claimsLoading || loadedGroup !== selectedGroup.id ? (
               <View style={styles.emptyState}>
                 <ActivityIndicator color={Colors.accent} />
                 <Text style={styles.emptySubtitle}>Loading claims...</Text>
@@ -512,7 +529,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.mediumGreen,
+    backgroundColor: Colors.primary,
     paddingTop: 60,
     paddingBottom: 20,
     paddingHorizontal: 24,
@@ -532,16 +549,16 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   profileImage: {
-    width: 104,
-    height: 104,
-    borderRadius: 52,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     borderWidth: 2,
     borderColor: Colors.gold,
   },
   profilePlaceholder: {
-    width: 104,
-    height: 104,
-    borderRadius: 52,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',

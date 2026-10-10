@@ -9,7 +9,8 @@ async function setup(){
   react:{...ui.react,useMemo:fn=>fn()},
   'react-native':{...native,KeyboardAvoidingView:'KeyboardAvoidingView',Platform:{OS:'android'},TextInput:'TextInput',Alert:{alert:(...a)=>alerts.push(a)}},
   'expo-router':{useFocusEffect:ui.useFocusEffect,useLocalSearchParams:()=>params,useRouter:()=>({push(){}})},'@expo/vector-icons':{Ionicons:'Icon'},
-  '../../contexts/AuthContext':{useAuth:()=>({user:{id:'member'},token:'signed'})},
+  '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
+    '../../contexts/AuthContext':{useAuth:()=>({user:{id:'member'},token:'signed'})},
   '../../constants/Colors':{Colors:colors},'../../hooks/usePersonalClaims':{usePersonalClaims:()=>claims},
   axios:{isAxiosError:()=>false,get:async()=>({data:{clubs:[{id:'club',name:'Club'}]}}),post:async(url,data,options)=>{requests.push({url,data,options});}},
  }).default;

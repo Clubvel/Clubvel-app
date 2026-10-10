@@ -9,6 +9,7 @@ function setup() {
     react: ui.react,
     'react-native': { ...native, RefreshControl: 'RefreshControl' },
     'expo-router': { useFocusEffect: ui.useFocusEffect, useRouter: () => ({ push() {} }) },
+    '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': { useAuth: () => auth },
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     'date-fns': { format: () => '10:00' },
