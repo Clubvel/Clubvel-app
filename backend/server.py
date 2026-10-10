@@ -2322,38 +2322,32 @@ async def get_member_dashboard(user_id: str, authorization: str | None = Header(
     upcoming_payout_amount = 0.0
     days_until_next_claim = None
     
+    own_records = await get_person_contribution_records(user_id) if contexts else []
+    confirmed_collected = financial_totals([financial_details(record, contribution_outstanding)
+                                           for record, _membership, _group in own_records])['collected']
     for membership, group in contexts:
         
-        # Get current month contribution
-        now = datetime.utcnow()
-        current_contribution = await db.contributions.find_one({
-            "member_id": membership['id'],
-            "group_id": membership['group_id'],
-            "month": now.month,
-            "year": now.year
-        })
-        
-        # Flexible goal groups do not have a monthly payment status.
-        if group.get('contribution_mode') == 'flexible_goal':
-            status = None
-        elif current_contribution:
-            status = calculate_contribution_status(current_contribution, group['payment_due_date'])
-            current_contribution['contribution_status'] = status
-            
-            # Update status in DB if changed
-            if status != current_contribution.get('original_status'):
-                await db.contributions.update_one(
-                    {"id": current_contribution['id']},
-                    {"$set": {"contribution_status": status}}
-                )
-        else:
-            status = None
-        
-        if status == "late":
+        # Financial reads must never settle a contribution or invent an obligation.
+        now = datetime.now(BUSINESS_TIMEZONE)
+        club_records = [record for record, _membership, _group in own_records
+                        if record['group_id'] == group['id']]
+        current_records = [record for record in club_records
+                           if record['month'] == now.month and record['year'] == now.year]
+        details = [financial_details(record, contribution_outstanding) for record in current_records]
+        current_summary = financial_totals(details)
+        states = [detail['payment_state'] for detail in details]
+        status = ('invalid_amount' if 'invalid_amount' in states else
+                  'proof_declined' if 'proof_declined' in states else
+                  'proof_uploaded' if 'awaiting_confirmation' in states else
+                  'pending' if 'awaiting_payment' in states else
+                  'confirmed' if states and all(state in ('confirmed', 'excused') for state in states) else None)
+        if status in ('pending', 'proof_uploaded', 'proof_declined'):
+            upcoming_payments += sum(detail['outstanding_amount'] is not None and detail['outstanding_amount'] > 0
+                                     for detail in details)
+        if any(record.get('contribution_status') == 'late' and
+               contribution_outstanding(record) not in (None, 0) for record in current_records):
             overdue_count += 1
-        elif status in ("pending", "due", "proof_uploaded"):
-            upcoming_payments += 1
-        
+
         # Approval is not payment. Only approved outstanding claims contribute to this total.
         approved_claims = await db.claims.find({
             "member_id": membership["id"], "group_id": group["id"], "claim_status": "approved"
@@ -2363,15 +2357,21 @@ async def get_member_dashboard(user_id: str, authorization: str | None = Header(
             for claim in approved_claims
         )
 
-        # Get all confirmed contributions for this member
-        confirmed_contributions = await db.contributions.find({
-            "member_id": membership['id'],
-            "contribution_status": "confirmed"
+        # Compatibility: the installed APK sums raw confirmed payments for this membership.
+        # Preserve the original 1000-record bound and reject unknowable legacy totals.
+        legacy_records = await db.contributions.find({
+            'member_id': membership['id'], 'contribution_status': 'confirmed'
         }).to_list(1000)
-        
-        member_total = sum(c['amount_paid'] for c in confirmed_contributions)
-        total_saved += member_total
-        
+        if any(record.get('group_id') != group['id'] for record in legacy_records):
+            raise HTTPException(status_code=409, detail='Confirmed payment ownership could not be verified. Please contact your group administrator.')
+        legacy_amounts = [record.get('amount_paid') for record in legacy_records]
+        if any(isinstance(amount, bool) or not isinstance(amount, (int, float)) or
+               not math.isfinite(amount) or amount < 0 for amount in legacy_amounts):
+            raise HTTPException(status_code=409, detail='Confirmed payment amounts could not be verified. Please contact your group administrator.')
+        total_saved += sum(legacy_amounts)
+        if not math.isfinite(total_saved):
+            raise HTTPException(status_code=409, detail='Confirmed payment total could not be verified. Please contact your group administrator.')
+
         # Get member count
         member_count = await db.members.count_documents({"group_id": membership['group_id'], "status": "active"})
         
@@ -2386,13 +2386,16 @@ async def get_member_dashboard(user_id: str, authorization: str | None = Header(
             "target_amount_per_member": group.get('target_amount_per_member'),
             "target_date": group.get('target_date'),
             "role": membership.get('role_in_group', 'member'),
+            "financial_summary": current_summary,
             "status": status,
             "status_label": {
                 "confirmed": "Paid",
                 "pending": "Pending",
                 "due": "Due Today",
                 "late": "Late",
-                "proof_uploaded": "Pending Confirmation"
+                "proof_uploaded": "Awaiting Confirmation",
+                "proof_declined": "Proof Declined",
+                "invalid_amount": "Invalid Amount"
             }.get(status, "Goal based" if group.get('contribution_mode') == 'flexible_goal' else "No contribution recorded")
         })
     
@@ -2418,6 +2421,8 @@ async def get_member_dashboard(user_id: str, authorization: str | None = Header(
         },
         "summary": {
             "total_saved": total_saved,
+            "confirmed_collected": confirmed_collected,
+            "confirmed_collected_availability": "UNAVAILABLE" if confirmed_collected is None else "AVAILABLE",
             "active_clubs": len(clubs),
             "upcoming_payments": upcoming_payments,
             "upcoming_payout_amount": round(upcoming_payout_amount, 2),
@@ -2463,9 +2468,9 @@ async def get_member_club_details(group_id: str, user_id: str, authorization: st
             "contribution_mode": group.get('contribution_mode', 'fixed_monthly'),
             "monthly_contribution": group['monthly_contribution'],
             "payment_due_date": group['payment_due_date'],
-            "bank_name": group['bank_name'],
-            "bank_account_number": decrypt_sensitive_field(group['bank_account_number']),  # Decrypted for display
-            "bank_account_holder": group['bank_account_holder']
+            "bank_name": group.get('bank_name'),
+            "bank_account_number": decrypt_sensitive_field(group.get('bank_account_number')),  # Decrypted for display
+            "bank_account_holder": group.get('bank_account_holder')
         },
         "period": {"month": selected_month, "year": selected_year, "timezone": "Africa/Johannesburg"},
         "contributions": selected,
@@ -2483,9 +2488,9 @@ async def get_member_club_details(group_id: str, user_id: str, authorization: st
             "payment_date": current_contribution.get('payment_date')
         } if current_contribution else None,
         "payment_reference": {
-            "reference_code": membership['unique_reference_code'],
-            "bank_name": group['bank_name'],
-            "account_number": decrypt_sensitive_field(group['bank_account_number']),  # Decrypted for display
+            "reference_code": membership.get('unique_reference_code'),
+            "bank_name": group.get('bank_name'),
+            "account_number": decrypt_sensitive_field(group.get('bank_account_number')),  # Decrypted for display
             "amount": contribution_outstanding(current_contribution) if current_contribution else None
         },
         "payment_history": [{**row, 'amount': row['amount_paid']} for row in history]

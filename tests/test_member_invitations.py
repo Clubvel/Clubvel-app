@@ -335,7 +335,7 @@ class InvitationTests(unittest.IsolatedAsyncioTestCase):
                             'contribution_metadata_projection', 'personal_contribution_view', 'submit_member_claim',
                             'get_member_claims', 'review_group_claim', 'get_user_alerts', 'get_group_report',
                             'get_group_payment_records', 'get_person_contribution_records', 'get_personal_contributions',
-                            'get_member_club_details', 'get_group_contributions', 'get_club_detail'}:
+                            'get_member_club_details', 'get_group_contributions', 'get_club_detail', 'get_member_dashboard'}:
                 self.assertEqual(new[name], body, name)
         self.assertNotIn('send_sms_otp', ast.get_source_segment(SOURCE.read_text(), next(n for n in ast.parse(SOURCE.read_text()).body if isinstance(n, ast.AsyncFunctionDef) and n.name == 'invite_member')))
         for path in ['frontend/services/pdfReportService.ts',

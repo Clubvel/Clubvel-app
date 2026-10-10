@@ -1,3 +1,4 @@
+import { paymentMoney } from '../../services/paymentSummaryRecords';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image, TextInput, Platform, KeyboardAvoidingView } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -28,6 +29,8 @@ interface DashboardData {
   };
   summary: {
     total_saved: number;
+    confirmed_collected?: number | null;
+    confirmed_collected_availability?: "AVAILABLE" | "UNAVAILABLE";
     active_clubs: number;
     days_until_next_claim: number | null;
     overdue_contributions: number;
@@ -203,8 +206,8 @@ export default function MemberHomeScreen() {
         try {
           const response = await dashboardPromise;
           if (request === dashboardRequest.current && latestSession.current === key) { setDashboardData(response.data); setDashboardOwner(key); }
-        } catch (error) {
-          if (request === dashboardRequest.current && latestSession.current === key) { setDashboardError('Could not refresh your dashboard.'); setErrorOwner(key); }
+        } catch (error: any) {
+          if (request === dashboardRequest.current && latestSession.current === key) { setDashboardError(error.response?.status === 409 ? 'Your contribution totals are unavailable because payment records need checking. Please contact your group administrator.' : 'Could not refresh your dashboard.'); setErrorOwner(key); }
           console.error('Error fetching dashboard:', error);
         } finally {
           if (request === dashboardRequest.current && latestSession.current === key) { setLoading(false); setRefreshing(false); }
@@ -427,7 +430,7 @@ export default function MemberHomeScreen() {
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Contributions</Text>
           <Text style={[styles.summaryValue, { color: Colors.statusPaid }]}>
-            R{dashboardData?.summary.total_saved.toFixed(2) || '0.00'}
+            {paymentMoney(dashboardData?.summary.confirmed_collected_availability === "AVAILABLE" ? dashboardData.summary.confirmed_collected : undefined)}
           </Text>
         </View>
 

@@ -6,7 +6,7 @@ import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { AdBanner } from '../../components/AdBanner';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -47,9 +47,14 @@ export default function ProofOfPaymentsScreen() {
   const [photoExpanded, setPhotoExpanded] = React.useState(false);
   const { user, token } = useAuth();
   const router = useRouter();
+  const params = useLocalSearchParams<{ group_id?: string; month?: string; year?: string; contribution_id?: string }>();
+  const [selectedGroup, setSelectedGroup] = useState(params.group_id || "");
+  const [period, setPeriod] = useState(() => ({ month: Number(params.month) || new Date().getMonth() + 1, year: Number(params.year) || new Date().getFullYear() }));
+  const [records, setRecords] = useState<any[]>([]);
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
   
   const [showClubModal, setShowClubModal] = useState(false);
+  const [clubsOwner, setClubsOwner] = useState<string | null>(null);
   const [clubs, setClubs] = useState<Club[]>([]);
   const [selectedFlexibleClub, setSelectedFlexibleClub] = useState<Club | null>(null);
   const [flexibleAmount, setFlexibleAmount] = useState('');
@@ -57,7 +62,9 @@ export default function ProofOfPaymentsScreen() {
   const [loadingClubs, setLoadingClubs] = useState(false);
   const [proofs, setProofs] = useState<Proof[]>([]);
   const [loadedProofContext, setLoadedProofContext] = useState<string | null>(null);
-  const currentProofs = loadedProofContext === `${user?.id}:${token}` ? proofs : [];
+  const currentRecords = loadedProofContext === `${user?.id}:${token}` ? records : [];
+  const selectedRecords = currentRecords.filter(record => (!selectedGroup || record.group_id === selectedGroup) && record.month === period.month && record.year === period.year);
+  const currentProofs = loadedProofContext === `${user?.id}:${token}` ? proofs.filter(proof => (!selectedGroup || proof.groupId === selectedGroup) && proof.month === new Date(period.year, period.month - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" })) : [];
   const [proofFilter, setProofFilter] = useState<'all' | 'confirmed' | 'proof_uploaded'>('all');
   const confirmedProofs = currentProofs.filter(p => ['confirmed', 'paid'].includes(p.status));
   const pendingProofs = currentProofs.filter(p => p.status === 'proof_uploaded');
@@ -66,6 +73,7 @@ export default function ProofOfPaymentsScreen() {
   const [proofsError, setProofsError] = useState<string | null>(null);
   const [deletingProof, setDeletingProof] = useState<string | null>(null);
   const [viewingProof, setViewingProof] = useState<string | null>(null);
+  const [viewerOwner, setViewerOwner] = useState<string | null>(null);
   const [proofImage, setProofImage] = useState<string | null>(null);
   const [proofMimeType, setProofMimeType] = useState<string>('image/jpeg');
   const [proofFileName, setProofFileName] = useState<string | null>(null);
@@ -76,6 +84,12 @@ export default function ProofOfPaymentsScreen() {
   const requestContext = `${user?.id}:${token}`;
   const latestContext = useRef(requestContext);
   latestContext.current = requestContext;
+  const actionContext = `${requestContext}:${selectedGroup}:${period.year}:${period.month}`;
+  const latestAction = useRef(actionContext);
+  latestAction.current = actionContext;
+  React.useEffect(() => { setProofImage(null); setViewingProof(null); }, [actionContext]);
+  React.useEffect(() => { setSelectedGroup(params.group_id || ""); if (params.month && params.year) setPeriod({ month: Number(params.month), year: Number(params.year) }); }, [params.group_id, params.month, params.year]);
+  React.useEffect(() => { setShowClubModal(false); setSelectedFlexibleClub(null); setProofImage(null); setViewingProof(null); setClubs([]); }, [requestContext]);
 
   const fetchProofs = useCallback(async (force = false) => {
     if (!user?.id || !token) return;
@@ -87,9 +101,11 @@ export default function ProofOfPaymentsScreen() {
     setProofsError(null);
     try {
       const response = await axios.get(`${API_URL}/api/member/contributions/${user.id}`, {
-        headers: { Authorization: `Bearer ${token}` }
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000
       });
       if (sequence !== proofSequence.current || latestContext.current !== key) return;
+      if (!Array.isArray(response.data.contributions) || response.data.contributions.some((record: any) => !record.contribution_id || !record.group_id)) throw new Error("Invalid contribution response");
+      setRecords(response.data.contributions);
       setLoadedProofContext(key);
       setProofs(response.data.contributions.filter((record: any) => record.proof_uploaded && !record.proof_dismissed).map((record: any) => ({
         id: record.contribution_id,
@@ -124,9 +140,11 @@ export default function ProofOfPaymentsScreen() {
   useFocusEffect(useCallback(() => { void fetchProofs(); }, [fetchProofs]));
 
   const handleDeleteProof = (proof: Proof) => {
+    const context = latestAction.current;
     Alert.alert('Delete Pending Proof', 'Remove this proof? Your contribution will remain unpaid.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
+        if (latestAction.current !== context) return;
         if (deletingProof) return;
         setDeletingProof(proof.contribution_id);
         try {
@@ -134,8 +152,10 @@ export default function ProofOfPaymentsScreen() {
             data: { proof_version: proof.proofVersion },
             headers: { Authorization: `Bearer ${token}` }
           });
+          if (latestAction.current !== context) return;
           await fetchProofs(true);
         } catch (error: any) {
+          if (latestAction.current !== context) return;
           Alert.alert('Error', error.response?.data?.detail || 'Failed to delete pending proof');
         } finally {
           setDeletingProof(null);
@@ -145,9 +165,11 @@ export default function ProofOfPaymentsScreen() {
   };
 
   const removeDeclinedProof = (proof: Proof) => {
+    const context = latestAction.current;
     Alert.alert('Remove declined proof', 'Remove this declined proof from your view? Its review history is retained and you can still upload a replacement.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Remove', style: 'destructive', onPress: async () => {
+        if (latestAction.current !== context) return;
         if (deletingProof) return;
         setDeletingProof(proof.contribution_id);
         try {
@@ -155,8 +177,10 @@ export default function ProofOfPaymentsScreen() {
             { proof_version: proof.proofVersion }, {
               headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
             });
+          if (latestAction.current !== context) return;
           await fetchProofs(true);
         } catch {
+          if (latestAction.current !== context) return;
           Alert.alert('Unable to remove proof', 'Please refresh and try again. Your contribution has not been changed.');
         } finally { setDeletingProof(null); }
       } },
@@ -164,15 +188,19 @@ export default function ProofOfPaymentsScreen() {
   };
 
   const fetchClubs = async () => {
+    const context = latestContext.current;
+    setClubsOwner(context);
+    setClubs([]);
     setLoadingClubs(true);
     try {
       const response = await axios.get(`${API_URL}/api/member/dashboard/${user?.id}`, {
         headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
       });
+      if (latestContext.current !== context) return;
       const availableClubs = response.data.clubs.map((club: any) => ({
         id: club.id,
         name: club.name,
-        amount_due: Number(club.monthly_contribution) || 0,
+        amount_due: club.monthly_contribution,
         status: club.status ?? null,
         group_type: club.group_type,
         contribution_mode: club.contribution_mode,
@@ -187,6 +215,8 @@ export default function ProofOfPaymentsScreen() {
   };
 
   const handleUploadPress = async () => {
+    const selected = selectedRecords.find(record => record.contribution_id === params.contribution_id && record.proof_eligible && !record.historical_only);
+    if (selected) { await uploadProofForClub({ id: selected.group_id, name: selected.group_name, amount_due: selected.amount_due }, selected.contribution_id); return; }
     setShowClubModal(true);
     await fetchClubs();
   };
@@ -195,6 +225,11 @@ export default function ProofOfPaymentsScreen() {
     club: Pick<Club, 'id' | 'name' | 'amount_due'>,
     contributionId?: string
   ) => {
+    const uploadContext = latestAction.current;
+    const actor = user?.id;
+    const sessionToken = token;
+    const target = currentRecords.find(record => record.contribution_id === contributionId && record.group_id === club.id);
+    if (!target || !target.proof_eligible || target.historical_only || !actor || !sessionToken) return;
     setShowClubModal(false);
 
     const result = await DocumentPicker.getDocumentAsync({
@@ -223,29 +258,19 @@ export default function ProofOfPaymentsScreen() {
 
       setUploading(true);
       try {
-        let resolvedContributionId = contributionId;
-
-        if (!resolvedContributionId) {
-          const clubResponse = await axios.get(
-            `${API_URL}/api/member/club/${club.id}/user/${user?.id}`
-          );
-          resolvedContributionId = clubResponse.data.current_contribution?.id;
-        }
-
-        if (!resolvedContributionId) {
-          Alert.alert('Error', 'No pending contribution found for this group.');
-          return;
-        }
+        if (latestAction.current !== uploadContext) return;
+        const resolvedContributionId = target.contribution_id;
 
         await axios.post(`${API_URL}/api/contributions/upload-proof`, {
           contribution_id: resolvedContributionId,
           proof_image: proofData,
           proof_mime_type: mimeType,
           proof_file_name: asset.name || null,
-          reference_number: '',
-          user_id: user?.id,
-        }, { headers: { Authorization: `Bearer ${token}` } });
+          reference_number: target.payment_reference || '',
+          user_id: actor,
+        }, { headers: { Authorization: `Bearer ${sessionToken}` } });
 
+        if (latestAction.current !== uploadContext) return;
         Alert.alert(
           'Success!',
           `Proof of payment for ${club.name} has been uploaded. Awaiting admin confirmation.`,
@@ -277,7 +302,9 @@ export default function ProofOfPaymentsScreen() {
       return;
     }
 
-    await uploadProofForClub(club);
+    setSelectedGroup(club.id);
+    setShowClubModal(false);
+    Alert.alert("Select contribution", "Choose the recorded contribution below before uploading proof.");
   };
 
   const handleFlexibleContribution = async () => {
@@ -286,6 +313,9 @@ export default function ProofOfPaymentsScreen() {
       return;
     }
 
+    const uploadContext = latestAction.current;
+    const actor = user?.id;
+    const sessionToken = token;
     const amount = Number(flexibleAmount.replace(',', '.'));
 
     if (!Number.isFinite(amount) || amount <= 0) {
@@ -323,6 +353,7 @@ export default function ProofOfPaymentsScreen() {
     setUploading(true);
 
     try {
+      if (latestAction.current !== uploadContext) return;
       const club = selectedFlexibleClub;
 
       const response = await axios.post(
@@ -338,6 +369,7 @@ export default function ProofOfPaymentsScreen() {
         }
       );
 
+      if (latestAction.current !== uploadContext) return;
       const contributionId = response.data.contribution_id;
 
       await axios.post(`${API_URL}/api/contributions/upload-proof`, {
@@ -346,9 +378,10 @@ export default function ProofOfPaymentsScreen() {
         proof_mime_type: mimeType,
         proof_file_name: asset.name || null,
         reference_number: '',
-        user_id: user?.id,
-      }, { headers: { Authorization: `Bearer ${token}` } });
+        user_id: actor,
+      }, { headers: { Authorization: `Bearer ${sessionToken}` } });
 
+      if (latestAction.current !== uploadContext) return;
       setSelectedFlexibleClub(null);
       setFlexibleAmount('');
 
@@ -377,6 +410,8 @@ export default function ProofOfPaymentsScreen() {
       return;
     }
 
+    const viewContext = latestAction.current;
+    setViewerOwner(viewContext);
     setLoadingProof(true);
     setViewingProof(proof.id);
     
@@ -385,6 +420,7 @@ export default function ProofOfPaymentsScreen() {
         `${API_URL}/api/contributions/${proof.contribution_id}/proof?user_id=${user?.id}`,
         { headers: { Authorization: `Bearer ${token}` } }
       );
+      if (latestAction.current !== viewContext) return;
       const proofData = response.data.proof_image;
       const mimeType =
         response.data.proof_mime_type ||
@@ -410,6 +446,7 @@ export default function ProofOfPaymentsScreen() {
 
         setViewingProof(null);
 
+        if (latestAction.current !== viewContext) return;
         await Sharing.shareAsync(fileUri, {
           mimeType: 'application/pdf',
           dialogTitle: 'Open Proof of Payment',
@@ -496,6 +533,27 @@ export default function ProofOfPaymentsScreen() {
             </>
           )}
         </TouchableOpacity>
+
+        <View style={styles.section}>
+          <Text style={styles.sectionTitle}>Contributions</Text>
+          <ScrollView horizontal><TouchableOpacity accessibilityLabel="All contribution clubs" onPress={() => setSelectedGroup("")}><Text>All clubs</Text></TouchableOpacity>{Array.from(new Map(currentRecords.map(record => [record.group_id, record])).values()).map(record => <TouchableOpacity key={record.group_id} accessibilityLabel={`Select contribution club ${record.group_name}`} onPress={() => setSelectedGroup(record.group_id)}><Text> · {record.group_name}</Text></TouchableOpacity>)}</ScrollView>
+          <View style={styles.summaryRow}>
+            <TouchableOpacity accessibilityLabel="Previous payment month" onPress={() => { const d = new Date(period.year, period.month - 2, 1); setPeriod({ month: d.getMonth() + 1, year: d.getFullYear() }); }}><Text>‹</Text></TouchableOpacity>
+            <Text>{new Date(period.year, period.month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</Text>
+            <TouchableOpacity accessibilityLabel="Next payment month" onPress={() => { const d = new Date(period.year, period.month, 1); setPeriod({ month: d.getMonth() + 1, year: d.getFullYear() }); }}><Text>›</Text></TouchableOpacity>
+          </View>
+          {!proofsLoading && !proofsError && selectedRecords.length === 0 && <Text>No contribution recorded for this period.</Text>}
+          {selectedRecords.map(record => <View key={record.contribution_id} style={styles.proofCard}>
+            <Text style={styles.proofGroupName}>{record.group_name}</Text>
+            <Text>{record.month}/{record.year} · {paymentStateLabel(record.payment_state)}</Text>
+            <Text>Expected: {paymentMoney(record.expected_amount)}</Text>
+            <Text>Confirmed Collected: {paymentMoney(record.confirmed_amount)}</Text>
+            <Text>Recorded, unconfirmed: {paymentMoney(record.recorded_unconfirmed_amount)}</Text>
+            <Text>Outstanding: {paymentMoney(record.outstanding_amount)}</Text>
+            {record.historical_only ? <Text>Historical contribution — read only</Text> : <TouchableOpacity accessibilityLabel={`Open contribution ${record.contribution_id}`} onPress={() => router.push({ pathname: '/(member)/club/[id]', params: { id: record.group_id, month: String(record.month), year: String(record.year), contribution_id: record.contribution_id } })}><Text>Banking details and history</Text></TouchableOpacity>}
+            {!record.historical_only && record.proof_eligible && <TouchableOpacity accessibilityLabel={`Upload proof for contribution ${record.contribution_id}`} disabled={uploading} onPress={() => uploadProofForClub({ id: record.group_id, name: record.group_name, amount_due: record.amount_due }, record.contribution_id)}><Text>{record.proof_review_status === 'declined' ? 'Replace Proof' : 'Upload Proof'}</Text></TouchableOpacity>}
+          </View>)}
+        </View>
 
         {/* Summary Card */}
         <View style={styles.summaryCard}>
@@ -626,7 +684,7 @@ export default function ProofOfPaymentsScreen() {
 
       {/* Club Selection Modal */}
       <Modal
-        visible={showClubModal}
+        visible={showClubModal && clubsOwner === requestContext}
         transparent={true}
         animationType="slide"
         onRequestClose={() => setShowClubModal(false)}
@@ -665,7 +723,7 @@ export default function ProofOfPaymentsScreen() {
                       <Text style={styles.clubAmount}>
                         {club.contribution_mode === 'flexible_goal' || club.group_type === 'travel'
                           ? 'Enter amount paid'
-                          : `Amount Due: R${club.amount_due.toFixed(2)}`}
+                          : 'Select a recorded contribution'}
                       </Text>
                     </View>
                     <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
@@ -737,7 +795,7 @@ export default function ProofOfPaymentsScreen() {
 
       {/* View Proof Modal */}
       <Modal
-        visible={viewingProof !== null}
+        visible={viewingProof !== null && viewerOwner === actionContext}
         transparent={true}
         animationType="fade"
         onRequestClose={() => {

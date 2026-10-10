@@ -8,6 +8,7 @@ async function setup(screen = 'proofs', review = 'declined', approved = false, d
     month: 10, year: 2026, amount_due: 175, amount_paid: 25,
     status: approved ? 'confirmed' : 'proof_uploaded', proof_uploaded: true,
     proof_review_status: review, proof_decline_reason: review === 'declined' ? 'Wrong reference' : null,
+    proof_eligible: !approved && review === 'declined',
     proof_version: 'proof-v1', proof_delete_eligible: review === 'pending' && !approved,
     payment_date: '2026-10-05T10:00:00' };
   const statusPill = load('components/StatusPill.tsx', {
@@ -15,8 +16,9 @@ async function setup(screen = 'proofs', review = 'declined', approved = false, d
   }).StatusPill;
   const state = { get: null, records: null };
   if (deferred) state.get = () => new Promise(resolve => { state.resolve = resolve; });
-  const params = { id: 'group-a' };
-  const auth = { useAuth: () => ({ user: { id: 'member-user' }, token: 'member-session' }) };
+  const params = { id: 'group-a', month: '10', year: '2026' };
+  const authState = { user: { id: 'member-user' }, token: 'member-session' };
+  const auth = { useAuth: () => authState };
   const axios = {
     get: async (url, options) => {
       requests.push({ url, options });
@@ -57,7 +59,7 @@ async function setup(screen = 'proofs', review = 'declined', approved = false, d
     '../../components/StatusPill': { StatusPill: statusPill }, '../../../components/StatusPill': { StatusPill: statusPill },
     '../../components/AdBanner': { AdBanner: 'AdBanner' },
     '@expo/vector-icons': { Ionicons: 'Ionicons' },
-    'expo-document-picker': { getDocumentAsync: async () => ({ canceled: false,
+    'expo-document-picker': { getDocumentAsync: async () => state.picker ? state.picker() : ({ canceled: false,
       assets: [{ uri: 'cache/image.jpg', name: 'image.jpg', mimeType: 'image/jpeg', size: 100 }] }) },
     'expo-file-system/legacy': { EncodingType: { Base64: 'base64' }, readAsStringAsync: async () => 'image' },
     'expo-sharing': {}, axios
@@ -65,7 +67,7 @@ async function setup(screen = 'proofs', review = 'declined', approved = false, d
   const Screen = load(screen === 'proofs' ? 'app/(member)/proofs.tsx' : 'app/(member)/club/[id].tsx', dependencies).default;
   const render = () => ui.render(Screen);
   const initial = render(); await tick();
-  return { render, requests, alerts, routes, record, ui, statusPill, initial, state, params };
+  return { render, requests, alerts, routes, record, ui, statusPill, initial, state, params, authState };
 }
 
 test('persisted declined proof and reason are shown after opening or returning to Proofs', async () => {
@@ -227,12 +229,13 @@ test('approved proof has no Remove action and remains viewable', async () => {
 test('Proof cards use identical count/list predicates, whole-card accessibility and reversible empty filters', async()=>{
  const c=await setup();c.state.records=[{...c.record,contribution_id:'confirmed',group_name:'Confirmed Club',status:'confirmed',proof_review_status:'approved'},{...c.record,contribution_id:'pending',group_name:'Pending Club',proof_review_status:'pending'},{...c.record,contribution_id:'declined',group_name:'Declined Club',proof_review_status:'declined'},{...c.record,contribution_id:'paid',group_name:'Paid Club',status:'paid',proof_review_status:'approved'}];
  c.ui.blur();c.ui.focus();await tick();
+ const proofSection=()=>nodes(c.render()).find(n=>n.type==='View'&&n.props.children?.[0]?.props?.children?.[0]==='Proofs of Payment');
  const tap=label=>nodes(c.render()).find(n=>n.type==='TouchableOpacity'&&n.props.accessibilityLabel===label);
  assert.match(text(tap('Show total proofs')),/Total Proofs4/);assert.match(text(tap('Show confirmed')),/Confirmed2/);assert.match(text(tap('Show pending')),/Pending1/);
- tap('Show confirmed').props.onPress();assert.equal(tap('Show confirmed').props.accessibilityState.selected,true);assert.match(text(c.render()),/Confirmed Club/);assert.match(text(c.render()),/Paid Club/);assert.doesNotMatch(text(c.render()),/Pending Club|Declined Club/);
- tap('Show pending').props.onPress();assert.match(text(c.render()),/Pending Club/);assert.doesNotMatch(text(c.render()),/Confirmed Club|Declined Club|Paid Club/);
- tap('Show all proofs').props.onPress();assert.match(text(c.render()),/Declined Club/);tap('Show total proofs').props.onPress();assert.equal(tap('Show all proofs'),undefined);
- c.state.records=[];c.ui.blur();c.ui.focus();await tick();tap('Show confirmed').props.onPress();assert.match(text(c.render()),/No proofs match this filter/);assert.ok(tap('Show all proofs'));
+ tap('Show confirmed').props.onPress();assert.equal(tap('Show confirmed').props.accessibilityState.selected,true);assert.match(text(proofSection()),/Confirmed Club/);assert.match(text(proofSection()),/Paid Club/);assert.doesNotMatch(text(proofSection()),/Pending Club|Declined Club/);
+ tap('Show pending').props.onPress();assert.match(text(proofSection()),/Pending Club/);assert.doesNotMatch(text(proofSection()),/Confirmed Club|Declined Club|Paid Club/);
+ tap('Show all proofs').props.onPress();assert.match(text(proofSection()),/Declined Club/);tap('Show total proofs').props.onPress();assert.equal(tap('Show all proofs'),undefined);
+ c.state.records=[];c.ui.blur();c.ui.focus();await tick();tap('Show confirmed').props.onPress();assert.match(text(proofSection()),/No proofs match this filter/);assert.ok(tap('Show all proofs'));
 });
 
 
@@ -283,4 +286,73 @@ test('historical member record cannot expose upload or delete controls',async()=
  assert.match(text(c.render()),/Historical contribution/);
  assert.equal(button(c.render(),'Upload Proof of Payment'),undefined);
  assert.equal(button(c.render(),'Delete Pending Proof'),undefined);
+});
+
+
+test('Payments shows unpaid obligations and isolates selected clubs and periods', async () => {
+ const c=await setup();
+ c.state.records=[{...c.record,group_name:'WeTraveling',proof_uploaded:false,payment_state:'awaiting_payment',expected_amount:175,confirmed_amount:0,recorded_unconfirmed_amount:25,outstanding_amount:150},
+ {...c.record,contribution_id:'eighty8',group_id:'group-b',group_name:'Eighty8',proof_uploaded:false},
+ {...c.record,contribution_id:'september',month:9,group_name:'WeTraveling',proof_uploaded:false}];
+ c.ui.blur();c.ui.focus();await tick();
+ assert.match(text(c.render()),/WeTraveling/);assert.match(text(c.render()),/Eighty8/);
+ nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Select contribution club WeTraveling').props.onPress();
+ assert.doesNotMatch(text(c.render()),/Expected:.*Eighty8/);
+ assert.equal(nodes(c.render()).filter(n=>n.props?.accessibilityLabel==='Open contribution eighty8').length,0);
+ assert.match(text(c.render()),/Confirmed Collected: R0.00/);
+ nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Previous payment month').props.onPress();
+ assert.ok(nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Open contribution september'));
+});
+
+test('Payments exact obligation upload uses no club lookup and cancellation sends no write',async()=>{
+ const c=await setup();
+ c.state.records=[{...c.record,proof_uploaded:false,proof_eligible:true,payment_state:'awaiting_payment'}];
+ c.ui.blur();c.ui.focus();await tick();
+ const upload=()=>nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Upload proof for contribution contribution-a');
+ c.state.picker=async()=>({canceled:true});await upload().props.onPress();
+ assert.equal(c.requests.filter(r=>r.url.endsWith('/upload-proof')).length,0);
+ c.state.picker=async()=>({canceled:false,assets:[{uri:'image',size:1,name:'image.jpg'}]});
+ await upload().props.onPress();
+ const request=c.requests.find(r=>r.url.endsWith('/upload-proof'));
+ assert.equal(request.data.contribution_id,'contribution-a');assert.deepEqual(request.options.headers,{Authorization:'Bearer member-session'});
+ assert.equal(c.requests.filter(r=>r.url.includes('/api/member/club/')).length,0);
+});
+
+test('Payments cancels an old-account picker and immediately masks old financial data',async()=>{
+ const c=await setup();let resolve;
+ c.state.picker=()=>new Promise(r=>{resolve=r;});
+ const pending=button(c.render(),'Replace Proof').props.onPress();
+ c.authState.user={id:'other-member'};c.authState.token='other-session';
+ assert.doesNotMatch(text(c.render()),/Expected: R175/);
+ resolve({canceled:false,assets:[{uri:'image',size:1,name:'image.jpg'}]});await pending;
+ assert.equal(c.requests.filter(r=>r.url.endsWith('/upload-proof')).length,0);
+});
+
+test('member banking shows holder, context navigation and unavailable missing fields',async()=>{
+ const c=await setup('club');
+ c.state.club={group:{id:'group-a',name:'Club A',bank_account_holder:'Club holder'},current_contribution:null,contributions:[],payment_reference:{amount:null,reference_code:null},payment_history:[]};
+ c.ui.blur();c.ui.focus();await tick();
+ assert.match(text(c.render()),/Club holder/);assert.match(text(c.render()),/Not available/);
+ nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Open club payments').props.onPress();
+ assert.equal(c.routes.at(-1).params.group_id,'group-a');assert.equal(c.routes.at(-1).params.month,'10');
+});
+
+
+test('rapid club switching preserves context without extra reads or wrong-club records',async()=>{
+ const c=await setup();
+ c.state.records=[{...c.record,group_name:'WeTraveling',proof_uploaded:false}, {...c.record,contribution_id:'eighty',group_id:'group-b',group_name:'Eighty8',proof_uploaded:false}];
+ c.ui.blur();c.ui.focus();await tick();c.render();const before=c.requests.length;
+ const select=name=>nodes(c.render()).find(n=>n.props?.accessibilityLabel===`Select contribution club ${name}`).props.onPress();
+ select('WeTraveling');assert.equal(nodes(c.render()).some(n=>n.props?.accessibilityLabel==='Open contribution eighty'),false);
+ select('Eighty8');assert.equal(nodes(c.render()).some(n=>n.props?.accessibilityLabel==='Open contribution contribution-a'),false);
+ select('WeTraveling');assert.ok(nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Open contribution contribution-a'));
+ assert.equal(c.requests.length,before);
+});
+
+test('historical obligations remain visible without current banking or upload access',async()=>{
+ const c=await setup();c.state.records=[{...c.record,historical_only:true,proof_uploaded:false,proof_eligible:false}];
+ c.ui.blur();c.ui.focus();await tick();
+ assert.match(text(c.render()),/Historical contribution — read only/);
+ assert.equal(nodes(c.render()).some(n=>n.props?.accessibilityLabel==='Open contribution contribution-a'),false);
+ assert.equal(nodes(c.render()).some(n=>n.props?.accessibilityLabel==='Upload proof for contribution contribution-a'),false);
 });

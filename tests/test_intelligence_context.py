@@ -234,7 +234,7 @@ class ContextTests(unittest.TestCase):
         old, new = functions(previous), functions(current)
         self.assertEqual(set(new) - set(old), {'get_intelligence_summary', 'update_personal_profile'})
         # Stage 3A explicitly changes these read contracts; offline route tests cover them.
-        approved_reads = {'get_group_payment_records', 'get_person_contribution_records', 'personal_contribution_view', 'get_personal_contributions', 'get_member_club_details', 'get_group_contributions', 'get_club_detail'}
+        approved_reads = {'get_group_payment_records', 'get_person_contribution_records', 'personal_contribution_view', 'get_personal_contributions', 'get_member_club_details', 'get_group_contributions', 'get_club_detail', 'get_member_dashboard'}
         for name in old:
             if name not in approved_reads:
                 self.assertEqual(new[name], old[name], name)

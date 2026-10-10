@@ -14,6 +14,7 @@ function setup() {
     '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': { useAuth: () => ({ user: { id: 'recipient' }, token: 'session' }) },
     '../../components/StatusPill': { StatusPill: 'StatusPill' }, '../../components/AdBanner': { AdBanner: 'AdBanner' },
+    '../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '@react-native-async-storage/async-storage': {},
     axios: { get: (url, options) => new Promise(resolve => requests.push({ url, options, resolve })),

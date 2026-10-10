@@ -169,7 +169,7 @@ class MonthlyReportTests(unittest.TestCase):
         previous = subprocess.check_output(['git', 'show', '267b31427060e7d539df7cfd34b0f3d0249c8c59:backend/server.py'], cwd=ROOT, text=True)
         original = {n.name: ast.get_source_segment(previous, n) for n in ast.parse(previous).body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
         # Approved Stage 3A financial reads have dedicated read-only contract tests.
-        approved_reads = {'get_group_payment_records', 'get_person_contribution_records', 'personal_contribution_view', 'get_personal_contributions', 'get_member_club_details', 'get_group_contributions', 'get_club_detail'}
+        approved_reads = {'get_group_payment_records', 'get_person_contribution_records', 'personal_contribution_view', 'get_personal_contributions', 'get_member_club_details', 'get_group_contributions', 'get_club_detail', 'get_member_dashboard'}
         for node in ast.parse(current).body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in original and node.name not in approved_reads:
                 self.assertEqual(ast.get_source_segment(current, node), original[node.name], node.name)

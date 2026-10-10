@@ -17,6 +17,7 @@ function setup(photo = 'data:image/jpeg;base64,current') {
     'expo-router': { useFocusEffect: ui.useFocusEffect, useLocalSearchParams: () => ({}), useRouter: () => ({ push: route => routes.push(route), replace: route => routes.push(route) }) },
     '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': { useAuth: () => auth }, '../../components/AdBanner': { AdBanner: 'AdBanner' },
+    '../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '../../services/paymentReminder': { addPaymentReminder: async () => {} },
     '@react-native-async-storage/async-storage': { clear: async () => { clears++; } },

@@ -19,7 +19,7 @@ interface ClubDetails {
     payment_due_date: number;
     bank_name: string;
     bank_account_number: string;
-    bank_account_holder: string;
+    bank_account_holder?: string;
   };
   current_contribution: {
     id: string;
@@ -33,7 +33,7 @@ interface ClubDetails {
     proof_decline_reason?: string | null;
     proof_delete_eligible?: boolean;
   } | null;
-  contributions?: (NonNullable<ClubDetails['current_contribution']> & { contribution_id: string; amount_paid?: number; payment_state?: string; confirmed_amount?: number | null; outstanding_amount?: number | null; historical_only?: boolean; proof_eligible?: boolean })[];
+  contributions?: (NonNullable<ClubDetails['current_contribution']> & { contribution_id: string; amount_paid?: number; payment_state?: string; confirmed_amount?: number | null; outstanding_amount?: number | null; historical_only?: boolean; proof_eligible?: boolean; payment_reference?: string })[];
   payment_reference: {
     reference_code: string;
     bank_name: string;
@@ -54,7 +54,7 @@ interface ClubDetails {
 }
 
 export default function ClubDetailScreen() {
-  const params = useLocalSearchParams<{ id?: string | string[] }>();
+  const params = useLocalSearchParams<{ id?: string | string[]; month?: string; year?: string; contribution_id?: string }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const { user, token } = useAuth();
   const router = useRouter();
@@ -65,8 +65,8 @@ export default function ClubDetailScreen() {
   const [deletingProof, setDeletingProof] = useState(false);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
-  const [period, setPeriod] = useState(() => ({ month: new Date().getMonth() + 1, year: new Date().getFullYear() }));
-  const [selectedContributionId, setSelectedContributionId] = useState<string | null>(null);
+  const [period, setPeriod] = useState(() => ({ month: Number(params.month) >= 1 && Number(params.month) <= 12 ? Number(params.month) : new Date().getMonth() + 1, year: Number(params.year) >= 1 && Number(params.year) <= 9999 ? Number(params.year) : new Date().getFullYear() }));
+  const [selectedContributionId, setSelectedContributionId] = useState<string | null>(params.contribution_id || null);
   const [loadedContext, setLoadedContext] = useState<string | null>(null);
 
   const clubRequest = useRef<{ key: string; sequence: number } | null>(null);
@@ -74,6 +74,14 @@ export default function ClubDetailScreen() {
   const requestContext = `${id}:${user?.id}:${token}:${period.year}:${period.month}`;
   const latestContext = useRef(requestContext);
   latestContext.current = requestContext;
+  const latestSelection = useRef(selectedContributionId);
+  latestSelection.current = selectedContributionId;
+  React.useEffect(() => {
+    setSelectedContributionId(params.contribution_id || null);
+    if (Number(params.month) >= 1 && Number(params.month) <= 12 && Number(params.year) >= 1 && Number(params.year) <= 9999) {
+      setPeriod(current => current.month === Number(params.month) && current.year === Number(params.year) ? current : { month: Number(params.month), year: Number(params.year) });
+    }
+  }, [id, params.month, params.year, params.contribution_id]);
 
   const fetchClubDetails = useCallback(async (force = false) => {
     if (!id || !user?.id || !token) { setLoading(false); setClubData(null); setError('Unable to open this club. Please sign in again.'); return; }
@@ -118,9 +126,12 @@ export default function ClubDetailScreen() {
   const handleDeleteProof = () => {
     const contribution = displayedClub?.current_contribution;
     if (!contribution || !token || deletingProof) return;
+    const actionContext = requestContext;
+    const selection = selectedContributionId;
     Alert.alert('Delete Pending Proof', 'Remove this proof? Your contribution will remain unpaid.', [
       { text: 'Cancel', style: 'cancel' },
       { text: 'Delete', style: 'destructive', onPress: async () => {
+        if (latestContext.current !== actionContext || latestSelection.current !== selection) return;
         setDeletingProof(true);
         try {
           await axios.delete(`${API_URL}/api/contributions/${contribution.id}/proof`, {
@@ -129,6 +140,7 @@ export default function ClubDetailScreen() {
           });
           await fetchClubDetails(true);
         } catch (error: any) {
+          if (latestContext.current !== actionContext) return;
           Alert.alert('Error', error.response?.data?.detail || 'Failed to delete pending proof');
         } finally {
           setDeletingProof(false);
@@ -140,6 +152,11 @@ export default function ClubDetailScreen() {
   const handleUploadProof = async () => {
     if (!clubData?.current_contribution || !token || uploading) return;
     if (selectedContribution?.historical_only || selectedContribution?.proof_eligible === false) return;
+    const uploadContext = requestContext;
+    const target = displayedClub?.current_contribution;
+    const reference = selectedContribution?.payment_reference || clubData.payment_reference.reference_code;
+    const actor = user?.id;
+    const sessionToken = token;
     const result = await DocumentPicker.getDocumentAsync({
       type: ['application/pdf', 'image/*'],
       copyToCacheDirectory: true,
@@ -165,26 +182,29 @@ export default function ClubDetailScreen() {
       encoding: FileSystem.EncodingType.Base64,
     });
 
+    if (latestContext.current !== uploadContext || !target || latestSelection.current !== selectedContributionId) return;
     const proofData = `data:${mimeType};base64,${base64}`;
 
     setUploading(true);
 
     try {
       await axios.post(`${API_URL}/api/contributions/upload-proof`, {
-        contribution_id: displayedClub?.current_contribution?.id,
+        contribution_id: target.id,
         proof_image: proofData,
         proof_mime_type: mimeType,
         proof_file_name: asset.name || null,
-        reference_number: clubData?.payment_reference.reference_code,
-        user_id: user?.id,
-      }, { headers: { Authorization: `Bearer ${token}` } });
+        reference_number: reference,
+        user_id: actor,
+      }, { headers: { Authorization: `Bearer ${sessionToken}` } });
 
+      if (latestContext.current !== uploadContext) return;
       Alert.alert(
         'Success',
         'Proof of payment uploaded successfully! Your treasurer will confirm shortly.'
       );
       fetchClubDetails(true);
     } catch (error: any) {
+      if (latestContext.current !== uploadContext) return;
       Alert.alert(
         'Error',
         error.response?.data?.detail || 'Failed to upload proof of payment'
@@ -229,6 +249,7 @@ export default function ClubDetailScreen() {
       </View>
 
       <ScrollView>
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open club payments" onPress={() => router.push({ pathname: "/(member)/proofs", params: { group_id: id, month: String(period.month), year: String(period.year), contribution_id: selectedContribution?.contribution_id || "" } })}><Text>Payments and contribution records</Text></TouchableOpacity>
         <View style={styles.cardHeader}>
           <TouchableOpacity accessibilityLabel="Previous contribution month" onPress={() => { const d = new Date(period.year, period.month - 2, 1); setSelectedContributionId(null); setPeriod({ year: d.getFullYear(), month: d.getMonth() + 1 }); }}><Text>‹</Text></TouchableOpacity>
           <Text>{getMonthName(period.month)} {period.year}</Text>
@@ -311,7 +332,7 @@ export default function ClubDetailScreen() {
           <View style={[styles.card, styles.referenceCard]}>
             <View style={styles.referenceCodeContainer}>
               <Text style={styles.referenceLabel}>Reference Code</Text>
-              <Text style={styles.referenceCode}>{clubData.payment_reference.reference_code}</Text>
+              <Text style={styles.referenceCode}>{selectedContribution?.payment_reference || clubData.payment_reference.reference_code || 'Not available'}</Text>
             </View>
 
             <View style={styles.divider} />
@@ -319,12 +340,13 @@ export default function ClubDetailScreen() {
             <View style={styles.bankDetails}>
               <View style={styles.bankDetailRow}>
                 <Text style={styles.bankDetailLabel}>Bank</Text>
-                <Text style={styles.bankDetailValue}>{clubData.payment_reference.bank_name}</Text>
+                <Text style={styles.bankDetailValue}>{clubData.payment_reference.bank_name || 'Not available'}</Text>
               </View>
               <View style={styles.bankDetailRow}>
                 <Text style={styles.bankDetailLabel}>Account Number</Text>
-                <Text style={styles.bankDetailValue}>{clubData.payment_reference.account_number}</Text>
+                <Text style={styles.bankDetailValue}>{clubData.payment_reference.account_number || 'Not available'}</Text>
               </View>
+              <View style={styles.bankDetailRow}><Text style={styles.bankDetailLabel}>Account Holder</Text><Text style={styles.bankDetailValue}>{clubData.group.bank_account_holder || "Not available"}</Text></View>
               <View style={styles.bankDetailRow}>
                 <Text style={styles.bankDetailLabel}>Amount</Text>
                 <Text style={styles.bankDetailValue}>{selectedContribution ? paymentMoney(selectedContribution.outstanding_amount) : clubData.payment_reference.amount == null ? 'Not recorded' : paymentMoney(clubData.payment_reference.amount)} </Text>

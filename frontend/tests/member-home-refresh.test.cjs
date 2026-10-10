@@ -16,6 +16,7 @@ function setup(screen = 'member', holdInvitations = false) {
     '../../components/StatusPill': { StatusPill: 'StatusPill' },
     '../../components/AdBanner': { AdBanner: 'AdBanner' },
     '../../services/paymentReminder': { addPaymentReminder: async () => {} },
+    '../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '@react-native-async-storage/async-storage': {},
     axios: { get: url => url.includes('/invitations/') ? (holdInvitations ? new Promise(resolve => invitations.push({url,resolve})) : Promise.resolve({ data: { invitations: [] } }))
@@ -221,4 +222,21 @@ for(const action of ['Accept','Decline'])test(`Member old-account invitation ${a
  c.auth.user={id:'other',full_name:'Other Account'};c.auth.token='other-session';c.render();assert.equal(c.requests.length,2);
  c.actions[0].resolve({data:{}});await tick();assert.equal(c.requests.length,2);await work;
  assert.deepEqual(c.alerts,[]);await c.respond(1,'Eighty8');assert.match(text(c.render()),/Eighty8/);assert.doesNotMatch(text(c.render()),/Old Private Club/);
+});
+
+
+test('Member Home uses authoritative confirmed total and never substitutes the legacy number',async()=>{
+ const c=setup();c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:999,confirmed_collected:25,confirmed_collected_availability:'AVAILABLE',active_clubs:0,upcoming_payments:0,claims_count:0},clubs:[]}});await tick();
+ assert.match(text(c.render()),/R25.00/);assert.doesNotMatch(text(c.render()),/R999.00/);
+});
+test('Member Home renders unavailable authoritative amount without invented zero',async()=>{
+ const c=setup();c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:25,confirmed_collected:null,confirmed_collected_availability:'UNAVAILABLE',active_clubs:0,upcoming_payments:0,claims_count:0},clubs:[]}});await tick();
+ const card=nodes(c.render()).find(n=>n.type==='View'&&text(n).includes('Contributions')&&text(n).includes('Not available'));
+ assert.ok(card);assert.doesNotMatch(text(c.render()),/R25.00/);
+});
+test('Member Home shows controlled dashboard 409 and keeps its shell',async()=>{
+ const c=setup(); // Replace the queued response with a rejecting request on refresh.
+ await c.respond(0,'WeTraveling');
+ c.refresh();c.requests[1].resolve(Promise.reject({response:{status:409}}));await tick();
+ assert.match(text(c.render()),/payment records need checking/);assert.match(text(c.render()),/Clubvel/);
 });

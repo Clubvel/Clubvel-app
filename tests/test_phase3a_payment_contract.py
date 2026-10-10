@@ -106,12 +106,12 @@ class PaymentContractTests(unittest.IsolatedAsyncioTestCase):
         previous = ast.parse(subprocess.check_output(['git', 'show', 'eca3c952b8978d632c45cb79b5009540cbeef8a7:backend/server.py'], cwd=root, text=True))
         functions = lambda tree: {node.name: node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
         old, new = functions(previous), functions(current)
-        reads = {'get_group_payment_records', 'get_person_contribution_records', 'personal_contribution_view', 'get_personal_contributions', 'get_member_club_details', 'get_group_contributions', 'get_club_detail'}
+        reads = {'get_group_payment_records', 'get_person_contribution_records', 'personal_contribution_view', 'get_personal_contributions', 'get_member_club_details', 'get_group_contributions', 'get_club_detail', 'get_member_dashboard'}
         self.assertEqual({name for name in old if ast.dump(old[name]) != ast.dump(new[name])}, reads)
         mutations = {'insert_one', 'insert_many', 'update_one', 'update_many', 'delete_one', 'delete_many', 'replace_one', 'find_one_and_update', 'find_one_and_delete'}
         for name in reads:
             self.assertFalse(any(isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in mutations for node in ast.walk(new[name])), name)
-        for name in ['confirm_payment', 'upload_proof_of_payment', 'decline_contribution_proof', 'delete_contribution_proof', 'delete_member', 'get_member_dashboard', 'get_intelligence_summary', 'verify_user_is_group_treasurer', 'authenticated_user_id']:
+        for name in ['confirm_payment', 'upload_proof_of_payment', 'decline_contribution_proof', 'delete_contribution_proof', 'delete_member', 'get_intelligence_summary', 'verify_user_is_group_treasurer', 'authenticated_user_id']:
             self.assertEqual(ast.dump(old[name]), ast.dump(new[name]), name)
 
     async def test_duplicate_ids_poison_totals_but_distinct_monthly_ids_remain_valid(self):
