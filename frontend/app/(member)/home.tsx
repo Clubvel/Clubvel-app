@@ -271,7 +271,15 @@ export default function MemberHomeScreen() {
   };
 
   const openClub = (club: Club) => {
-    router.push({ pathname: '/club/[id]', params: { id: club.id, from: 'member' } });
+    // Navigate based on the user's role in this specific club
+    if (club.role === 'admin' || club.role === 'treasurer') {
+      router.push({
+        pathname: '/(treasurer)/club-detail',
+        params: { id: club.id, name: club.name, from: 'member' }
+      });
+    } else {
+      router.push({ pathname: '/(member)/club/[id]', params: { id: club.id, from: 'member' } });
+    }
   };
 
   const createGroup = async () => {
@@ -529,7 +537,15 @@ export default function MemberHomeScreen() {
             >
               <View style={styles.clubCardHeader}>
                 <View style={styles.clubInfo}>
-                  <Text style={styles.clubName}>{club.name}</Text>
+                  <View style={styles.clubNameRow}>
+                    <Text style={styles.clubName}>{club.name}</Text>
+                    {(club.role === 'admin' || club.role === 'treasurer') && (
+                      <View style={styles.adminBadge}>
+                        <Ionicons name="shield-checkmark" size={12} color={Colors.white} />
+                        <Text style={styles.adminBadgeText}>Admin</Text>
+                      </View>
+                    )}
+                  </View>
                   <View style={styles.clubMeta}>
                     <Ionicons name="people" size={14} color={Colors.textSecondary} />
                     <Text style={styles.clubMetaText}>{club.member_count} members</Text>
@@ -956,11 +972,31 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 12,
   },
+  clubNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
   clubName: {
     fontSize: 18,
     fontWeight: 'bold',
     color: Colors.textPrimary,
-    marginBottom: 8,
+  },
+  adminBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.sage,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    gap: 4,
+  },
+  adminBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Colors.white,
   },
   clubMeta: {
     flexDirection: 'row',
