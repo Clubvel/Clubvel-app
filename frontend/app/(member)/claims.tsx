@@ -636,17 +636,17 @@ const styles = StyleSheet.create({
     marginTop: 12,
     padding: 12,
     borderRadius: 10,
-    backgroundColor: Colors.softSage,
+    backgroundColor: Colors.sage,
   },
   rejectionLabel: {
     fontSize: 12,
     fontWeight: '700',
-    color: Colors.sage,
+    color: Colors.white,
     marginBottom: 4,
   },
   rejectionText: {
     fontSize: 13,
-    color: Colors.textSecondary,
+    color: Colors.white,
     lineHeight: 18,
   },
   modalBackdrop: {
