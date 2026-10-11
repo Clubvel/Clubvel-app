@@ -83,7 +83,9 @@ export default function ClubHome() {
         {entry('Payments and Proofs', () => router.push({ pathname: '/(member)/proofs', params: { group_id: data.club.id, month: String(data.period.month), year: String(data.period.year), contribution_id: params.contribution_id || '', scope: 'club', from: params.from || 'member' } }))}
         {entry('Payouts and Claims', () => router.push('/(member)/claims'))}
         <Text style={styles.caption}>Claims currently opens your personal claims across your active clubs.</Text>
+        {entry('Member Home', () => router.push('/(member)/home'))}
         {admin && <><Text style={styles.heading}>Club management</Text>
+          {entry('Admin Home', () => router.push('/(treasurer)/dashboard'))}
           {entry('Manage club', () => router.push({ pathname: '/(treasurer)/club-detail', params: { id: data.club.id, name: data.club.name, from: 'club' } }))}
           {entry('Manage Members', () => router.push({ pathname: '/(treasurer)/members', params: { groupId: data.club.id } }))}
           {entry('Review Payments', () => router.push({ pathname: '/(treasurer)/contributions', params: { groupId: data.club.id } }))}

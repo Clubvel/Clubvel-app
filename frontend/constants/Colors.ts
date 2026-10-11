@@ -7,6 +7,8 @@ export const Colors = {
   // Alert/Accent Colors
   accent: '#F97316',
   accentLight: '#FFF1E8',
+  sage: '#557866',
+  softSage: '#E5EDE7',
   
   // Background Colors
   background: '#FFFFFF',       // Crisp white canvas

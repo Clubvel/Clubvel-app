@@ -2,7 +2,7 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { load, engine, tick, nodes, text, button, native, colors } = require('./ui-harness.cjs');
 
-async function setup(screen = 'proofs', review = 'declined', approved = false, deferred = false) {
+async function setup(screen = 'proofs', review = 'declined', approved = false, deferred = false, collapsed = false) {
   const ui = engine(), requests = [], alerts = [], routes = [];
   const record = { contribution_id: 'contribution-a', group_id: 'group-a', group_name: 'Club A',
     month: 10, year: 2026, amount_due: 175, amount_paid: 25,
@@ -69,6 +69,9 @@ async function setup(screen = 'proofs', review = 'declined', approved = false, d
   const Screen = load(screen === 'proofs' ? 'app/(member)/proofs.tsx' : 'app/(member)/club/[id].tsx', dependencies).default;
   const render = () => ui.render(Screen);
   const initial = render(); await tick();
+  if (screen === 'proofs' && !collapsed) {
+    for (const toggle of nodes(render()).filter(n => n.props?.accessibilityLabel?.startsWith('Toggle contributions ') && !n.props.accessibilityState.expanded)) toggle.props.onPress();
+  }
   return { render, requests, alerts, routes, record, ui, statusPill, initial, state, params, authState };
 }
 
@@ -361,4 +364,33 @@ test('historical obligations remain visible without current banking or upload ac
  assert.match(text(c.render()),/Historical contribution — read only/);
  assert.equal(nodes(c.render()).some(n=>n.props?.accessibilityLabel==='Open contribution contribution-a'),false);
  assert.equal(nodes(c.render()).some(n=>n.props?.accessibilityLabel==='Upload proof for contribution contribution-a'),false);
+});
+
+
+test('Payments groups legitimate same-month records into one collapsed club without extra requests', async () => {
+ const c=await setup('proofs','declined',false,false,true);
+ c.state.records=[{...c.record,payment_state:'proof_declined',outstanding_amount:150},{...c.record,contribution_id:'second',payment_state:'awaiting_payment',proof_uploaded:false,outstanding_amount:200}];
+ c.ui.blur();c.ui.focus();await tick();let tree=c.render();
+ assert.equal(nodes(tree).filter(n=>n.props?.accessibilityLabel==='Toggle contributions Club A').length,1);
+ assert.match(text(tree),/2 contributions/);assert.match(text(tree),/Outstanding: R150.00/);assert.match(text(tree),/Outstanding: R200.00/);
+ assert.ok(!nodes(tree).some(n=>n.props?.accessibilityLabel==='Select contribution second'));
+ const before=c.requests.length;nodes(tree).find(n=>n.props?.accessibilityLabel==='Toggle contributions Club A').props.onPress();tree=c.render();
+ assert.ok(nodes(tree).some(n=>n.props?.accessibilityLabel==='Select contribution second'));assert.equal(c.requests.length,before);
+ nodes(tree).find(n=>n.props?.accessibilityLabel==='Toggle contributions Club A').props.onPress();assert.ok(!nodes(c.render()).some(n=>n.props?.accessibilityLabel==='Select contribution second'));
+});
+test('Every proof is classified, including declined and unsupported statuses, without inflating pending',async()=>{
+ const c=await setup('proofs','declined',false,false,true);
+ c.state.records=[1,2,3].map(id=>({...c.record,contribution_id:`paid-${id}`,payment_state:'confirmed',status:'confirmed'}));
+ c.state.records.push({...c.record,contribution_id:'declined',payment_state:'proof_declined'});c.ui.blur();c.ui.focus();await tick();
+ assert.match(text(c.render()),/Declined: 1/);assert.match(text(c.render()),/Other: 0/);
+ nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Show pending').props.onPress();assert.match(text(c.render()),/pending review proofs \(0\)/);
+ nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Show declined proofs').props.onPress();assert.match(text(c.render()),/declined proofs \(1\)/);
+ c.state.records.push({...c.record,contribution_id:'unknown',payment_state:'unknown',status:'unrecognised',proof_review_status:null});c.ui.blur();c.ui.focus();await tick();assert.match(text(c.render()),/Other: 1/);
+});
+test('Repeated contribution identity is rejected rather than rendered or counted twice',async()=>{
+ const c=await setup();c.state.records=[c.record,{...c.record}];c.ui.blur();c.ui.focus();await tick();assert.match(text(c.render()),/Unable to load proofs/);
+});
+test('Club accordion expansion does not carry into another account',async()=>{
+ const c=await setup();assert.ok(nodes(c.render()).some(n=>n.props?.accessibilityLabel==='Select contribution contribution-a'));
+ c.authState.user={id:'other'};c.authState.token='other-token';assert.doesNotMatch(text(c.render()),/Club A|Wrong reference/);
 });

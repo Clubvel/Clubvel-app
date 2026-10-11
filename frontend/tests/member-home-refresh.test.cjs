@@ -25,8 +25,8 @@ function setup(screen = 'member', holdInvitations = false) {
   const render = () => ui.render(Screen);
   const respond = async (index, name, role = 'member') => {
     requests[index].resolve({ data: { user: auth.user,
-      summary: { total_saved: 0, active_clubs: 1, overdue_contributions: 0, upcoming_payments: 0, claims_count: 0 },
-      clubs: [{ id: 'group-a', name, role, member_count: 2, collected: 0, expected: 200, due_date: 25, late_count: 0, monthly_contribution: 100, status: 'pending' }] } });
+      summary: { total_saved: 0, confirmed_collected: 0, confirmed_collected_availability: "AVAILABLE", active_clubs: 1, overdue_contributions: 0, upcoming_payments: 0, claims_count: 0 },
+      clubs: [{ id: 'group-a', name, role, member_count: 2, collected: 0, expected: 200, due_date: 25, late_count: 0, monthly_contribution: 100, contribution_mode: 'fixed_monthly', status: 'pending' }] } });
     await tick();
   };
   const refresh = () => nodes(render()).find(n => n.type === 'ScrollView').props.refreshControl.props.onRefresh();
@@ -122,7 +122,7 @@ for (const role of ['member', 'admin']) for (const count of [0, 3]) {
   test(`${role} Home keeps semantic colours and downward affordances at count ${count}`, async () => {
     const c = setup(role);
     c.requests[0].resolve({ data: { user: { id: 'member', full_name: 'Test Member', first_name: 'Test' },
-      summary: { total_saved: 200, active_clubs: 1, upcoming_payments: count, claims_count: 2,
+      summary: { total_saved: 200, confirmed_collected: 200, confirmed_collected_availability: "AVAILABLE", active_clubs: 1, upcoming_payments: count, claims_count: 2,
         upcoming_payout_amount: 100, total_clubs: 1, total_members: 2,
         total_collected_this_month: 200, late_members_count: count },
       clubs: [], urgent_alerts: [], next_claim: null } });
@@ -231,12 +231,45 @@ test('Member Home uses authoritative confirmed total and never substitutes the l
 });
 test('Member Home renders unavailable authoritative amount without invented zero',async()=>{
  const c=setup();c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:25,confirmed_collected:null,confirmed_collected_availability:'UNAVAILABLE',active_clubs:0,upcoming_payments:0,claims_count:0},clubs:[]}});await tick();
- const card=nodes(c.render()).find(n=>n.type==='View'&&text(n).includes('Contributions')&&text(n).includes('Not available'));
- assert.ok(card);assert.doesNotMatch(text(c.render()),/R25.00/);
+ assert.match(text(c.render()),/Contribution total could not be verified/);
+ assert.doesNotMatch(text(c.render()),/Not available|R25.00/);
+ assert.ok(!nodes(c.render()).some(n=>n.type==='Text'&&text(n)==='Contributions'));
 });
 test('Member Home shows controlled dashboard 409 and keeps its shell',async()=>{
  const c=setup(); // Replace the queued response with a rejecting request on refresh.
  await c.respond(0,'WeTraveling');
  c.refresh();c.requests[1].resolve(Promise.reject({response:{status:409}}));await tick();
  assert.match(text(c.render()),/payment records need checking/);assert.match(text(c.render()),/Clubvel/);
+});
+
+
+test('Member Contributions displays genuine zero numerically', async () => {
+ const c=setup(); await c.respond(0,'WeTravel');
+ const card=nodes(c.render()).find(n=>n.type==='View'&&text(n).includes('Contributions')&&text(n).includes('R0.00'));
+ assert.ok(card); assert.doesNotMatch(text(c.render()),/could not be verified|Not available/);
+});
+for (const amount of [undefined, null, NaN, Infinity, -1, '20']) test(`Member Home never turns unreliable amount ${amount} into zero`, async () => {
+ const c=setup(); c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:99,confirmed_collected:amount,confirmed_collected_availability:'AVAILABLE',active_clubs:0,upcoming_payments:0,claims_count:0},clubs:[]}}); await tick();
+ assert.match(text(c.render()),/Contribution total could not be verified/);
+ assert.ok(!nodes(c.render()).some(n=>n.type==='Text'&&text(n)==='Contributions'));
+ assert.doesNotMatch(text(c.render()),/R99.00|Not available/);
+});
+for (const [mode,type,monthly,target,label] of [
+ ['flexible_goal','travel',0,1000,'R1000.00 goal per member'],
+ ['flexible_goal','savings',0,null,'Flexible contributions'],
+ ['fixed_monthly','travel',0,null,'Flexible contributions'],
+ ['fixed_monthly','savings',100,null,'R100.00/month'],
+ ['fixed_monthly','savings',0,null,'No fixed monthly amount'],
+ [undefined,'savings',0,null,'Contribution details could not be verified'],
+]) test(`Club caption reflects ${mode}/${type} without inventing monthly obligations`, async () => {
+ const c=setup(); c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:0,confirmed_collected:0,confirmed_collected_availability:'AVAILABLE',active_clubs:1,upcoming_payments:0,claims_count:0},clubs:[{id:'travel',name:'WeTravel',member_count:2,role:'member',monthly_contribution:monthly,contribution_mode:mode,group_type:type,target_amount_per_member:target,status:'pending'}]}}); await tick();
+ assert.match(text(c.render()),new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+ assert.doesNotMatch(text(c.render()),/R0\/month/);
+});
+
+
+test('Club administration menu follows loaded club roles and disappears on account change',async()=>{
+ const c=setup();await c.respond(0,'WeTravel','admin');assert.ok(button(c.render(),'Club administration'));
+ c.auth.user={id:'brown'};c.auth.token='brown-session';assert.equal(button(c.render(),'Club administration'),undefined);
+ await c.respond(1,'WeTravel','member');assert.equal(button(c.render(),'Club administration'),undefined);
 });

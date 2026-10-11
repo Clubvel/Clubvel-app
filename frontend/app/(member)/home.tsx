@@ -16,6 +16,9 @@ interface Club {
   name: string;
   member_count: number;
   monthly_contribution: number;
+  group_type?: string;
+  contribution_mode?: string;
+  target_amount_per_member?: number | null;
   status: string;
   status_label: string;
   role: 'member' | 'admin' | 'treasurer';
@@ -85,6 +88,22 @@ export default function MemberHomeScreen() {
   const dashboardData = dashboardOwner === sessionKey ? storedDashboardData : null;
   const dashboardError = errorOwner === sessionKey ? storedDashboardError : null;
   const loading = storedLoading || (!dashboardData && !dashboardError);
+  const confirmedAmount = dashboardData?.summary.confirmed_collected;
+  const confirmedAmountAvailable = dashboardData?.summary.confirmed_collected_availability === 'AVAILABLE'
+    && typeof confirmedAmount === 'number' && Number.isFinite(confirmedAmount) && confirmedAmount >= 0;
+  const contributionDescription = (club: Club) => {
+    if (club.contribution_mode === 'flexible_goal' || club.group_type === 'travel') {
+      const target = club.target_amount_per_member;
+      return typeof target === 'number' && Number.isFinite(target) && target > 0
+        ? `${paymentMoney(target)} goal per member` : 'Flexible contributions';
+    }
+    if (club.contribution_mode === 'fixed_monthly') {
+      const amount = club.monthly_contribution;
+      return typeof amount === 'number' && Number.isFinite(amount) && amount > 0
+        ? `${paymentMoney(amount)}/month` : 'No fixed monthly amount';
+    }
+    return 'Contribution details could not be verified';
+  };
   const [invitationOwner, setInvitationOwner] = useState<string | null>(null);
   const pendingInvitations = invitationOwner === sessionKey ? storedInvitations : [];
   const setPendingInvitations = useCallback((invitations: PendingInvitation[]) => {
@@ -418,14 +437,15 @@ export default function MemberHomeScreen() {
       ) : dashboardError && !dashboardData ? (
         <View style={styles.loadingContainer}><Text>{dashboardError}</Text><TouchableOpacity onPress={() => { setLoading(true); void fetchDashboard(); }}><Text>Retry</Text></TouchableOpacity></View>
       ) : (<>
+      {!confirmedAmountAvailable && <Text accessibilityRole="alert">Contribution total could not be verified. Pull down to refresh.</Text>}
       {/* Summary Cards */}
         <View style={styles.summaryContainer}>
-        <View style={styles.summaryCard}>
+        {confirmedAmountAvailable && <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Contributions</Text>
           <Text style={[styles.summaryValue, { color: Colors.statusPaid }]}>
-            {paymentMoney(dashboardData?.summary.confirmed_collected_availability === "AVAILABLE" ? dashboardData.summary.confirmed_collected : undefined)}
+            {paymentMoney(confirmedAmount)}
           </Text>
-        </View>
+        </View>}
 
         <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Show My Clubs" activeOpacity={0.75} onPress={() => dashboardScroll.current?.scrollTo({ y: clubsOffset.current, animated: true })}>
           <Text style={styles.summaryLabel}>Groups &amp; Clubs</Text>
@@ -514,7 +534,7 @@ export default function MemberHomeScreen() {
                     <Ionicons name="people" size={14} color={Colors.textSecondary} />
                     <Text style={styles.clubMetaText}>{club.member_count} members</Text>
                     <Text style={styles.clubMetaText}> • </Text>
-                    <Text style={styles.clubMetaText}>R{club.monthly_contribution}/month</Text>
+                    <Text style={styles.clubMetaText}>{contributionDescription(club)}</Text>
                   </View>
                 </View>
                 <StatusPill status={club.status} label={club.status_label === 'No contribution recorded' ? 'No contributions yet' : club.status_label}
@@ -627,6 +647,14 @@ export default function MemberHomeScreen() {
               </View>
               <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
             </TouchableOpacity>
+            {dashboardData?.clubs.some(club => club.role === 'admin' || club.role === 'treasurer') && <TouchableOpacity style={styles.dropdownItem} accessibilityRole="button" accessibilityLabel="Club administration" onPress={() => {
+              if (latestSession.current !== sessionKey) return;
+              setShowProfileMenu(false); dashboardScroll.current?.scrollTo({ y: clubsOffset.current, animated: true });
+            }}>
+              <Ionicons name="settings-outline" size={24} color={Colors.textPrimary} />
+              <View style={styles.dropdownItemCopy}><Text style={styles.dropdownItemText}>Club administration</Text><Text style={styles.dropdownDescription}>Choose a club you administer from My Clubs</Text></View>
+              <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+            </TouchableOpacity>}
             <View style={styles.dropdownDivider} />
             <TouchableOpacity style={styles.dropdownItemLogout} onPress={handleLogout} accessibilityRole="button" accessibilityLabel="Sign Out">
               <Ionicons name="log-out-outline" size={24} color={Colors.textPrimary} />

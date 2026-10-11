@@ -74,10 +74,20 @@ export default function ProofOfPaymentsScreen() {
   const currentRecords = routeReady && loadedProofContext === `${user?.id}:${token}` ? records.filter(record => !clubScoped || record.group_id === params.group_id) : [];
   const selectedRecords = currentRecords.filter(record => (!selectedGroup || record.group_id === selectedGroup) && (!clubScoped || record.group_id === params.group_id) && !invalidPeriod && record.month === period.month && record.year === period.year);
   const currentProofs = routeReady && loadedProofContext === `${user?.id}:${token}` ? proofs.filter(proof => (!selectedGroup || proof.groupId === selectedGroup) && (!clubScoped || proof.groupId === params.group_id) && !invalidPeriod && proof.month === new Date(period.year, period.month - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" })) : [];
-  const [proofFilter, setProofFilter] = useState<'all' | 'confirmed' | 'proof_uploaded'>('all');
+  const [proofFilter, setProofFilter] = useState<'all' | 'confirmed' | 'proof_uploaded' | 'proof_declined' | 'other'>('all');
   const confirmedProofs = currentProofs.filter(p => ['confirmed', 'paid'].includes(p.status));
   const pendingProofs = currentProofs.filter(p => p.status === 'proof_uploaded');
-  const visibleProofs = proofFilter === 'confirmed' ? confirmedProofs : proofFilter === 'proof_uploaded' ? pendingProofs : currentProofs;
+  const declinedProofs = currentProofs.filter(p => p.status === 'proof_declined');
+  const otherProofs = currentProofs.filter(p => !['confirmed', 'paid', 'proof_uploaded', 'proof_declined'].includes(p.status));
+  const visibleProofs = proofFilter === 'confirmed' ? confirmedProofs : proofFilter === 'proof_uploaded' ? pendingProofs : proofFilter === 'proof_declined' ? declinedProofs : proofFilter === 'other' ? otherProofs : currentProofs;
+  const accordionContext = `${user?.id}:${token}:${routeKey}:${period.year}:${period.month}`;
+  const [expandedClubs, setExpandedClubs] = useState<{ owner: string; groups: Record<string, boolean> }>({ owner: accordionContext, groups: {} });
+  const contributionGroups: { id: string; name: string; records: any[] }[] = Array.from((selectedRecords as any[]).reduce((groups, record) => {
+    const group = groups.get(record.group_id) || { id: record.group_id, name: record.group_name, records: [] as any[] };
+    group.records.push(record); groups.set(record.group_id, group); return groups;
+  }, new Map<string, { id: string; name: string; records: any[] }>()).values());
+  const groupExpanded = (id: string) => expandedClubs.owner === accordionContext && expandedClubs.groups[id] !== undefined
+    ? expandedClubs.groups[id] : selectedGroup === id;
   const [proofsLoading, setProofsLoading] = useState(true);
   const [proofsError, setProofsError] = useState<string | null>(null);
   const [deletingProof, setDeletingProof] = useState<string | null>(null);
@@ -99,6 +109,7 @@ export default function ProofOfPaymentsScreen() {
   const discoverySequence = useRef(0);
   const flexibleLookup = useRef<{ context: string; ticket: number } | null>(null);
   const uploadPending = useRef(false);
+  const proofReadFailed = useRef(false);
   const recoveryContext = `${requestContext}:${clubScoped ? params.group_id : selectedGroup}`;
   const recovery = useRef<{ owner: string; contributionId: string; groupId: string; verified?: any } | null>(null);
   const recoveryOwner = useRef(recoveryContext);
@@ -144,7 +155,7 @@ export default function ProofOfPaymentsScreen() {
         headers: { Authorization: `Bearer ${token}` }, timeout: 15000
       });
       if (!screenActive.current || sequence !== proofSequence.current || latestContext.current !== key) return;
-      if (!Array.isArray(response.data.contributions) || response.data.contributions.some((record: any) => !record.contribution_id || !record.group_id)) throw new Error("Invalid contribution response");
+      if (!Array.isArray(response.data.contributions) || response.data.contributions.some((record: any) => !record.contribution_id || !record.group_id) || new Set(response.data.contributions.map((record: any) => record.contribution_id)).size !== response.data.contributions.length) throw new Error("Invalid contribution response");
       const pendingRecovery = recovery.current;
       if (!uploadPending.current && pendingRecovery && pendingRecovery.owner === recoveryOwner.current && pendingRecovery.owner === `${key}:${pendingRecovery.groupId}` && !pendingRecovery.verified) {
         const matches = response.data.contributions.filter((row: any) => row.contribution_id === pendingRecovery.contributionId && row.group_id === pendingRecovery.groupId);
@@ -157,6 +168,7 @@ export default function ProofOfPaymentsScreen() {
           setPeriod({ month: record.month, year: record.year });
         }
       }
+      proofReadFailed.current = false;
       setRecords(response.data.contributions);
       setLoadedProofContext(key);
       setProofs(response.data.contributions.filter((record: any) => record.proof_uploaded && !record.proof_dismissed).map((record: any) => ({
@@ -180,6 +192,8 @@ export default function ProofOfPaymentsScreen() {
       })));
     } catch (error: any) {
       if (!screenActive.current || sequence !== proofSequence.current || latestContext.current !== key) return;
+      proofReadFailed.current = true;
+      setLoadedProofContext(null); setRecords([]); setProofs([]);
       setProofsError(error.response?.data?.detail || 'Unable to load proofs. Please try again.');
     } finally {
       if (proofRequest.current?.sequence === sequence) {
@@ -306,7 +320,7 @@ export default function ProofOfPaymentsScreen() {
   };
 
   const handleUploadPress = async () => {
-    if (latestAction.current !== actionContext || !screenActive.current || !routeReady || uploadPending.current) return;
+    if (proofReadFailed.current || proofsError || latestAction.current !== actionContext || !screenActive.current || !routeReady || uploadPending.current) return;
     if (unverifiedCreation.current) { Alert.alert('Refresh Contributions', 'An earlier creation attempt needs checking. Refresh and identify the existing record before retrying proof upload. Do not blindly create another contribution.'); return; }
     const explicit = selectedContributionId ? selectedRecords.filter(record => record.contribution_id === selectedContributionId) : [];
     if (selectedContributionId && explicit.length !== 1) { Alert.alert('Contribution unavailable', 'Refresh and select the exact contribution.'); return; }
@@ -324,7 +338,7 @@ export default function ProofOfPaymentsScreen() {
     contributionId?: string
   ) => {
     const uploadContext = actionContext;
-    if (!screenActive.current || latestAction.current !== uploadContext) return;
+    if (proofReadFailed.current || !screenActive.current || latestAction.current !== uploadContext) return;
     const actor = user?.id;
     const sessionToken = token;
     const matches = currentRecords.filter(record => record.contribution_id === contributionId && record.group_id === club.id);
@@ -657,8 +671,21 @@ export default function ProofOfPaymentsScreen() {
             <TouchableOpacity accessibilityLabel="Next payment month" onPress={() => { setSelectedContributionId(''); const d = new Date(period.year, period.month, 1); setPeriod({ month: d.getMonth() + 1, year: d.getFullYear() }); }}><Text>›</Text></TouchableOpacity>
           </View>
           {!proofsLoading && !proofsError && selectedRecords.length === 0 && <Text>No contribution recorded for this period.</Text>}
-          {selectedRecords.map(record => <View key={record.contribution_id} style={styles.proofCard}>
-            <TouchableOpacity accessibilityLabel={`Select contribution ${record.contribution_id}`} onPress={() => setSelectedContributionId(record.contribution_id)}><Text style={styles.proofGroupName}>{record.group_name}{selectedContributionId === record.contribution_id ? " ✓" : ""}</Text></TouchableOpacity>
+          {contributionGroups.map(group => <View key={group.id} style={styles.clubSection}>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Toggle contributions ${group.name}`} accessibilityState={{ expanded: groupExpanded(group.id) }} style={styles.clubRibbon} onPress={() => {
+              if (latestAction.current !== actionContext || !routeReady) return;
+              setExpandedClubs(previous => ({ owner: accordionContext, groups: { ...(previous.owner === accordionContext ? previous.groups : {}), [group.id]: !groupExpanded(group.id) } }));
+            }}>
+              <Text style={styles.clubRibbonTitle}>{group.name}</Text>
+              <Ionicons name={groupExpanded(group.id) ? 'chevron-up' : 'chevron-down'} size={18} color={Colors.white} />
+            </TouchableOpacity>
+            <View style={styles.clubOverview}>
+              <Text>{group.records.length} {group.records.length === 1 ? 'contribution' : 'contributions'}</Text>
+              {group.records.map(record => <Text key={record.contribution_id}>{paymentStateLabel(record.payment_state) || 'Status not recorded'} · Outstanding: {paymentMoney(record.outstanding_amount)}</Text>)}
+            </View>
+            {groupExpanded(group.id) && <View>
+              {group.records.map(record => <View key={record.contribution_id} style={styles.proofCard}>
+            <TouchableOpacity accessibilityLabel={`Select contribution ${record.contribution_id}`} onPress={() => setSelectedContributionId(record.contribution_id)}><Text style={styles.proofGroupName}>Contribution {record.month}/{record.year}{selectedContributionId === record.contribution_id ? " ✓" : ""}</Text></TouchableOpacity>
             <Text>{record.month}/{record.year} · {paymentStateLabel(record.payment_state)}</Text>
             <Text>Expected: {paymentMoney(record.expected_amount)}</Text>
             <Text>Confirmed Collected: {paymentMoney(record.confirmed_amount)}</Text>
@@ -667,9 +694,12 @@ export default function ProofOfPaymentsScreen() {
             {record.historical_only ? <Text>Historical contribution — read only</Text> : <TouchableOpacity accessibilityLabel={`Open contribution ${record.contribution_id}`} onPress={() => router.push({ pathname: '/(member)/club/[id]', params: { id: record.group_id, month: String(record.month), year: String(record.year), contribution_id: record.contribution_id, scope: params.scope, from: params.from } })}><Text>Banking details and history</Text></TouchableOpacity>}
             {!record.historical_only && record.proof_eligible && <TouchableOpacity accessibilityLabel={`Upload proof for contribution ${record.contribution_id}`} disabled={uploading} onPress={() => uploadProofForClub({ id: record.group_id, name: record.group_name, amount_due: record.amount_due }, record.contribution_id)}><Text>{record.proof_review_status === 'declined' ? 'Replace Proof' : 'Upload Proof'}</Text></TouchableOpacity>}
           </View>)}
+            </View>}
+          </View>)}
         </View>
 
         {/* Summary Card */}
+        {loadedProofContext === requestContext && !proofsError && <>
         <View style={styles.summaryCard}>
           <View style={styles.summaryRow}>
             <TouchableOpacity style={styles.summaryItem} accessibilityRole="button" accessibilityLabel="Show total proofs" accessibilityState={{ selected: proofFilter === 'all' }} activeOpacity={0.75} onPress={() => setProofFilter('all')}>
@@ -696,11 +726,17 @@ export default function ProofOfPaymentsScreen() {
           </View>
         </View>
 
+        <View style={styles.proofCategories}>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Show declined proofs" accessibilityState={{ selected: proofFilter === 'proof_declined' }} onPress={() => setProofFilter('proof_declined')}><Text>Declined: {declinedProofs.length}</Text></TouchableOpacity>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Show other proofs" accessibilityState={{ selected: proofFilter === 'other' }} onPress={() => setProofFilter('other')}><Text>Other: {otherProofs.length}</Text></TouchableOpacity>
+        </View>
+
+        </>}
         {/* Proofs List */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Proofs of Payment</Text>
           {proofFilter !== 'all' && <View>
-            <Text accessibilityLiveRegion="polite">Showing {proofFilter === 'confirmed' ? 'confirmed' : 'pending review'} proofs ({visibleProofs.length})</Text>
+            <Text accessibilityLiveRegion="polite">Showing {proofFilter === 'confirmed' ? 'confirmed' : proofFilter === 'proof_uploaded' ? 'pending review' : proofFilter === 'proof_declined' ? 'declined' : 'other status'} proofs ({visibleProofs.length})</Text>
             <TouchableOpacity accessibilityRole="button" accessibilityLabel="Show all proofs" onPress={() => setProofFilter('all')}><Text style={styles.viewProofText}>Show all</Text></TouchableOpacity>
           </View>}
 
@@ -742,8 +778,8 @@ export default function ProofOfPaymentsScreen() {
                   </View>
                 </View>
 
-                {proof.confirmedAmount !== undefined && <Text>Confirmed Collected: {paymentMoney(proof.confirmedAmount)} · Outstanding: {paymentMoney(proof.remainingAmount)}</Text>}
-                {proof.recordedAmount != null && proof.confirmedAmount === 0 && proof.recordedAmount > 0 && <Text>Recorded, unconfirmed: {paymentMoney(proof.recordedAmount)}</Text>}
+
+                
                 {proof.status === 'proof_declined' && proof.declineReason && (
                   <Text style={styles.proofDetailLabel}>Decline reason: {proof.declineReason}</Text>
                 )}
@@ -967,6 +1003,12 @@ export default function ProofOfPaymentsScreen() {
 }
 
 const styles = StyleSheet.create({
+  clubSection: { borderWidth: 1, borderColor: Colors.cardBorder, borderRadius: 12, overflow: 'hidden', marginBottom: 12 },
+  clubRibbon: { backgroundColor: Colors.sage, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  clubRibbonTitle: { color: Colors.white, fontWeight: '700', fontSize: 16, flex: 1 },
+  clubOverview: { padding: 12, gap: 4, backgroundColor: Colors.softSage },
+  proofCategories: { flexDirection: 'row', flexWrap: 'wrap', gap: 20, paddingHorizontal: 20, paddingBottom: 12 },
+
   container: {
     flex: 1,
     backgroundColor: Colors.lightBackground,

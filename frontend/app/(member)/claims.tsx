@@ -636,12 +636,12 @@ const styles = StyleSheet.create({
     marginTop: 12,
     padding: 12,
     borderRadius: 10,
-    backgroundColor: Colors.primaryLight,
+    backgroundColor: Colors.softSage,
   },
   rejectionLabel: {
     fontSize: 12,
     fontWeight: '700',
-    color: Colors.textPrimary,
+    color: Colors.sage,
     marginBottom: 4,
   },
   rejectionText: {

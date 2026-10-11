@@ -293,7 +293,7 @@ test('a prior-session flexible submit callback cannot cancel or start a newer op
  const c=await flexibleFixture([created]);const old=button(c.render(),'Continue to Upload Proof').props.onPress;c.authState.token='new-session';c.render();await tick();const count=c.requests.length;await old();assert.equal(c.requests.length,count);assert.equal(c.requests.filter(r=>r.url.endsWith('/contributions/flexible')).length,0);
 });
 test('duplicate exact identifiers never choose the first proof-upload record',async()=>{
- const c=await setup();c.state.records=[c.record,{...c.record,payment_reference:'conflicting'}];c.ui.blur();c.ui.focus();await tick();await nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Upload proof for contribution contribution-a').props.onPress();assert.equal(c.requests.filter(r=>r.url.endsWith('/upload-proof')).length,0);assert.ok(c.alerts.some(a=>a[0]==='Contribution unavailable'));
+ const c=await setup();const oldUpload=nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Upload proof for contribution contribution-a').props.onPress;c.state.records=[c.record,{...c.record,payment_reference:'conflicting'}];c.ui.blur();c.ui.focus();await tick();const errorTree=c.render();assert.equal(nodes(errorTree).some(n=>n.props?.accessibilityLabel==='Upload proof for contribution contribution-a'),false);assert.match(text(errorTree),/Unable to load proofs/);await oldUpload();await button(errorTree,'Upload Proof of Payment').props.onPress();assert.equal(c.requests.filter(r=>r.url.endsWith('/upload-proof')).length,0);
 });
 
 test('Contributions route-period transition does not fetch an intermediate old period',async()=>{

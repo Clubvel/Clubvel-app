@@ -555,11 +555,11 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   referenceCard: {
-    backgroundColor: Colors.darkGreen,
+    backgroundColor: Colors.sage,
   },
   referenceCodeContainer: {
     alignItems: 'center',
-    paddingVertical: 8,
+    paddingVertical: 4,
   },
   referenceLabel: {
     fontSize: 12,
@@ -570,20 +570,24 @@ const styles = StyleSheet.create({
     fontSize: 32,
     fontWeight: 'bold',
     color: Colors.white,
-    letterSpacing: 2,
+    letterSpacing: 1,
+    textAlign: 'center',
   },
   bankDetails: {
-    gap: 12,
+    gap: 8,
   },
   bankDetailRow: {
     flexDirection: 'row',
     justifyContent: 'space-between',
+    gap: 12,
   },
   bankDetailLabel: {
     fontSize: 14,
     color: 'rgba(255, 255, 255, 0.7)',
   },
   bankDetailValue: {
+    flex: 1,
+    textAlign: 'right',
     fontSize: 14,
     fontWeight: '600',
     color: Colors.white,

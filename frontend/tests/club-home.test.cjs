@@ -61,5 +61,29 @@ test('Back returns to the originating account Home and unauthenticated users red
 });
 test('account tabs and existing financial screens are unchanged from Phase 3C', () => {
   const cp = require('node:child_process'), root = path.join(__dirname, '../..');
-  for (const file of ['frontend/app/(member)/_layout.tsx', 'frontend/app/(treasurer)/_layout.tsx', 'frontend/app/(member)/claims.tsx', 'frontend/app/(treasurer)/club-detail.tsx']) assert.equal(fs.readFileSync(path.join(root, file), 'utf8'), cp.execFileSync('git', ['show', '3aff743a88b3b128e5e9f58c6c62368e8d3df370:' + file], { cwd: root, encoding: 'utf8' }));
+  for (const file of ['frontend/app/(member)/_layout.tsx', 'frontend/app/(treasurer)/_layout.tsx', 'frontend/app/(member)/claims.tsx', 'frontend/app/(treasurer)/club-detail.tsx']) {
+    let expected=cp.execFileSync('git', ['show', '3aff743a88b3b128e5e9f58c6c62368e8d3df370:' + file], { cwd: root, encoding: 'utf8' });
+    if(file==='frontend/app/(member)/claims.tsx') expected=expected.replace(/(rejectionBox: \{[\s\S]*?backgroundColor: )Colors.primaryLight/,'$1Colors.softSage').replace(/(rejectionLabel: \{[\s\S]*?color: )Colors.textPrimary/,'$1Colors.sage');
+    assert.equal(fs.readFileSync(path.join(root,file),'utf8'),expected);
+  }
+});
+
+
+test('Jimmy Admin fixture and Brown Member fixture use authenticated club roles after session restoration', async () => {
+ const c=setup('member'); c.auth.user={id:'jimmy'}; c.auth.token='jimmy-restored-session'; c.render();
+ await c.reply(1,'travel','admin'); assert.match(text(c.render()),/Manage club/);
+ c.tap('Review Payments'); assert.equal(c.routes.at(-1).params.groupId,'travel');
+ c.auth.user={id:'brown'}; c.auth.token='brown-session'; assert.doesNotMatch(text(c.render()),/Manage club|Review Payments/);
+ await c.reply(2,'travel','member'); assert.doesNotMatch(text(c.render()),/Manage club|Review Payments/);
+ c.tap('Back to account Home'); assert.equal(c.routes.at(-1),'/(member)/home');
+});
+test('Admin role refresh immediately removes management controls when selected membership is demoted', async () => {
+ const c=setup('member'); await c.reply(0,'travel','admin'); assert.match(text(c.render()),/Manage club/);
+ c.tap('Refresh Club Home'); await c.reply(1,'travel','member'); assert.doesNotMatch(text(c.render()),/Manage club|Review Payments/);
+});
+
+
+test('Shared Club Home exposes both interfaces only when selected club grants administration',async()=>{
+ const c=setup('member');await c.reply(0,'travel','admin');c.tap('Admin Home');assert.equal(c.routes.at(-1),'/(treasurer)/dashboard');c.tap('Member Home');assert.equal(c.routes.at(-1),'/(member)/home');
+ c.params.id='eight';c.render();await c.reply(1,'eight','member');assert.doesNotMatch(text(c.render()),/Admin Home/);assert.match(text(c.render()),/Member Home/);
 });
