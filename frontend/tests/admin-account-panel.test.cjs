@@ -153,7 +153,7 @@ test('Approved account panels, header styles and existing security/action handle
     if (name !== 'modalOverlay' && !name.startsWith('dropdown') && !['header','brandName','avatar','avatarImage','accountToolbar','accountTitle'].includes(name)) assert.deepEqual(newStyles[name], value, name);
   }
 
-  const checkpoint = name => cp.execFileSync('git', ['show', `0d2fdf99c00a2647953fc8f6706b6b52415cd1a1:frontend/${name}`], { cwd: root, encoding: 'utf8' });
+  const checkpoint = name => cp.execFileSync('git', ['show', `077f3ad379b33d92eb86f01ac80e2000c0b4472c:frontend/${name}`], { cwd: root, encoding: 'utf8' });
   for (const [name, marker, endMarker] of [['app/(member)/home.tsx', '    {/* Member Account Panel */}', '    {/* Delete'], [file, '    {/* Admin Account Panel */}', '    {/* Create']]) {
     const before = checkpoint(name), after = fs.readFileSync(path.join(root, 'frontend', name), 'utf8');
     const panel = source => { const start = source.indexOf(marker); assert.ok(start >= 0); const end = source.indexOf(endMarker, start + marker.length); return source.slice(source.indexOf('<View style={styles.dropdownDivider}', start), end < 0 ? source.indexOf('const styles =', start) : end); };
