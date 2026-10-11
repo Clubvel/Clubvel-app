@@ -35,6 +35,22 @@ const statusLabel = (status: string) => {
   }
 };
 
+const getStatusColor = (status: string) => {
+  switch (status) {
+    case 'approved':
+    case 'paid':
+    case 'confirmed':
+      return '#16A34A'; // Green for positive statuses
+    case 'rejected':
+      return '#DC2626'; // Red for rejected
+    case 'pending_review':
+    case 'processing':
+      return Colors.accent; // Orange for pending
+    default:
+      return Colors.textSecondary;
+  }
+};
+
 const formatDate = (value: string | null) => {
   if (!value) return null;
   const date = new Date(value);
@@ -321,7 +337,7 @@ export default function ClaimsScreen() {
                   </View>
                   <View style={styles.cardHeading}>
                     <Text style={styles.groupName}>{claim.group_name}</Text>
-                    <Text style={styles.statusText}>{statusLabel(claim.status)}</Text>
+                    <Text style={[styles.statusText, { color: getStatusColor(claim.status) }]}>{statusLabel(claim.status)}</Text>
                   </View>
                 </View>
 
@@ -610,7 +626,6 @@ const styles = StyleSheet.create({
   },
   statusText: {
     fontSize: 13,
-    color: Colors.accent,
     fontWeight: '600',
     marginTop: 2,
     textTransform: 'capitalize',
