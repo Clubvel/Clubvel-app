@@ -16,12 +16,13 @@
       "policy": "appVersion"
     },
     "orientation": "portrait",
-    "icon": "./assets/images/clubvel-launcher-icon.png",
+    "icon": "./assets/images/clubvel-navy-icon.png",
     "scheme": "clubvel",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "owner": "modjadji",
     "ios": {
+      "icon": "./assets/images/clubvel-navy-ios-icon.png",
       "supportsTablet": true,
       "bundleIdentifier": "com.clubvel.clubvel",
       "googleServicesFile": "./GoogleService-Info.plist",
@@ -41,7 +42,7 @@
       "googleServicesFile": "./google-services.json",
       "versionCode": 13,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/clubvel-launcher-icon.png",
+        "foregroundImage": "./assets/images/clubvel-navy-adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
       },
       "edgeToEdgeEnabled": true,
@@ -65,7 +66,7 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/clubvel-splash.png",
+          "image": "./assets/images/clubvel-navy-splash.png",
           "imageWidth": 300,
           "resizeMode": "contain",
           "backgroundColor": "#FFFFFF"

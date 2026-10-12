@@ -41,7 +41,7 @@ for (const role of ['member', 'treasurer']) {
     assert.equal(wordmark.props.style.marginTop, 0);
     assert.equal(image.props.style.width, 104); assert.equal(image.props.style.height, 104);
     const config = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'app.json'))).expo;
-    assert.equal(config.icon, './assets/images/clubvel-launcher-icon.png');
+    assert.equal(config.icon, './assets/images/clubvel-navy-icon.png');
   });
   test(`${role}: scroll content clears tab bar and system inset`, () => {
     for (const [height, bottom] of [[60, 0], [84, 24], [108, 48], [60, 80]]) {
