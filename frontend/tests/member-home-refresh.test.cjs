@@ -273,3 +273,15 @@ test('Club administration menu follows loaded club roles and disappears on accou
  c.auth.user={id:'brown'};c.auth.token='brown-session';assert.equal(button(c.render(),'Club administration'),undefined);
  await c.respond(1,'WeTravel','member');assert.equal(button(c.render(),'Club administration'),undefined);
 });
+
+test('mixed club roles route Members, Admins and Treasurers using each selected club role', async () => {
+ const c=setup();
+ c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:0,confirmed_collected:0,confirmed_collected_availability:'AVAILABLE',active_clubs:3},clubs:[
+  {id:'travel',name:'WeTravel',role:'admin',member_count:2},
+  {id:'eight',name:'Eighty8',role:'member',member_count:2},
+  {id:'third',name:'Third Club',role:'treasurer',member_count:2}
+ ]}});await tick();
+ for(const [name,id,pathname] of [['WeTravel','travel','/(treasurer)/club-detail'],['Eighty8','eight','/(member)/club/[id]'],['Third Club','third','/(treasurer)/club-detail']]){
+  button(c.render(),name).props.onPress();assert.equal(c.routes.at(-1).pathname,pathname);assert.equal(c.routes.at(-1).params.id,id);
+ }
+});

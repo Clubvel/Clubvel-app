@@ -36,15 +36,15 @@ test('club change closes both identity modals before the new request finishes',a
  const c=setup();await c.reply(0);c.tap('Open profile of Jimmy Person');c.tap('View photo of Jimmy Person');c.props.groupId='eight';const tree=c.render();assert.equal(nodes(tree).find(n=>n.type==='Modal').props.visible,false);assert.equal(nodes(tree).find(n=>n.type==='ProfilePhotoViewer').props.visible,false);assert.doesNotMatch(text(tree),/Jimmy Person/);
 });
 test('shared directory integrated in all three surfaces and admin management handlers retained',()=>{
- const root=path.join(__dirname,'..');for(const file of ['app/(member)/club/[id].tsx','app/(treasurer)/members.tsx','app/(treasurer)/club-detail.tsx'])assert.match(fs.readFileSync(path.join(root,file),'utf8'),/<ClubMemberDirectory groupId=/);
- const source=fs.readFileSync(path.join(root,'app/(treasurer)/club-detail.tsx'),'utf8');for(const label of ['Members Management','handleDeleteMember','handleInviteAdmin'])assert.ok(source.includes(label),label);
+ const root=path.join(__dirname,'..');for(const file of ['app/(member)/club/[id].tsx','app/(treasurer)/members.tsx','app/(treasurer)/club-detail.tsx'])assert.match(fs.readFileSync(path.join(root,file), 'utf8').replace(/\r\n/g, '\n'),/<ClubMemberDirectory groupId=/);
+ const source=fs.readFileSync(path.join(root,'app/(treasurer)/club-detail.tsx'), 'utf8').replace(/\r\n/g, '\n');for(const label of ['Members Management','handleDeleteMember','handleInviteAdmin'])assert.ok(source.includes(label),label);
 });
 
 test('existing Admin financial, invitation, removal and role-management functions are unchanged',()=>{
  const ts=require('typescript'), cp=require('node:child_process');
  function functions(source){const file=ts.createSourceFile('screen.tsx',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX),result={};function visit(node){if(ts.isVariableDeclaration(node)&&ts.isIdentifier(node.name)&&node.name.text.startsWith('handle')&&node.initializer)result[node.name.text]=node.initializer.getText(file);ts.forEachChild(node,visit);}visit(file);return result;}
  for(const file of ['frontend/app/(treasurer)/members.tsx','frontend/app/(treasurer)/club-detail.tsx']){
-  const root=path.join(__dirname,'../..');const old=functions(cp.execFileSync('git',['show','d632d6b62f52911a5bb7218ef826ef385464bf97:'+file],{cwd:root,encoding:'utf8'}));const current=functions(fs.readFileSync(path.join(root,file),'utf8'));
+  const root=path.join(__dirname,'../..');const old=functions(cp.execFileSync('git',['show','d632d6b62f52911a5bb7218ef826ef385464bf97:'+file],{cwd:root,encoding:'utf8'}));const current=functions(fs.readFileSync(path.join(root,file), 'utf8').replace(/\r\n/g, '\n'));
   assert.ok(Object.keys(old).length);for(const [name,body]of Object.entries(old))assert.equal(current[name],body,name);
  }
 });
@@ -62,4 +62,10 @@ test('older A request cannot clear the newer A request pending marker', async ()
  await c.reply(1,'eight');c.ui.focus();assert.equal(c.requests.length,3);
  await c.reply(2,'travel',[{id:'latest',name:'Latest Travel',profile_photo:null,role:'member'}]);
  assert.match(text(c.render()),/Latest Travel/);assert.doesNotMatch(text(c.render()),/Jimmy Person/);
+});
+
+test('both members existing photographs are reused unchanged in list, profile and enlargement', async () => {
+ const c=setup();const members=[{id:'jimmy',name:'Jimmy',profile_photo:'data:image/jpeg;base64,jimmy',role:'admin'},{id:'brown',name:'Brown',profile_photo:'data:image/png;base64,brown',role:'member'}];await c.reply(0,'travel',members);
+ for(const member of members){assert.ok(nodes(c.render()).some(n=>n.type==='Image'&&n.props.source?.uri===member.profile_photo));c.tap('View photo of '+member.name);assert.equal(nodes(c.render()).find(n=>n.type==='ProfilePhotoViewer').props.photoUri,member.profile_photo);nodes(c.render()).find(n=>n.type==='ProfilePhotoViewer').props.onClose();c.tap('Open profile of '+member.name);assert.match(text(nodes(c.render()).find(n=>n.type==='Modal')),new RegExp(member.name));c.tap('Close member profile');}
+ assert.equal(c.requests.length,1);
 });

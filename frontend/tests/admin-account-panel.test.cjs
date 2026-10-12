@@ -37,7 +37,7 @@ test('Admin drawer uses approved Member dimensions, scrollable structure and typ
   const c = setup(); await c.ready(); c.open(); const panel = c.panel();
   assert.deepEqual([style(panel).width, style(panel).maxWidth, style(panel).flex], ['92%', 420, 1]);
   assert.ok(nodes(panel).some(n => n.type === 'ScrollView' && style(n).flex === 1));
-  const member = fs.readFileSync(path.join(__dirname, '../app/(member)/home.tsx'), 'utf8');
+  const member = fs.readFileSync(path.join(__dirname, '../app/(member)/home.tsx'), 'utf8').replace(/\r\n/g, '\n');
   const start = member.indexOf('const styles = StyleSheet.create(');
   const reference = new Function('StyleSheet', 'Colors', member.slice(start) + '; return styles;')(native.StyleSheet, colors);
   assert.deepEqual(style(panel), reference.dropdownMenu);
@@ -137,9 +137,9 @@ test('Approved account panels, header styles and existing security/action handle
   const root = path.join(__dirname, '../..');
   const baseline = name => cp.execFileSync('git', ['show', `e74ebcf3fe2603564ccc0691dde1959cc85690a4:frontend/${name}`], { cwd: root, encoding: 'utf8' });
   for (const name of ['components/MonthlyReport.tsx']) {
-    assert.equal(fs.readFileSync(path.join(root, 'frontend', name), 'utf8'), baseline(name));
+    assert.equal(fs.readFileSync(path.join(root, 'frontend', name), 'utf8').replace(/\r\n/g, '\n'), baseline(name));
   }
-  const current = fs.readFileSync(path.join(root, 'frontend', file), 'utf8'), previous = baseline(file);
+  const current = fs.readFileSync(path.join(root, 'frontend', file), 'utf8').replace(/\r\n/g, '\n'), previous = baseline(file);
   const handlers = source => {
     const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), found = {};
     const names = ['handleLogout', 'handleDeleteAccount', 'navigateToProfile', 'navigateToNotifications', 'navigateToSupport', 'navigateToPrivacy', 'navigateToAbout', 'handleCreateClub', 'handleRemindMember'];
@@ -155,7 +155,7 @@ test('Approved account panels, header styles and existing security/action handle
 
   const checkpoint = name => cp.execFileSync('git', ['show', `077f3ad379b33d92eb86f01ac80e2000c0b4472c:frontend/${name}`], { cwd: root, encoding: 'utf8' });
   for (const [name, marker, endMarker] of [['app/(member)/home.tsx', '    {/* Member Account Panel */}', '    {/* Delete'], [file, '    {/* Admin Account Panel */}', '    {/* Create']]) {
-    const before = checkpoint(name), after = fs.readFileSync(path.join(root, 'frontend', name), 'utf8');
+    const before = checkpoint(name), after = fs.readFileSync(path.join(root, 'frontend', name), 'utf8').replace(/\r\n/g, '\n');
     const panel = source => { const start = source.indexOf(marker); assert.ok(start >= 0); const end = source.indexOf(endMarker, start + marker.length); return source.slice(source.indexOf('<View style={styles.dropdownDivider}', start), end < 0 ? source.indexOf('const styles =', start) : end); };
     assert.equal(panel(after), panel(before));
   }

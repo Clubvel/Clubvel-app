@@ -63,17 +63,22 @@ test('account tabs and existing financial screens are unchanged from Phase 3C', 
   const cp = require('node:child_process'), root = path.join(__dirname, '../..');
   for (const file of ['frontend/app/(member)/_layout.tsx', 'frontend/app/(treasurer)/_layout.tsx', 'frontend/app/(treasurer)/club-detail.tsx']) {
     let expected=cp.execFileSync('git', ['show', '3aff743a88b3b128e5e9f58c6c62368e8d3df370:' + file], { cwd: root, encoding: 'utf8' });
-    assert.equal(fs.readFileSync(path.join(root,file),'utf8'),expected);
+    assert.equal(fs.readFileSync(path.join(root,file), 'utf8').replace(/\r\n/g, '\n'),expected);
   }
   // claims.tsx has intentional status color and rejection panel changes
   const claimsFile = 'frontend/app/(member)/claims.tsx';
   const claimsExpected = cp.execFileSync('git', ['show', '077f3ad379b33d92eb86f01ac80e2000c0b4472c:' + claimsFile], { cwd: root, encoding: 'utf8' });
-  const claimsActual = fs.readFileSync(path.join(root, claimsFile), 'utf8');
-  // Verify statusLabel function is preserved
-  assert.ok(claimsActual.includes("const statusLabel = (status: string)"), 'statusLabel function preserved');
-  // Verify rejection panel exists with sage styling
-  assert.ok(claimsActual.includes("backgroundColor: Colors.sage"), 'rejection panel has sage background');
-  assert.ok(claimsActual.includes("color: Colors.white"), 'rejection panel has white text');
+  const claimsActual = fs.readFileSync(path.join(root, claimsFile), 'utf8').replace(/\r\n/g, '\n');
+  // Permit only the explicitly reviewed status-colour and rejection-panel edits.
+  const presentationOnly = claimsActual
+    .replace(/const getStatusColor = \(status: string\) => \{[\s\S]*?\n\};\n\n/, '')
+    .replace('style={[styles.statusText, { color: getStatusColor(claim.status) }]}', 'style={styles.statusText}')
+    .replace(/(statusText: \{\n    fontSize: 13,\n)/, '$1    color: Colors.accent;\n'.replace(';', ','))
+    .replace(/(rejectionBox: \{[\s\S]*?backgroundColor: )Colors.sage/, '$1Colors.softSage')
+    .replace(/(rejectionLabel: \{[\s\S]*?color: )Colors.white/, '$1Colors.sage')
+    .replace(/(rejectionText: \{[\s\S]*?color: )Colors.white/, '$1Colors.textSecondary');
+  assert.equal(presentationOnly, claimsExpected);
+
 });
 
 

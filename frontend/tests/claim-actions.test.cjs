@@ -49,10 +49,10 @@ test('Member sees approved payout date or honest unscheduled state and cannot ed
 
 test('Member Claims shows partial remaining and full paid actual date separately from schedule without mutation controls',async()=>{
  const c=await setup();Object.assign(c.claim,{status:'approved',amount:50000,actual_amount_paid:20000,actual_payment_date:'2026-01-02',scheduled_claim_date:'2026-11-20'});
- let tree=c.render();assert.match(text(tree),/Paid: R20,000 \(partially paid\)/);assert.match(text(tree),/Remaining: R30,000/);
+ let tree=c.render();assert.ok(text(tree).includes(`Paid: R${(20000).toLocaleString()} (partially paid)`));assert.ok(text(tree).includes(`Remaining: R${(30000).toLocaleString()}`));
  assert.ok(text(tree).includes(`Last payment date: ${new Date('2026-01-02').toLocaleDateString()}`));
  c.claim.status='paid';c.claim.actual_amount_paid=50000;tree=c.render();
- assert.match(text(tree),/Paid: R50,000/);assert.match(text(tree),/Remaining: R0/);
+ assert.ok(text(tree).includes(`Paid: R${(50000).toLocaleString()}`));assert.match(text(tree),/Remaining: R0/);
  assert.ok(text(tree).includes(`Payment date: ${new Date('2026-01-02').toLocaleDateString()}`));
  assert.ok(text(tree).includes(`Scheduled payout ${new Date('2026-11-20').toLocaleDateString()}`));
  assert.equal(button(tree,'Mark as Paid'),undefined);assert.equal(button(tree,'Review Payment'),undefined);
