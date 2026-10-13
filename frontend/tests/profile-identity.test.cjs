@@ -13,6 +13,7 @@ async function setup(screen='home',photo='data:image/jpeg;base64,existing',clubC
   '../../components/EditProfile': { default: 'EditProfile' },
   '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext':{useAuth:()=>auth},'../../components/StatusPill':{StatusPill:'StatusPill'},'../../components/AdBanner':{AdBanner:'AdBanner'},
+  '../../services/paymentSummaryRecords':load('services/paymentSummaryRecords.ts'),
   '../../constants/Colors':{Colors:colors},'@expo/vector-icons':{Ionicons:'Ionicons'},
   '@react-native-async-storage/async-storage':{},'expo-image-picker':picker,
   axios:{get:async()=>({data:response})},

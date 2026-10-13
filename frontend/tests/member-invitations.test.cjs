@@ -12,6 +12,7 @@ async function setup() {
       Alert: { alert: (...args) => alerts.push(args) } },
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '../../components/StatusPill': { StatusPill: 'StatusPill' }, '../../components/AdBanner': { AdBanner: 'AdBanner' },
+    '../../components/ClubMemberDirectory': { __esModule: true, default: 'ClubMemberDirectory' },
     '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': { useAuth: () => ({ user: { id: 'admin', full_name: 'Admin' }, token: 'session' }) },
     'expo-router': { useFocusEffect: ui.useFocusEffect, useLocalSearchParams: () => ({}), useRouter: () => ({ push() {} }) },

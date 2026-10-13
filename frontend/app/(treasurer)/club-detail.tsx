@@ -1,3 +1,5 @@
+import ClubMemberDirectory from '../../components/ClubMemberDirectory';
+import { paymentStateLabel, paymentMoney } from '../../services/paymentSummaryRecords';
 import ClubSummary from '../../components/ClubSummary';
 import { ClaimPaymentRecord } from '../../components/ClaimPaymentRecord';
 import { ClaimPayoutDate } from '../../components/ClaimPayoutDate';
@@ -23,6 +25,11 @@ interface Member {
   status: string;
   amount_paid: number;
   amount_due: number | null;
+  payment_state?: string;
+  financial_warnings?: string[];
+  confirmed_amount?: number | null;
+  outstanding_amount?: number | null;
+  recorded_unconfirmed_amount?: number | null;
   has_proof: boolean;
   contribution_id: string | null;
   proof_version?: string | null;
@@ -118,7 +125,7 @@ export default function ClubDetailScreen() {
     setError(null);
     try {
       // The bearer session authenticates the supplied treasurer ID.
-      const response = await axios.get(`${API_URL}/api/treasurer/club/${id}?treasurer_id=${user?.id}`, {
+      const response = await axios.get(`${API_URL}/api/treasurer/club/${id}?treasurer_id=${user?.id}&financial_scope=true`, {
         headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
       });
       const data = response.data;
@@ -580,12 +587,12 @@ export default function ClubDetailScreen() {
       {/* Summary Card */}
       <View style={styles.summaryCard}>
         <View style={styles.summaryItem}>
-          <Text style={styles.summaryValue}>R{clubData.collected.toFixed(2)}</Text>
-          <Text style={styles.summaryLabel}>Collected</Text>
+          <Text style={styles.summaryValue}>{paymentMoney(clubData.collected)}</Text>
+          <Text style={styles.summaryLabel}>Confirmed Collected</Text>
         </View>
         <View style={styles.summaryDivider} />
         <View style={styles.summaryItem}>
-          <Text style={[styles.summaryValue, { color: '#16A34A' }]}>R{clubData.expected.toFixed(2)}</Text>
+          <Text style={[styles.summaryValue, { color: '#16A34A' }]}>{paymentMoney(clubData.expected)}</Text>
           <Text style={styles.summaryLabel}>Expected</Text>
         </View>
         <View style={styles.summaryDivider} />
@@ -645,24 +652,7 @@ export default function ClubDetailScreen() {
       >
         {activeTab === 'members' && (
           <View style={styles.section}>
-            {clubData.members.map((member) => (
-              <View key={member.id} style={styles.memberCard}>
-                <View style={styles.memberInfo}>
-                  <View style={styles.memberAvatar}>
-                    <Text style={styles.memberAvatarText}>{member.name.charAt(0)}</Text>
-                  </View>
-                  <View style={styles.memberDetails}>
-                    <Text style={styles.memberName}>{member.name}</Text>
-                    <Text style={styles.memberPhone}>{member.phone}</Text>
-                  </View>
-                </View>
-                <View style={[styles.statusBadge, { backgroundColor: Colors.mediumGreen + '20' }]}>
-                  <Text style={[styles.statusText, { color: getStatusColor(member.membership_status) }]}>
-                    {getStatusLabel(member.membership_status)}
-                  </Text>
-                </View>
-              </View>
-            ))}
+            <ClubMemberDirectory groupId={id} />
           </View>
         )}
 
@@ -679,19 +669,22 @@ export default function ClubDetailScreen() {
                       <Text style={styles.memberName}>{member.name}</Text>
                       <Text style={styles.paymentAmount}>
                         {member.amount_due == null
-                          ? `R${member.amount_paid.toFixed(2)} / Not recorded`
-                          : `R${member.amount_paid.toFixed(2)} / R${member.amount_due.toFixed(2)}`}
+                          ? `${paymentMoney(member.amount_paid)} / Not recorded`
+                          : `${paymentMoney(member.amount_paid)} / ${paymentMoney(member.amount_due)}`}
                       </Text>
                     </View>
                   </View>
                   <View style={[styles.statusBadge, { backgroundColor: getStatusColor(member.proof_review_status === 'declined' ? 'proof_declined' : member.status) + '20' }]}>
                     <Text style={[styles.statusText, { color: getStatusColor(member.proof_review_status === 'declined' ? 'proof_declined' : member.status) }]}>
-                      {getStatusLabel(member.proof_review_status === 'declined' ? 'proof_declined' : member.status)}
+                      {paymentStateLabel(member.payment_state) || getStatusLabel(member.proof_review_status === 'declined' ? 'proof_declined' : member.status)}
                     </Text>
                   </View>
                 </View>
                 
-                {member.status !== 'confirmed' && (
+                {member.confirmed_amount !== undefined && <Text>Confirmed Collected: {paymentMoney(member.confirmed_amount)} · Outstanding: {paymentMoney(member.outstanding_amount)}</Text>}
+                {!!member.recorded_unconfirmed_amount && <Text>Recorded, unconfirmed: {paymentMoney(member.recorded_unconfirmed_amount)}</Text>}
+                {!!member.financial_warnings?.length && <Text>Records need checking: {member.financial_warnings.join(', ')}</Text>}
+                {!['confirmed', 'excused', 'invalid_amount', 'missing_record'].includes(member.payment_state || '') && member.status !== 'confirmed' && (
                   <View style={styles.paymentActions}>
                     {(member.has_proof || member.status === 'proof_uploaded') && member.contribution_id ? (
                       <>
@@ -1469,7 +1462,7 @@ const styles = StyleSheet.create({
   },
   approveClaimButton: {
     flex: 1,
-    backgroundColor: Colors.accent,
+    backgroundColor: Colors.primary,
     paddingVertical: 12,
     borderRadius: 8,
     alignItems: 'center',

@@ -13,13 +13,18 @@ for (const [collected, expected] of [[200, 0], [0, 100]]) {
   test(`club card ${collected}/${expected} retains values with brand hierarchy`, () => {
     const spans = [...block.matchAll(/<Text style=\{\{ color: Colors\.(\w+) \}\}>([\s\S]*?)<\/Text>/g)];
     assert.deepEqual(spans.map(s => s[1]), ['accent', 'textMuted', 'primary']);
-    assert.deepEqual(spans.map(s => Colors[s[1]]), ['#F97316', '#9CA3AF', '#3F4145']);
+    assert.deepEqual(spans.map(s => Colors[s[1]]), ['#3979F6', '#6B7280', '#020D35']);
     const club = { collected, expected };
     const rendered = spans.map(s => s[2].replace(/\{([^}]+)\}/g, (_, expression) => new Function('club', `return ${expression}`)(club))).join('');
     assert.equal(rendered, `R${collected.toFixed(2)} / R${expected.toFixed(2)}`);
   });
 }
-test('Member My Clubs remains a monthly contribution rather than an actual/expected pair', () => {
+test('Member My Clubs describes its configured contribution model rather than an actual/expected pair', () => {
   const member = fs.readFileSync(path.join(__dirname, '../app/(member)/home.tsx'), 'utf8');
-  assert.ok(member.includes('R{club.monthly_contribution}/month'));
+  assert.ok(member.includes('{contributionDescription(club)}'));
+  assert.ok(member.includes("club.contribution_mode === 'fixed_monthly'"));
+  assert.ok(member.includes('`${paymentMoney(amount)}/month`'));
+  assert.ok(member.includes("club.contribution_mode === 'flexible_goal'"));
+  assert.ok(member.includes('`${paymentMoney(target)} goal per member`'));
+  assert.ok(!member.includes('R{club.monthly_contribution}/month'));
 });

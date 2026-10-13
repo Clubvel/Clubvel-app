@@ -14,6 +14,7 @@ function setup() {
     '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': { useAuth: () => ({ user: { id: 'recipient' }, token: 'session' }) },
     '../../components/StatusPill': { StatusPill: 'StatusPill' }, '../../components/AdBanner': { AdBanner: 'AdBanner' },
+    '../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '@react-native-async-storage/async-storage': {},
     axios: { get: (url, options) => new Promise(resolve => requests.push({ url, options, resolve })),
@@ -44,9 +45,8 @@ for (const action of ['Accept', 'Decline']) {
       if (!olderFirst) await c.pair(2, 'member', [invitation]);
       assert.equal(button(c.render(), 'Accept'), undefined);
       button(c.render(), 'Test Club').props.onPress();
-      assert.deepEqual(c.routes.at(-1), action === 'Accept'
-        ? { pathname: '/(treasurer)/club-detail', params: { id: 'group', name: 'Test Club', from: 'member' } }
-        : '/(member)/club/group');
+      const expectedRoute = { pathname: '/club/[id]', params: { id: 'group', from: 'member' } };
+      assert.deepEqual(c.routes.at(-1), expectedRoute);
       assert.equal(c.posts[0].options.headers.Authorization, 'Bearer session');
     });
   }
@@ -61,7 +61,7 @@ test('repeated refresh after promotion never permits an older response to restor
   await c.pair(2, 'member', [invitation]); await accepting;
   assert.equal(button(c.render(), 'Accept'), undefined);
   button(c.render(), 'Test Club').props.onPress();
-  assert.equal(c.routes.at(-1).pathname, '/(treasurer)/club-detail');
+  assert.equal(c.routes.at(-1).pathname, '/club/[id]');
 });
 
 test('an old Join Group fetch cannot put the accepted invitation back', async () => {

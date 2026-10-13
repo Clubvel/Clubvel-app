@@ -400,8 +400,8 @@ export default function AdminDashboardScreen() {
               key={club.id} 
               style={styles.clubCard}
               onPress={() => router.push({
-                pathname: '/(treasurer)/club-detail',
-                params: { id: club.id, name: club.name }
+                pathname: '/club/[id]',
+                params: { id: club.id, from: 'admin' }
               })}
               activeOpacity={0.7}
             >
@@ -1141,7 +1141,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.cardBorder,
   },
   typeButtonActive: {
-    backgroundColor: Colors.accent,
+    backgroundColor: Colors.primary,
     borderColor: Colors.accent,
   },
   typeButtonText: {
@@ -1172,7 +1172,7 @@ const styles = StyleSheet.create({
   },
   createClubSubmitButton: {
     flex: 1,
-    backgroundColor: Colors.accent,
+    backgroundColor: Colors.primary,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',

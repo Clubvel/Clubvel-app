@@ -47,7 +47,8 @@ test('Member Home renders approved payout monetary total separately from unchang
   '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext':{useAuth:()=>({user:{id:'member'},token:'session'})},
   '../../components/StatusPill':{StatusPill:'StatusPill'},'../../components/AdBanner':{AdBanner:'AdBanner'},
-  '../../constants/Colors':{Colors:colors},'@expo/vector-icons':{Ionicons:'Ionicons'},'@react-native-async-storage/async-storage':{},
+  '../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
+    '../../constants/Colors':{Colors:colors},'@expo/vector-icons':{Ionicons:'Ionicons'},'@react-native-async-storage/async-storage':{},
   axios:{get:async()=>({data:{summary,user:{first_name:'Jimmy',full_name:'Jimmy'},clubs:[],invitations:[]}})},
  }).default;
  ui.render(Home);await tick();let tree=ui.render(Home);

@@ -134,7 +134,7 @@ export default function AuthScreen() {
     try {
       // Send only phone_number and password - no role
       await login(phoneNumber, password);
-      router.replace('/');
+      router.replace('/(member)/home');
       
     } catch (error: any) {
       if (error instanceof AuthenticationError && error.code === 'verification_required') {

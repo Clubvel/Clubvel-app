@@ -1,3 +1,4 @@
+import { paymentMoney } from '../../services/paymentSummaryRecords';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image, TextInput, Platform, KeyboardAvoidingView } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -15,6 +16,9 @@ interface Club {
   name: string;
   member_count: number;
   monthly_contribution: number;
+  group_type?: string;
+  contribution_mode?: string;
+  target_amount_per_member?: number | null;
   status: string;
   status_label: string;
   role: 'member' | 'admin' | 'treasurer';
@@ -28,6 +32,8 @@ interface DashboardData {
   };
   summary: {
     total_saved: number;
+    confirmed_collected?: number | null;
+    confirmed_collected_availability?: "AVAILABLE" | "UNAVAILABLE";
     active_clubs: number;
     days_until_next_claim: number | null;
     overdue_contributions: number;
@@ -82,6 +88,23 @@ export default function MemberHomeScreen() {
   const dashboardData = dashboardOwner === sessionKey ? storedDashboardData : null;
   const dashboardError = errorOwner === sessionKey ? storedDashboardError : null;
   const loading = storedLoading || (!dashboardData && !dashboardError);
+  const confirmedAmount = dashboardData?.summary.confirmed_collected;
+  const confirmedAmountAvailable = dashboardData?.summary.confirmed_collected_availability === 'AVAILABLE'
+    && typeof confirmedAmount === 'number' && Number.isFinite(confirmedAmount) && confirmedAmount >= 0;
+  const verifiedCount = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : '—';
+  const contributionDescription = (club: Club) => {
+    if (club.contribution_mode === 'flexible_goal' || club.group_type === 'travel') {
+      const target = club.target_amount_per_member;
+      return typeof target === 'number' && Number.isFinite(target) && target > 0
+        ? `${paymentMoney(target)} goal per member` : 'Flexible contributions';
+    }
+    if (club.contribution_mode === 'fixed_monthly') {
+      const amount = club.monthly_contribution;
+      return typeof amount === 'number' && Number.isFinite(amount) && amount > 0
+        ? `${paymentMoney(amount)}/month` : 'No fixed monthly amount';
+    }
+    return 'Contribution details could not be verified';
+  };
   const [invitationOwner, setInvitationOwner] = useState<string | null>(null);
   const pendingInvitations = invitationOwner === sessionKey ? storedInvitations : [];
   const setPendingInvitations = useCallback((invitations: PendingInvitation[]) => {
@@ -203,8 +226,8 @@ export default function MemberHomeScreen() {
         try {
           const response = await dashboardPromise;
           if (request === dashboardRequest.current && latestSession.current === key) { setDashboardData(response.data); setDashboardOwner(key); }
-        } catch (error) {
-          if (request === dashboardRequest.current && latestSession.current === key) { setDashboardError('Could not refresh your dashboard.'); setErrorOwner(key); }
+        } catch (error: any) {
+          if (request === dashboardRequest.current && latestSession.current === key) { setDashboardError(error.response?.status === 409 ? 'Your contribution totals are unavailable because payment records need checking. Please contact your group administrator.' : 'Could not refresh your dashboard.'); setErrorOwner(key); }
           console.error('Error fetching dashboard:', error);
         } finally {
           if (request === dashboardRequest.current && latestSession.current === key) { setLoading(false); setRefreshing(false); }
@@ -249,14 +272,8 @@ export default function MemberHomeScreen() {
   };
 
   const openClub = (club: Club) => {
-    if (club.role === 'admin' || club.role === 'treasurer') {
-      router.push({
-        pathname: '/(treasurer)/club-detail',
-        params: { id: club.id, name: club.name, from: 'member' }
-      });
-      return;
-    }
-    router.push(`/(member)/club/${club.id}`);
+    if (latestSession.current !== sessionKey || !dashboardData) return;
+    router.push({ pathname: '/club/[id]', params: { id: club.id, from: 'member' } });
   };
 
   const createGroup = async () => {
@@ -417,24 +434,22 @@ export default function MemberHomeScreen() {
         </View>
 
         {!!dashboardError && !!dashboardData && <Text accessibilityRole="alert">{dashboardError} Pull down to refresh.</Text>}
-      {loading ? (
-        <View style={styles.loadingContainer}><ActivityIndicator size="large" color={Colors.mediumGreen} /><Text>Loading dashboard…</Text></View>
-      ) : dashboardError && !dashboardData ? (
-        <View style={styles.loadingContainer}><Text>{dashboardError}</Text><TouchableOpacity onPress={() => { setLoading(true); void fetchDashboard(); }}><Text>Retry</Text></TouchableOpacity></View>
-      ) : (<>
       {/* Summary Cards */}
         <View style={styles.summaryContainer}>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Contributions</Text>
-          <Text style={[styles.summaryValue, { color: Colors.statusPaid }]}>
-            R{dashboardData?.summary.total_saved.toFixed(2) || '0.00'}
-          </Text>
+          {confirmedAmountAvailable ? <Text style={[styles.summaryValue, { color: Colors.statusPaid }]}>
+            {paymentMoney(confirmedAmount)}
+          </Text> : loading ? <ActivityIndicator accessibilityLabel="Loading contribution total" color={Colors.primary} /> :
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Retry contribution total" onPress={() => { setLoading(true); void fetchDashboard(); }}>
+              <Text style={{ color: Colors.textSecondary }}>Unable to load · Retry</Text>
+            </TouchableOpacity>}
         </View>
 
         <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Show My Clubs" activeOpacity={0.75} onPress={() => dashboardScroll.current?.scrollTo({ y: clubsOffset.current, animated: true })}>
           <Text style={styles.summaryLabel}>Groups &amp; Clubs</Text>
           <View>
-            <Text style={styles.summaryValue}>{dashboardData?.summary.active_clubs || 0}</Text>
+            <Text style={styles.summaryValue}>{verifiedCount(dashboardData?.summary.active_clubs)}</Text>
             <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} style={{ position: 'absolute', top: '100%', left: 0 }} />
           </View>
         </TouchableOpacity>
@@ -443,12 +458,12 @@ export default function MemberHomeScreen() {
       <View style={styles.summaryContainer}>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Upcoming Payments</Text>
-          <Text style={[styles.summaryValue, { color: Colors.statusLate }]}>{dashboardData?.summary.upcoming_payments || 0}</Text>
+          <Text style={[styles.summaryValue, { color: Colors.statusLate }]}>{verifiedCount(dashboardData?.summary.upcoming_payments)}</Text>
         </View>
 
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Claims</Text>
-          <Text style={styles.summaryValue}>{dashboardData?.summary.claims_count || 0}</Text>
+          <Text style={styles.summaryValue}>{verifiedCount(dashboardData?.summary.claims_count)}</Text>
         </View>
       </View>
 
@@ -457,13 +472,15 @@ export default function MemberHomeScreen() {
           <Text style={styles.summaryLabel}>Upcoming Payouts</Text>
           <View>
             <Text style={[styles.summaryValue, { color: Colors.accent }]}>
-              R{(dashboardData?.summary.upcoming_payout_amount ?? 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+              {typeof dashboardData?.summary.upcoming_payout_amount === 'number' && Number.isFinite(dashboardData.summary.upcoming_payout_amount) && dashboardData.summary.upcoming_payout_amount >= 0 ? `R${dashboardData.summary.upcoming_payout_amount.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
             </Text>
             <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} style={{ position: 'absolute', top: '100%', left: 0 }} />
           </View>
         </TouchableOpacity>
       </View>
 
+      {loading ? <View style={styles.loadingContainer}><ActivityIndicator size="large" color={Colors.primary} /><Text>Loading clubs…</Text></View> : dashboardError && !dashboardData ?
+        <View style={styles.loadingContainer}><Text>{dashboardError}</Text><TouchableOpacity onPress={() => { setLoading(true); void fetchDashboard(); }}><Text>Retry</Text></TouchableOpacity></View> : (<>
       {/* My Clubs Section */}
       <View style={styles.section} onLayout={event => { clubsOffset.current = event.nativeEvent.layout.y; }}>
         <Text style={styles.sectionTitle}>My Clubs</Text>
@@ -513,12 +530,20 @@ export default function MemberHomeScreen() {
             >
               <View style={styles.clubCardHeader}>
                 <View style={styles.clubInfo}>
-                  <Text style={styles.clubName}>{club.name}</Text>
+                  <View style={styles.clubNameRow}>
+                    <Text style={styles.clubName}>{club.name}</Text>
+                    {(club.role === 'admin' || club.role === 'treasurer') && (
+                      <View style={styles.adminBadge}>
+                        <Ionicons name="shield-checkmark" size={12} color={Colors.white} />
+                        <Text style={styles.adminBadgeText}>Admin</Text>
+                      </View>
+                    )}
+                  </View>
                   <View style={styles.clubMeta}>
                     <Ionicons name="people" size={14} color={Colors.textSecondary} />
                     <Text style={styles.clubMetaText}>{club.member_count} members</Text>
                     <Text style={styles.clubMetaText}> • </Text>
-                    <Text style={styles.clubMetaText}>R{club.monthly_contribution}/month</Text>
+                    <Text style={styles.clubMetaText}>{contributionDescription(club)}</Text>
                   </View>
                 </View>
                 <StatusPill status={club.status} label={club.status_label === 'No contribution recorded' ? 'No contributions yet' : club.status_label}
@@ -631,6 +656,14 @@ export default function MemberHomeScreen() {
               </View>
               <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
             </TouchableOpacity>
+            {dashboardData?.clubs.some(club => club.role === 'admin' || club.role === 'treasurer') && <TouchableOpacity style={styles.dropdownItem} accessibilityRole="button" accessibilityLabel="Club administration" onPress={() => {
+              if (latestSession.current !== sessionKey) return;
+              setShowProfileMenu(false); dashboardScroll.current?.scrollTo({ y: clubsOffset.current, animated: true });
+            }}>
+              <Ionicons name="settings-outline" size={24} color={Colors.textPrimary} />
+              <View style={styles.dropdownItemCopy}><Text style={styles.dropdownItemText}>Club administration</Text><Text style={styles.dropdownDescription}>Choose a club you administer from My Clubs</Text></View>
+              <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+            </TouchableOpacity>}
             <View style={styles.dropdownDivider} />
             <TouchableOpacity style={styles.dropdownItemLogout} onPress={handleLogout} accessibilityRole="button" accessibilityLabel="Sign Out">
               <Ionicons name="log-out-outline" size={24} color={Colors.textPrimary} />
@@ -932,11 +965,31 @@ const styles = StyleSheet.create({
     flex: 1,
     marginRight: 12,
   },
+  clubNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
+  },
   clubName: {
     fontSize: 18,
     fontWeight: 'bold',
     color: Colors.textPrimary,
-    marginBottom: 8,
+  },
+  adminBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.sage,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    gap: 4,
+  },
+  adminBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Colors.white,
   },
   clubMeta: {
     flexDirection: 'row',
@@ -1167,7 +1220,7 @@ const styles = StyleSheet.create({
   retryButton: { borderColor: Colors.accent, borderRadius: 9, borderWidth: 1, marginTop: 18, paddingHorizontal: 18, paddingVertical: 10 },
   retryButtonText: { color: Colors.accent, fontSize: 14, fontWeight: '700' },
   acceptButton: {
-    alignItems: 'center', backgroundColor: Colors.accent, borderRadius: 9,
+    alignItems: 'center', backgroundColor: Colors.primary, borderRadius: 9,
     justifyContent: 'center', minHeight: 38, minWidth: 76, paddingHorizontal: 14,
   },
   acceptButtonText: { color: Colors.white, fontSize: 14, fontWeight: '700' },
@@ -1204,7 +1257,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.cardBorder, borderRadius: 18, borderWidth: 1,
     paddingHorizontal: 12, paddingVertical: 8,
   },
-  typeButtonActive: { backgroundColor: Colors.accent, borderColor: Colors.accent },
+  typeButtonActive: { backgroundColor: Colors.primary, borderColor: Colors.accent },
   typeButtonText: { color: Colors.textSecondary, fontSize: 13, fontWeight: '600' },
   typeButtonTextActive: { color: Colors.white },
   formActions: { flexDirection: 'row', gap: 12, marginTop: 8 },
@@ -1214,7 +1267,7 @@ const styles = StyleSheet.create({
   },
   cancelButtonText: { color: Colors.textPrimary, fontSize: 16, fontWeight: '600' },
   submitButton: {
-    alignItems: 'center', backgroundColor: Colors.accent, borderRadius: 10,
+    alignItems: 'center', backgroundColor: Colors.primary, borderRadius: 10,
     flex: 1, paddingVertical: 14,
   },
   submitButtonText: { color: Colors.white, fontSize: 16, fontWeight: '700' },

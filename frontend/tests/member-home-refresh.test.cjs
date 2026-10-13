@@ -16,6 +16,7 @@ function setup(screen = 'member', holdInvitations = false) {
     '../../components/StatusPill': { StatusPill: 'StatusPill' },
     '../../components/AdBanner': { AdBanner: 'AdBanner' },
     '../../services/paymentReminder': { addPaymentReminder: async () => {} },
+    '../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '@react-native-async-storage/async-storage': {},
     axios: { get: url => url.includes('/invitations/') ? (holdInvitations ? new Promise(resolve => invitations.push({url,resolve})) : Promise.resolve({ data: { invitations: [] } }))
@@ -24,8 +25,8 @@ function setup(screen = 'member', holdInvitations = false) {
   const render = () => ui.render(Screen);
   const respond = async (index, name, role = 'member') => {
     requests[index].resolve({ data: { user: auth.user,
-      summary: { total_saved: 0, active_clubs: 1, overdue_contributions: 0, upcoming_payments: 0, claims_count: 0 },
-      clubs: [{ id: 'group-a', name, role, member_count: 2, collected: 0, expected: 200, due_date: 25, late_count: 0, monthly_contribution: 100, status: 'pending' }] } });
+      summary: { total_saved: 0, confirmed_collected: 0, confirmed_collected_availability: "AVAILABLE", active_clubs: 1, overdue_contributions: 0, upcoming_payments: 0, claims_count: 0 },
+      clubs: [{ id: 'group-a', name, role, member_count: 2, collected: 0, expected: 200, due_date: 25, late_count: 0, monthly_contribution: 100, contribution_mode: 'fixed_monthly', status: 'pending' }] } });
     await tick();
   };
   const refresh = () => nodes(render()).find(n => n.type === 'ScrollView').props.refreshControl.props.onRefresh();
@@ -72,14 +73,14 @@ test('focus during an existing refresh reuses its request', async () => {
   assert.ok(text(c.render()).includes('WeTraveling'));
 });
 
-test('member and administrator club navigation remains unchanged', async () => {
+test('member and administrator club cards enter the appropriate Club views', async () => {
   const c = setup(); await c.respond(0, 'WeTraveling');
   button(c.render(), 'WeTraveling').props.onPress();
-  assert.deepEqual(c.routes, ['/(member)/club/group-a']);
+  assert.deepEqual(c.routes, [{ pathname: '/club/[id]', params: { id: 'group-a', from: 'member' } }]);
   c.refresh(); await c.respond(1, 'WeTraveling', 'admin');
   button(c.render(), 'WeTraveling').props.onPress();
-  assert.deepEqual(c.routes[1], { pathname: '/(treasurer)/club-detail',
-    params: { id: 'group-a', name: 'WeTraveling', from: 'member' } });
+  assert.deepEqual(c.routes[1], { pathname: '/club/[id]',
+    params: { id: 'group-a', from: 'member' } });
 });
 
 test('Home displays its existing header while the first dashboard response is unresolved', async () => {
@@ -121,7 +122,7 @@ for (const role of ['member', 'admin']) for (const count of [0, 3]) {
   test(`${role} Home keeps semantic colours and downward affordances at count ${count}`, async () => {
     const c = setup(role);
     c.requests[0].resolve({ data: { user: { id: 'member', full_name: 'Test Member', first_name: 'Test' },
-      summary: { total_saved: 200, active_clubs: 1, upcoming_payments: count, claims_count: 2,
+      summary: { total_saved: 200, confirmed_collected: 200, confirmed_collected_availability: "AVAILABLE", active_clubs: 1, upcoming_payments: count, claims_count: 2,
         upcoming_payout_amount: 100, total_clubs: 1, total_members: 2,
         total_collected_this_month: 200, late_members_count: count },
       clubs: [], urgent_alerts: [], next_claim: null } });
@@ -221,4 +222,92 @@ for(const action of ['Accept','Decline'])test(`Member old-account invitation ${a
  c.auth.user={id:'other',full_name:'Other Account'};c.auth.token='other-session';c.render();assert.equal(c.requests.length,2);
  c.actions[0].resolve({data:{}});await tick();assert.equal(c.requests.length,2);await work;
  assert.deepEqual(c.alerts,[]);await c.respond(1,'Eighty8');assert.match(text(c.render()),/Eighty8/);assert.doesNotMatch(text(c.render()),/Old Private Club/);
+});
+
+
+test('Member Home uses authoritative confirmed total and never substitutes the legacy number',async()=>{
+ const c=setup();c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:999,confirmed_collected:25,confirmed_collected_availability:'AVAILABLE',active_clubs:0,upcoming_payments:0,claims_count:0},clubs:[]}});await tick();
+ assert.match(text(c.render()),/R25.00/);assert.doesNotMatch(text(c.render()),/R999.00/);
+});
+test('Member Home renders unavailable authoritative amount without invented zero',async()=>{
+ const c=setup();c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:25,confirmed_collected:null,confirmed_collected_availability:'UNAVAILABLE',active_clubs:0,upcoming_payments:0,claims_count:0},clubs:[]}});await tick();
+ assert.match(text(c.render()),/Unable to load · Retry/);
+ assert.doesNotMatch(text(c.render()),/Not available|R25.00/);
+ assert.ok(nodes(c.render()).some(n=>n.type==='Text'&&text(n)==='Contributions'));
+});
+test('Member Home shows controlled dashboard 409 and keeps its shell',async()=>{
+ const c=setup(); // Replace the queued response with a rejecting request on refresh.
+ await c.respond(0,'WeTraveling');
+ c.refresh();c.requests[1].resolve(Promise.reject({response:{status:409}}));await tick();
+ assert.match(text(c.render()),/payment records need checking/);assert.match(text(c.render()),/Clubvel/);
+});
+
+
+test('Member Contributions displays genuine zero numerically', async () => {
+ const c=setup(); await c.respond(0,'WeTravel');
+ const card=nodes(c.render()).find(n=>n.type==='View'&&text(n).includes('Contributions')&&text(n).includes('R0.00'));
+ assert.ok(card); assert.doesNotMatch(text(c.render()),/could not be verified|Not available/);
+});
+for (const amount of [undefined, null, NaN, Infinity, -1, '20']) test(`Member Home never turns unreliable amount ${amount} into zero`, async () => {
+ const c=setup(); c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:99,confirmed_collected:amount,confirmed_collected_availability:'AVAILABLE',active_clubs:0,upcoming_payments:0,claims_count:0},clubs:[]}}); await tick();
+ assert.match(text(c.render()),/Unable to load · Retry/);
+ assert.ok(nodes(c.render()).some(n=>n.type==='Text'&&text(n)==='Contributions'));
+ assert.doesNotMatch(text(c.render()),/R99.00|Not available/);
+});
+for (const [mode,type,monthly,target,label] of [
+ ['flexible_goal','travel',0,1000,'R1000.00 goal per member'],
+ ['flexible_goal','savings',0,null,'Flexible contributions'],
+ ['fixed_monthly','travel',0,null,'Flexible contributions'],
+ ['fixed_monthly','savings',100,null,'R100.00/month'],
+ ['fixed_monthly','savings',0,null,'No fixed monthly amount'],
+ [undefined,'savings',0,null,'Contribution details could not be verified'],
+]) test(`Club caption reflects ${mode}/${type} without inventing monthly obligations`, async () => {
+ const c=setup(); c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:0,confirmed_collected:0,confirmed_collected_availability:'AVAILABLE',active_clubs:1,upcoming_payments:0,claims_count:0},clubs:[{id:'travel',name:'WeTravel',member_count:2,role:'member',monthly_contribution:monthly,contribution_mode:mode,group_type:type,target_amount_per_member:target,status:'pending'}]}}); await tick();
+ assert.match(text(c.render()),new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+ assert.doesNotMatch(text(c.render()),/R0\/month/);
+});
+
+
+test('Club administration menu follows loaded club roles and disappears on account change',async()=>{
+ const c=setup();await c.respond(0,'WeTravel','admin');assert.ok(button(c.render(),'Club administration'));
+ c.auth.user={id:'brown'};c.auth.token='brown-session';assert.equal(button(c.render(),'Club administration'),undefined);
+ await c.respond(1,'WeTravel','member');assert.equal(button(c.render(),'Club administration'),undefined);
+});
+
+test('mixed club roles route Members, Admins and Treasurers using each selected club role', async () => {
+ const c=setup();
+ c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:0,confirmed_collected:0,confirmed_collected_availability:'AVAILABLE',active_clubs:3},clubs:[
+  {id:'travel',name:'WeTravel',role:'admin',member_count:2},
+  {id:'eight',name:'Eighty8',role:'member',member_count:2},
+  {id:'third',name:'Third Club',role:'treasurer',member_count:2}
+ ]}});await tick();
+ for(const [name,id,pathname] of [['WeTravel','travel','/club/[id]'],['Eighty8','eight','/club/[id]'],['Third Club','third','/club/[id]']]){
+  button(c.render(),name).props.onPress();assert.equal(c.routes.at(-1).pathname,pathname);assert.equal(c.routes.at(-1).params.id,id);
+ }
+});
+
+
+test('all five summary cards remain visible while the first dashboard request is pending', () => {
+ const c=setup();const tree=c.render();for(const label of ['Contributions','Groups & Clubs','Upcoming Payments','Claims','Upcoming Payouts']) assert.ok(nodes(tree).some(n=>n.type==='Text'&&text(n)===label),label);
+ assert.ok(nodes(tree).some(n=>n.props?.accessibilityLabel==='Loading contribution total'));
+ assert.doesNotMatch(text(tree),/ContributionsR0/);
+});
+test('initial controlled error retains Contributions with retry and no invented money', async () => {
+ const c=setup();c.requests[0].resolve(Promise.reject({response:{status:409}}));await tick();
+ assert.match(text(c.render()),/ContributionsUnable to load · Retry/);assert.doesNotMatch(text(c.render()),/ContributionsR0/);
+ nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Retry contribution total').props.onPress();assert.equal(c.requests.length,2);
+ await c.respond(1,'WeTravel');assert.match(text(c.render()),/ContributionsR0.00/);
+});
+test('missing authoritative contract keeps Contributions visible without using total_saved',async()=>{
+ const c=setup();c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:999,active_clubs:0,upcoming_payments:0,claims_count:0},clubs:[]}});await tick();
+ assert.match(text(c.render()),/ContributionsUnable to load · Retry/);assert.doesNotMatch(text(c.render()),/R999|ContributionsR0/);
+});
+
+
+test('missing or malformed secondary dashboard values never invent numeric zeros', async () => {
+ for (const value of [undefined, null, '0', -1, NaN]) {
+  const c=setup(); c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:0,confirmed_collected:0,confirmed_collected_availability:'AVAILABLE',active_clubs:value,upcoming_payments:value,claims_count:value,upcoming_payout_amount:value},clubs:[]}}); await tick();
+  const content=text(c.render()); assert.match(content,/ContributionsR0.00/);
+  for (const label of ['Groups & Clubs','Upcoming Payments','Claims','Upcoming Payouts']) assert.ok(content.includes(label+'—'),label);
+ }
 });
