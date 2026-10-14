@@ -121,9 +121,11 @@ const styles = StyleSheet.create({
     height: 112,
     borderRadius: 56,
     borderWidth: 2,
-    borderColor: Colors.gold,
+    borderColor: Colors.accent,
   },
   profilePlaceholder: {
+    borderWidth: 2,
+    borderColor: Colors.accent,
     width: 112,
     height: 112,
     borderRadius: 56,

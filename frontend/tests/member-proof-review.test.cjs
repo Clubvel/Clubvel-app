@@ -282,7 +282,7 @@ test('member selects distinct monthly contributions and uploads only the selecte
   button(c.render(),'Contribution 1').props.onPress();
   assert.ok(button(c.render(),'Payment Confirmed'));
  button(c.render(),'Contribution 2').props.onPress();
- assert.match(text(c.render()),/Awaiting Payment/);
+ assert.ok(nodes(c.render()).some(n=>n.type?.name==='StatusPill' && text(n.type(n.props))==='Awaiting Payment'));
  assert.match(text(c.render()),/Outstanding: R200.00/);
  await button(c.render(),'Upload Proof of Payment').props.onPress();
  assert.equal(c.requests.find(r=>r.url.endsWith('/upload-proof')).data.contribution_id,'second');

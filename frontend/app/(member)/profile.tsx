@@ -395,7 +395,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
-  },
+   borderWidth: 2, borderColor: Colors.accent, },
   avatarContainer: {
     position: 'relative',
     marginBottom: 12,
@@ -404,8 +404,8 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 3,
-    borderColor: Colors.gold,
+    borderWidth: 2,
+    borderColor: Colors.accent,
   },
   editBadge: {
     position: 'absolute',

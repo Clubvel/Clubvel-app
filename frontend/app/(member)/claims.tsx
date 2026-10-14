@@ -535,7 +535,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.accent,
     justifyContent: 'center',
     alignItems: 'center',
-  },
+   borderWidth: 2, borderColor: Colors.accent, },
   content: {
     flexGrow: 1,
     padding: 24,

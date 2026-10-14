@@ -1,4 +1,5 @@
 """Offline Member dashboard contract and unchanged write-handler safeguards."""
+from test_admin_dashboard_financials import legacy_admin_dashboard
 import ast
 import copy
 from datetime import datetime
@@ -39,7 +40,7 @@ class MemberFinancialTests(unittest.IsolatedAsyncioTestCase):
 
     def test_write_handlers_and_frozen_intelligence_unchanged_from_stage3a(self):
         root = Path(__file__).resolve().parents[1]
-        def functions(source): return {node.name: ast.dump(node) for node in ast.parse(source).body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        def functions(source): return {node.name: ast.dump(legacy_admin_dashboard(node)) for node in ast.parse(source).body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
         old = functions(subprocess.check_output(['git', 'show', 'e471647344053e8736b644045f9dcf7eef6e2ee0:backend/server.py'], cwd=root, text=True))
         new = functions((root/'backend/server.py').read_text())
         self.assertEqual({name for name in old if old[name] != new[name]}, {'get_member_dashboard', 'get_member_club_details'})

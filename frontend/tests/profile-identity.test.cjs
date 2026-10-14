@@ -25,7 +25,7 @@ const style=n=>Object.assign({},...([n.props.style].flat().filter(Boolean)));
 test('Home photo is 112px, circular, covered and retains its clementine ring',async()=>{
  const c=await setup();const image=nodes(c.render()).find(n=>n.type==='Image');
  assert.deepEqual([style(image).width,style(image).height,style(image).borderRadius],[112,112,56]);
- assert.equal(style(image).borderWidth,2);assert.equal(style(image).borderColor,'gold');assert.equal(image.props.resizeMode,'cover');
+ assert.equal(style(image).borderWidth,2);assert.equal(style(image).borderColor,'accent');assert.equal(image.props.resizeMode,'cover');
  assert.equal(image.props.source.uri,'data:image/jpeg;base64,existing');
 });
 test('Home fallback matches 112px photo footprint and scales existing person icon',async()=>{
@@ -71,13 +71,13 @@ test('account panel displays the current photo or initials at 112px with accurat
   const tree=c.render(),panel=nodes(tree).find(n=>n.props?.accessibilityViewIsModal);
   const avatar=nodes(panel).find(n=>style(n).width===112);
   assert.deepEqual([style(avatar).width,style(avatar).height,style(avatar).borderRadius],[112,112,56]);
-  assert.equal(style(avatar).borderColor,'gold');
+  assert.equal(style(avatar).borderColor,'accent');
   if(photo){assert.equal(avatar.props.source.uri,photo);assert.equal(avatar.props.resizeMode,'cover');}
   else assert.equal(text(avatar),'A');
   assert.match(text(panel),new RegExp(`Member of ${count} ${count===1?'Group':'Groups'}`));
   const name=nodes(panel).find(n=>n.type==='Text'&&text(n)===c.auth.user.full_name);
   assert.equal(style(name).fontSize,20);assert.equal(name.props.numberOfLines,undefined);
-  assert.equal(style(panel).width,'92%');assert.equal(style(panel).flex,1);
+  assert.equal(style(panel).width,'100%');assert.equal(style(panel).flex,1);
   assert.ok(nodes(panel).some(n=>n.type==='ScrollView'&&style(n).flex===1));
  }
 });
@@ -87,7 +87,7 @@ test('account destinations remain reachable and normal rows precede sign out and
   const c=await setup();nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Open profile menu').props.onPress();
   const panel=nodes(c.render()).find(n=>n.props?.accessibilityViewIsModal);
   const actions=nodes(panel).filter(n=>n.type==='TouchableOpacity');
-  assert.deepEqual(actions.slice(-2).map(n=>n.props.accessibilityLabel),['Sign Out','Delete My Account']);
+  assert.deepEqual(actions.slice(-2).map(n=>n.props.accessibilityLabel),['Delete My Account','Sign Out']);
   for(const row of actions.slice(1)){
    assert.ok(style(row).minHeight>=48);assert.equal(style(row).height,undefined);
    for(const label of nodes(row).filter(n=>n.type==='Text')){

@@ -65,11 +65,13 @@ test('account tabs and existing financial screens are unchanged from Phase 3C', 
     let expected=cp.execFileSync('git', ['show', '3aff743a88b3b128e5e9f58c6c62368e8d3df370:' + file], { cwd: root, encoding: 'utf8' });
     if (file.endsWith('_layout.tsx')) expected = expected.replace('tabBarActiveTintColor: Colors.mediumGreen', 'tabBarActiveTintColor: Colors.royalBlue');
     if (file.endsWith('club-detail.tsx')) expected = expected.replace(/(approveClaimButton: \{[^{}]*?backgroundColor: )Colors.accent/, '$1Colors.primary');
+    if (file.endsWith('club-detail.tsx')) expected=expected.replace(/(memberAvatar: \{[^{}]*)(\})/, '$1 borderWidth: 2, borderColor: Colors.accent, $2');
     assert.equal(fs.readFileSync(path.join(root,file), 'utf8').replace(/\r\n/g, '\n'),expected);
   }
   // claims.tsx has intentional status color and rejection panel changes
   const claimsFile = 'frontend/app/(member)/claims.tsx';
   let claimsExpected = cp.execFileSync('git', ['show', '077f3ad379b33d92eb86f01ac80e2000c0b4472c:' + claimsFile], { cwd: root, encoding: 'utf8' });
+  claimsExpected = claimsExpected.replace(/(profilePlaceholder: \{[^{}]*)(\})/, '$1 borderWidth: 2, borderColor: Colors.accent, $2');
   claimsExpected = claimsExpected.replace(/(confirmButton: \{[^{}]*?backgroundColor: )Colors.accent/, '$1Colors.primary');
   const claimsActual = fs.readFileSync(path.join(root, claimsFile), 'utf8').replace(/\r\n/g, '\n');
   // Permit only the explicitly reviewed status-colour and rejection-panel edits.

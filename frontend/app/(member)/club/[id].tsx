@@ -259,13 +259,16 @@ export default function ClubDetailScreen() {
 
       <ScrollView>
         {params.scope !== 'club' && <ClubMemberDirectory groupId={id} />}
-        <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open club payments" onPress={() => router.push({ pathname: "/(member)/proofs", params: { group_id: id, month: String(period.month), year: String(period.year), contribution_id: selectedContribution?.contribution_id || selectedContributionId || "", scope: params.scope, from: params.from } })}><Text>Payments and contribution records</Text></TouchableOpacity>
-        <View style={styles.cardHeader}>
+        <View style={styles.section}><TouchableOpacity accessibilityRole="button" accessibilityLabel="Open club payments" onPress={() => router.push({ pathname: "/(member)/proofs", params: { group_id: id, month: String(period.month), year: String(period.year), contribution_id: selectedContribution?.contribution_id || selectedContributionId || "", scope: params.scope, from: params.from } })}><Text style={styles.sectionTitle}>Payments and contribution records</Text></TouchableOpacity>
+        <View style={[styles.cardHeader, styles.periodSelector]}>
           <TouchableOpacity accessibilityLabel="Previous contribution month" onPress={() => { const d = new Date(period.year, period.month - 2, 1); setSelectedContributionId(null); setPeriod({ year: d.getFullYear(), month: d.getMonth() + 1 }); }}><Text>‹</Text></TouchableOpacity>
           <Text>{getMonthName(period.month)} {period.year}</Text>
           <TouchableOpacity accessibilityLabel="Next contribution month" onPress={() => { const d = new Date(period.year, period.month, 1); setSelectedContributionId(null); setPeriod({ year: d.getFullYear(), month: d.getMonth() + 1 }); }}><Text>›</Text></TouchableOpacity>
         </View>
-        {clubData.contributions?.map((row, index) => <TouchableOpacity key={row.contribution_id} accessibilityRole="button" onPress={() => setSelectedContributionId(row.contribution_id)}><Text>Contribution {index + 1}: {paymentMoney(row.amount_due)} · {paymentStateLabel(row.payment_state)}</Text></TouchableOpacity>)}
+        <View style={styles.card}>{clubData.contributions?.map((row, index) => <TouchableOpacity key={row.contribution_id} accessibilityRole="button" accessibilityLabel={`Select contribution ${index + 1}`} accessibilityState={{ selected: row.contribution_id === selectedContributionId }} style={[styles.recordRow, row.contribution_id === selectedContributionId && styles.selectedRecord]} onPress={() => setSelectedContributionId(row.contribution_id)}>
+          <View style={styles.recordCopy}><Text style={styles.recordAmount}>{paymentMoney(row.amount_due)}</Text><Text style={styles.infoText}>Contribution {index + 1} - {getMonthName(period.month)} {period.year}</Text></View>
+          <StatusPill status={row.proof_review_status === 'declined' ? 'proof_declined' : row.status} label={paymentStateLabel(row.payment_state)} />
+        </TouchableOpacity>)}</View></View>
 
         {/* Current Contribution Status */}
         <View style={styles.section}>
@@ -357,6 +360,7 @@ export default function ClubDetailScreen() {
                 <Text style={styles.bankDetailValue}>{clubData.payment_reference.account_number || 'Not available'}</Text>
               </View>
               <View style={styles.bankDetailRow}><Text style={styles.bankDetailLabel}>Account Holder</Text><Text style={styles.bankDetailValue}>{clubData.group.bank_account_holder || "Not available"}</Text></View>
+              {(!clubData.payment_reference.bank_name || !clubData.payment_reference.account_number || !clubData.group.bank_account_holder) && <Text style={styles.infoText}>Your club has not provided all banking details. Please confirm them with your administrator before paying.</Text>}
               <View style={styles.bankDetailRow}>
                 <Text style={styles.bankDetailLabel}>Amount</Text>
                 <Text style={styles.bankDetailValue}>{selectedContribution ? paymentMoney(selectedContribution.outstanding_amount) : clubData.payment_reference.amount == null ? 'Not recorded' : paymentMoney(clubData.payment_reference.amount)} </Text>
@@ -435,6 +439,11 @@ const styles = StyleSheet.create({
   headerSpacer: {
     width: 40,
   },
+  periodSelector: { padding: 16, backgroundColor: Colors.white, borderRadius: 12 },
+  recordRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', paddingVertical: 16, borderBottomWidth: 1, borderBottomColor: Colors.cardBorder, gap: 8 },
+  selectedRecord: { backgroundColor: Colors.primaryLight },
+  recordCopy: { flex: 1, minWidth: 120 },
+  recordAmount: { fontSize: 20, fontWeight: '700', color: Colors.textPrimary },
   section: {
     paddingHorizontal: 24,
     paddingTop: 24,

@@ -16,13 +16,13 @@
       "policy": "appVersion"
     },
     "orientation": "portrait",
-    "icon": "./assets/images/clubvel-navy-icon.png",
+    "icon": "./assets/images/clubvel-corporate-icon.png",
     "scheme": "clubvel",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "owner": "modjadji",
     "ios": {
-      "icon": "./assets/images/clubvel-navy-ios-icon.png",
+      "icon": "./assets/images/clubvel-corporate-ios-icon.png",
       "supportsTablet": true,
       "bundleIdentifier": "com.clubvel.clubvel",
       "googleServicesFile": "./GoogleService-Info.plist",
@@ -42,7 +42,7 @@
       "googleServicesFile": "./google-services.json",
       "versionCode": 13,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/clubvel-navy-adaptive-icon.png",
+        "foregroundImage": "./assets/images/clubvel-corporate-adaptive-icon.png",
         "backgroundColor": "#FFFFFF"
       },
       "edgeToEdgeEnabled": true,
@@ -66,10 +66,16 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/clubvel-navy-splash.png",
+          "image": "./assets/images/clubvel-corporate-splash.png",
           "imageWidth": 300,
           "resizeMode": "contain",
-          "backgroundColor": "#FFFFFF"
+          "backgroundColor": "#FFFFFF",
+          "android": {
+            "image": "./assets/images/clubvel-corporate-adaptive-icon.png",
+            "imageWidth": 200,
+            "backgroundColor": "#FFFFFF",
+            "resizeMode": "contain"
+          }
         }
       ],
       "expo-secure-store",

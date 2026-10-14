@@ -1,4 +1,5 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
+import { Image, StyleSheet, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 
 import { Stack, usePathname } from 'expo-router';
@@ -12,21 +13,37 @@ export function StartupSplash() {
   const { loading } = useAuth();
   const pathname = usePathname();
   const released = useRef(false);
+  const nativeHidden = useRef(false);
+  const [brandReady, setBrandReady] = useState(false);
+  const [finished, setFinished] = useState(false);
+  const revealBrand = () => {
+    if (nativeHidden.current) return;
+    nativeHidden.current = true;
+    setBrandReady(true);
+    void SplashScreen.hideAsync().catch(() => {});
+  };
   useEffect(() => {
-    if (loading || pathname === '/' || !pathname || released.current) return;
+    if (!brandReady || loading || pathname === '/' || !pathname || released.current) return;
     const frame = requestAnimationFrame(() => {
       released.current = true;
-      void SplashScreen.hideAsync().catch(() => {});
+      setFinished(true);
     });
     return () => cancelAnimationFrame(frame);
-  }, [loading, pathname]);
-  return null;
+  }, [brandReady, loading, pathname]);
+  if (finished) return null;
+  return <View accessibilityLabel="Clubvel launch screen" style={launchStyles.screen} onLayout={revealBrand}>
+    <Image source={require('../assets/images/clubvel-corporate-splash.png')} accessibilityLabel="clubvel" resizeMode="contain" style={launchStyles.logo} />
+  </View>;
 }
+
+const launchStyles = StyleSheet.create({
+  screen: { ...StyleSheet.absoluteFillObject, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', zIndex: 100 },
+  logo: { width: '82%', maxWidth: 360, aspectRatio: 1 },
+});
 
 export default function RootLayout() {
   return (
     <AuthProvider>
-      <StartupSplash />
       <Stack screenOptions={{ headerShown: false }}>
         <Stack.Screen name="index" />
         <Stack.Screen name="onboarding" />
@@ -34,6 +51,7 @@ export default function RootLayout() {
         <Stack.Screen name="(member)" />
         <Stack.Screen name="(treasurer)" />
       </Stack>
+      <StartupSplash />
     </AuthProvider>
   );
 }

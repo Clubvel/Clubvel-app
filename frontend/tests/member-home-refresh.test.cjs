@@ -311,3 +311,23 @@ test('missing or malformed secondary dashboard values never invent numeric zeros
   for (const label of ['Groups & Clubs','Upcoming Payments','Claims','Upcoming Payouts']) assert.ok(content.includes(label+'—'),label);
  }
 });
+
+for(const role of ['admin','treasurer']) test(`Club administration selects the authorised ${role} club and enters its dashboard`,async()=>{
+ const c=setup();await c.respond(0,'WeTravel',role);button(c.render(),'Club administration').props.onPress();
+ const choose=nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Administer WeTravel');assert.ok(choose);choose.props.onPress();
+ assert.deepEqual(c.routes.at(-1),{pathname:'/(treasurer)/dashboard',params:{groupId:'group-a'}});
+});
+test('stale Club administration choice cannot navigate after an account switch or role revocation',async()=>{
+ for(const switchAccount of [true,false]){
+ const c=setup();await c.respond(0,'WeTravel','admin');button(c.render(),'Club administration').props.onPress();const choose=nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Administer WeTravel');
+ if(switchAccount){c.auth.user={id:'Brown'};c.auth.token='new-session';c.render();}
+ else{c.refresh();await c.respond(1,'WeTravel','member');c.render();}
+ choose.props.onPress();assert.deepEqual(c.routes,[]);
+ }
+});
+
+test('many authorised administration choices stay scrollable without hiding Sign Out',async()=>{
+ const c=setup();c.requests[0].resolve({data:{user:c.auth.user,summary:{active_clubs:4},clubs:['A','B','C','D'].map((name,index)=>({id:String(index),name,role:'admin'}))}});await tick();
+ button(c.render(),'Club administration').props.onPress();const choices=nodes(c.render()).filter(n=>n.props?.accessibilityLabel?.startsWith('Administer '));assert.equal(choices.length,4);
+ choices[3].props.onPress();assert.equal(c.routes.at(-1).params.groupId,'3');
+});

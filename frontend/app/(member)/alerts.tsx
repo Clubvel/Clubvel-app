@@ -282,7 +282,7 @@ const styles = StyleSheet.create({
     height: 112,
     borderRadius: 56,
     borderWidth: 2,
-    borderColor: Colors.gold,
+    borderColor: Colors.accent,
   },
   profilePlaceholder: {
     width: 112,
@@ -291,7 +291,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
-  },
+   borderWidth: 2, borderColor: Colors.accent, },
   content: {
     flex: 1,
   },

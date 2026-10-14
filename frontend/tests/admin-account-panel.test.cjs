@@ -35,7 +35,7 @@ function setup(photo = 'data:image/jpeg;base64,current') {
 }
 test('Admin drawer uses approved Member dimensions, scrollable structure and typography', async () => {
   const c = setup(); await c.ready(); c.open(); const panel = c.panel();
-  assert.deepEqual([style(panel).width, style(panel).maxWidth, style(panel).flex], ['92%', 420, 1]);
+  assert.deepEqual([style(panel).width, style(panel).maxWidth, style(panel).flex], ['100%', undefined, 1]);
   assert.ok(nodes(panel).some(n => n.type === 'ScrollView' && style(n).flex === 1));
   const member = fs.readFileSync(path.join(__dirname, '../app/(member)/home.tsx'), 'utf8').replace(/\r\n/g, '\n');
   const start = member.indexOf('const styles = StyleSheet.create(');
@@ -52,7 +52,7 @@ test('Admin photo shares authenticated header image with 112px cover/circle/ring
   assert.equal(avatar.props.source.uri, c.auth.user.profile_photo);
   assert.equal(avatar.props.resizeMode, 'cover');
   assert.deepEqual([style(avatar).width, style(avatar).height, style(avatar).borderRadius], [112, 112, 56]);
-  assert.equal(style(avatar).borderWidth, 2); assert.equal(style(avatar).borderColor, 'gold');
+  assert.equal(style(avatar).borderWidth, 2); assert.equal(style(avatar).borderColor, 'accent');
   const header = nodes(c.render()).find(n => n.type === 'Image' && style(n).width === 112);
   assert.equal(header.props.source.uri, avatar.props.source.uri);
   c.auth.user.profile_photo = 'data:image/jpeg;base64,replacement';
@@ -63,7 +63,7 @@ test('Admin initials fallback has the same 112px treatment and safely handles mi
   const c = setup(null); await c.ready(); c.open();
   const avatar = nodes(c.panel()).find(n => style(n).width === 112);
   assert.equal(avatar.type, 'View'); assert.equal(text(avatar), 'A');
-  assert.deepEqual([style(avatar).height, style(avatar).borderRadius, style(avatar).borderColor], [112, 56, 'gold']);
+  assert.deepEqual([style(avatar).height, style(avatar).borderRadius, style(avatar).borderColor], [112, 56, 'accent']);
   c.auth.user.full_name = ''; assert.equal(text(nodes(c.panel()).find(n => style(n).width === 112)), '?');
 });
 for (const count of [0, 1, 3]) {
@@ -86,7 +86,7 @@ test('failed or missing dashboard count uses neutral context, and successful ret
 test('menu follows approved order with descriptions, chevrons and accessible wrapping rows', async () => {
   const c = setup(); await c.ready(); c.open();
   const rows = nodes(c.panel()).filter(n => n.type === 'TouchableOpacity' && !['Close account panel', 'View full-size profile photo'].includes(n.props.accessibilityLabel));
-  assert.deepEqual(rows.map(n => n.props.accessibilityLabel), ['My Profile', 'Notification Preferences', 'Privacy Policy', 'Contact Us', 'About Clubvel', 'Sign Out', 'Delete My Account']);
+  assert.deepEqual(rows.map(n => n.props.accessibilityLabel), ['My Profile', 'Notification Preferences', 'Privacy Policy', 'Contact Us', 'About Clubvel', 'Delete My Account', 'Sign Out']);
   const descriptions = ['Photo, personal details and account', 'Choose which Clubvel alerts you receive', 'How Clubvel protects your information', 'Get help with Clubvel', 'Information about Clubvel'];
   rows.slice(0, 5).forEach((row, i) => {
     assert.ok(text(row).includes(descriptions[i]));
@@ -155,12 +155,22 @@ test('Approved account panels, header styles and existing security/action handle
     if (name !== 'modalOverlay' && !name.startsWith('dropdown') && !['header','brandName','avatar','avatarImage','accountToolbar','accountTitle'].includes(name)) assert.deepEqual(newStyles[name], value, name);
   }
 
-  const checkpoint = name => cp.execFileSync('git', ['show', `077f3ad379b33d92eb86f01ac80e2000c0b4472c:frontend/${name}`], { cwd: root, encoding: 'utf8' });
-  for (const [name, marker, endMarker] of [['app/(member)/home.tsx', '    {/* Member Account Panel */}', '    {/* Delete'], [file, '    {/* Admin Account Panel */}', '    {/* Create']]) {
-    const before = checkpoint(name), after = fs.readFileSync(path.join(root, 'frontend', name), 'utf8').replace(/\r\n/g, '\n');
-    const panel = source => { const start = source.indexOf(marker); assert.ok(start >= 0); const end = source.indexOf(endMarker, start + marker.length); return source.slice(source.indexOf('<View style={styles.dropdownDivider}', start), end < 0 ? source.indexOf('const styles =', start) : end); };
-    assert.equal(panel(after), panel(before));
-  }
+  // Layout is intentionally full-screen; preserve every existing menu callback.
+  const actions = source => {
+    const ast = ts.createSourceFile(file, source, ts.ScriptTarget.Latest, true, ts.ScriptKind.TSX), result = {};
+    const walk = n => {
+      if (ts.isJsxOpeningElement(n)) {
+        const attrs=n.attributes.properties;
+        const label=attrs.find(a=>a.name?.getText(ast)==='accessibilityLabel');
+        const press=attrs.find(a=>a.name?.getText(ast)==='onPress');
+        if(label && press) result[label.initializer.getText(ast)]=press.initializer.getText(ast);
+      }
+      ts.forEachChild(n,walk);
+    }; walk(ast); return result;
+  };
+  const oldActions=actions(previous), newActions=actions(current);
+  for(const [label,callback] of Object.entries(oldActions)) assert.equal(newActions[label],callback,label);
+
 });
 
 test('Member/Admin Clubvel menu has continuous charcoal identity, white menu and expandable 112px photo',async()=>{
@@ -172,3 +182,14 @@ test('Member/Admin Clubvel menu has continuous charcoal identity, white menu and
  assert.equal(style(panel).backgroundColor,'white');
  const photo=nodes(panel).find(n=>n.props?.accessibilityLabel==='View full-size profile photo');photo.props.onPress();assert.ok(!c.accountModal() || c.accountModal().props.visible === false);assert.equal(nodes(c.render()).find(n=>n.props?.photoUri===c.auth.user.profile_photo && typeof n.props?.onClose==='function').props.visible,true);
 });
+
+ test('full-screen account footer remains outside scrolling content and respects both safe areas',async()=>{
+ const c=setup();await c.ready();c.open();const panel=c.panel(),scroll=nodes(panel).find(n=>n.type==='ScrollView');
+ assert.equal(c.accountModal().props.transparent,false);assert.equal(style(panel).width,'100%');
+ assert.ok(!nodes(scroll).some(n=>n.props?.accessibilityLabel==='Sign Out'));
+ const footer=nodes(panel).find(n=>n.type==='View'&&n.props?.children?.some?.(n=>n?.props?.accessibilityLabel==='Sign Out'));
+ assert.equal(style(footer).paddingBottom,24);assert.equal(style(footer).flex,undefined);
+ assert.equal(style(c.action('Sign Out')).minHeight,52);
+ const toolbar=nodes(panel).find(n=>n.type==='View'&&style(n).paddingLeft===24);assert.equal(style(toolbar).paddingTop,24);
+ assert.equal(nodes(c.action('Sign Out')).find(n=>n.type==='Ionicons').props.color,'statusLate');
+ });

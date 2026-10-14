@@ -29,7 +29,8 @@ for(const screen of screens){
    const size=112;
    const c=header(screen,photo),avatar=nodes(c.tree).find(n=>n.type===(photo?'Image':'View')&&style(n).width===size);
    assert.ok(avatar);assert.deepEqual([style(avatar).width,style(avatar).height,style(avatar).borderRadius],[size,size,size/2]);
-   if(photo){assert.equal(avatar.props.source.uri,photo);assert.equal(avatar.props.resizeMode,'cover');assert.equal(style(avatar).borderWidth,2);assert.ok(['gold','accent'].includes(style(avatar).borderColor));}
+   assert.equal(style(avatar).borderWidth,2);assert.equal(style(avatar).borderColor,'accent');
+   if(photo){assert.equal(avatar.props.source.uri,photo);assert.equal(avatar.props.resizeMode,'cover');assert.equal(style(avatar).borderWidth,2);assert.equal(style(avatar).borderColor,'accent');}
    else {assert.ok(['gold','accent'].includes(style(avatar).backgroundColor));if(screen.endsWith('/reports'))assert.equal(text(avatar),'A');
     else assert.equal(nodes(avatar).find(n=>n.type==='Ionicons').props.size,32);}
    const button=nodes(c.tree).find(n=>n.type==='TouchableOpacity'&&nodes(n).includes(avatar));
@@ -90,6 +91,6 @@ test('Reports initials use the authenticated full name and remain safe without a
  for(const [name,initial] of [[' Barbara Member','B'],['','?'],['  ','?'],[null,'?']]){
   const c=header('(treasurer)/reports',null,name);
   const circle=nodes(c.tree).find(n=>n.type==='View'&&style(n).width===112);
-  assert.equal(text(circle),initial);assert.equal(style(circle).borderColor,'gold');
+  assert.equal(text(circle),initial);assert.equal(style(circle).borderColor,'accent');
  }
 });

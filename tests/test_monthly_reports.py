@@ -1,5 +1,6 @@
 """Offline financial fixtures plus the actual read-only route and authorization guards."""
 # ruff: noqa: DTZ001, C408 -- Synthetic fixtures intentionally exercise naive UTC timestamps and calendar dates.
+from test_admin_dashboard_financials import legacy_admin_dashboard
 import ast
 import copy
 import importlib.util
@@ -172,7 +173,10 @@ class MonthlyReportTests(unittest.TestCase):
         approved_reads = {'get_group_payment_records', 'get_person_contribution_records', 'personal_contribution_view', 'get_personal_contributions', 'get_member_club_details', 'get_group_contributions', 'get_club_detail', 'get_member_dashboard'}
         for node in ast.parse(current).body:
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in original and node.name not in approved_reads:
-                self.assertEqual(ast.get_source_segment(current, node), original[node.name], node.name)
+                if node.name == "get_admin_dashboard":
+                    self.assertEqual(ast.dump(legacy_admin_dashboard(ast.parse(ast.get_source_segment(current, node)).body[0])), ast.dump(ast.parse(original[node.name]).body[0]), node.name)
+                else:
+                    self.assertEqual(ast.get_source_segment(current, node), original[node.name], node.name)
 
 
 class MonthlyReportRouteTests(unittest.IsolatedAsyncioTestCase):

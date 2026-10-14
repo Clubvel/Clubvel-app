@@ -1605,6 +1605,8 @@ async def get_admin_dashboard(user_id: str, authorization: str | None = Header(N
     urgent_alerts = []
     clubs_data = []
     next_claim = None
+    authoritative_details = []
+    financial_period = datetime.now(BUSINESS_TIMEZONE)
     
     now = datetime.utcnow()
     
@@ -1652,6 +1654,10 @@ async def get_admin_dashboard(user_id: str, authorization: str | None = Header(N
                                 "phone": member_user['phone_number']
                             })
         
+        recorded = await db.contributions.find({'group_id': group['id'], 'month': financial_period.month, 'year': financial_period.year}, contribution_metadata_projection()).to_list(None)
+        recorded_details = [financial_details(record, contribution_outstanding) for record in recorded]
+        authoritative_details.extend(recorded_details)
+        recorded_summary = financial_totals(recorded_details)
         clubs_data.append({
             "id": group['id'],
             "name": group['group_name'],
@@ -1660,7 +1666,11 @@ async def get_admin_dashboard(user_id: str, authorization: str | None = Header(N
             "collected": collected,
             "expected": expected,
             "status": "active",
-            "late_count": late_in_club
+            "late_count": late_in_club,
+            "financial_summary": recorded_summary,
+            "contribution_mode": group.get("contribution_mode", "fixed_monthly"),
+            "target_amount_per_member": group.get("target_amount_per_member"),
+            "period": {"month": financial_period.month, "year": financial_period.year, "timezone": "Africa/Johannesburg"}
         })
     
     return {
@@ -1668,7 +1678,9 @@ async def get_admin_dashboard(user_id: str, authorization: str | None = Header(N
             "total_clubs": total_clubs,
             "total_members": total_members,
             "total_collected_this_month": total_collected_this_month,
-            "late_members_count": late_members_count
+            "late_members_count": late_members_count,
+            "confirmed_collected_current_period": financial_totals(authoritative_details)["collected"],
+            "financial_period": {"month": financial_period.month, "year": financial_period.year, "timezone": "Africa/Johannesburg"}
         },
         "urgent_alerts": urgent_alerts,
         "clubs": clubs_data,

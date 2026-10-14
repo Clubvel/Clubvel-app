@@ -265,7 +265,7 @@ test('standalone Payments leaves native Back navigation intact',async()=>{
  const c=await setup();c.params.scope=undefined;c.render();assert.equal(c.state.back,null);
 });
 test('Android Back from Contributions preserves selected club and record',async()=>{
- const c=await setup('club');c.state.club={group:{id:'group-a',name:'Club A'},contributions:[c.record],current_contribution:{...c.record,id:c.record.contribution_id},payment_reference:{amount:150},payment_history:[]};c.ui.blur();c.ui.focus();await tick();button(c.render(),'Contribution 1:').props.onPress();c.render();c.state.back();assert.equal(c.routes.at(-1).params.contribution_id,'contribution-a');assert.equal(c.routes.at(-1).params.from,'admin');
+ const c=await setup('club');c.state.club={group:{id:'group-a',name:'Club A'},contributions:[c.record],current_contribution:{...c.record,id:c.record.contribution_id},payment_reference:{amount:150},payment_history:[]};c.ui.blur();c.ui.focus();await tick();button(c.render(),'Contribution 1').props.onPress();c.render();c.state.back();assert.equal(c.routes.at(-1).params.contribution_id,'contribution-a');assert.equal(c.routes.at(-1).params.from,'admin');
 });
 test('closing the proof viewer cancels a delayed PDF share operation',async()=>{
  const c=await setup();let finish;c.state.get=async()=>({data:{proof_image:'data:application/pdf;base64,proof',proof_mime_type:'application/pdf'}});c.state.write=()=>new Promise(r=>finish=r);

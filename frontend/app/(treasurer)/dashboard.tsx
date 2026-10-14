@@ -1,6 +1,8 @@
+import { paymentMoney } from '../../services/paymentSummaryRecords';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Linking, Alert, Modal, Image, TextInput, KeyboardAvoidingView, Platform, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
@@ -25,6 +27,10 @@ interface Club {
   name: string;
   member_count: number;
   due_date: number;
+  financial_summary?: { collected: number | null; total_expected: number | null; collection_rate: number | null };
+  contribution_mode?: string;
+  target_amount_per_member?: number | null;
+  period?: { month: number; year: number; timezone: string };
   collected: number;
   expected: number;
   status: string;
@@ -36,6 +42,8 @@ interface DashboardData {
     total_clubs: number;
     total_members: number;
     total_collected_this_month: number;
+    confirmed_collected_current_period?: number | null;
+    financial_period?: { month: number; year: number; timezone: string };
     late_members_count: number;
   };
   urgent_alerts: LateMember[];
@@ -50,6 +58,7 @@ interface DashboardData {
 
 export default function AdminDashboardScreen() {
   const { user, token, logout } = useAuth();
+  const accountInsets = useSafeAreaInsets();
   const router = useRouter();
   const [photoExpanded, setPhotoExpanded] = useState(false);
   const dashboardScroll = useRef<ScrollView>(null);
@@ -337,7 +346,7 @@ export default function AdminDashboardScreen() {
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Collected This Month</Text>
           <Text style={[styles.summaryValue, { color: Colors.statusPaid }]}>
-            R{dashboardData?.summary.total_collected_this_month?.toFixed(2) || '0.00'}
+            {paymentMoney(dashboardData?.summary.confirmed_collected_current_period)}
           </Text>
         </View>
 
@@ -407,7 +416,7 @@ export default function AdminDashboardScreen() {
             >
               <View style={styles.clubCardHeader}>
                 <Text style={styles.clubName}>{club.name}</Text>
-                {club.expected > 0 && club.collected >= club.expected ? (
+                {club.financial_summary?.total_expected != null && club.financial_summary.total_expected > 0 && club.financial_summary.collected != null && club.financial_summary.collected >= club.financial_summary.total_expected ? (
                   <View style={styles.paidBadge}>
                     <Ionicons name="checkmark-circle" size={16} color={Colors.statusPaid} />
                     <Text style={styles.paidBadgeText}>Contributions confirmed</Text>
@@ -421,22 +430,24 @@ export default function AdminDashboardScreen() {
 
               </View>
 
+              <Text style={styles.clubMetaText}>Confirmed / recorded obligations{club.period ? ` - ${club.period.month}/${club.period.year}` : ""}</Text>
+              {club.contribution_mode === "flexible_goal" && <Text style={styles.clubMetaText}>{paymentMoney(club.target_amount_per_member)} goal per member</Text>}
               <View style={styles.clubProgress}>
                 <View style={styles.progressBar}>
                   <View
                     style={[
                       styles.progressFill,
                       {
-                        width: `${club.expected > 0 ? (club.collected / club.expected) * 100 : 0}%`,
+                        width: `${Math.min(100, Math.max(0, club.financial_summary?.collection_rate ?? 0))}%`,
                         backgroundColor: club.late_count > 0 ? Colors.gold : Colors.statusPaid,
                       },
                     ]}
                   />
                 </View>
                 <Text style={styles.progressText}>
-                  <Text style={{ color: Colors.accent }}>R{club.collected.toFixed(2)}</Text>
+                  <Text style={{ color: Colors.accent }}>{paymentMoney(club.financial_summary?.collected)}</Text>
                       <Text style={{ color: Colors.textMuted }}> / </Text>
-                      <Text style={{ color: Colors.primary }}>R{club.expected.toFixed(2)}</Text>
+                      <Text style={{ color: Colors.primary }}>{paymentMoney(club.financial_summary?.total_expected)}</Text>
                 </Text>
               </View>
               
@@ -480,7 +491,7 @@ export default function AdminDashboardScreen() {
     {/* Admin Account Panel */}
     <Modal
       visible={showProfileMenu}
-      transparent={true}
+      transparent={false}
       animationType="fade"
       onRequestClose={() => setShowProfileMenu(false)}
     >
@@ -493,7 +504,7 @@ export default function AdminDashboardScreen() {
           accessibilityLabel="Close account panel backdrop"
         />
         <View style={styles.dropdownMenu} accessibilityViewIsModal>
-          <View style={styles.accountToolbar}>
+          <View style={[styles.accountToolbar, { paddingTop: Math.max(accountInsets.top, 8) }]}>
             <Text style={styles.accountTitle}>Clubvel</Text>
             <TouchableOpacity style={styles.accountClose} onPress={() => setShowProfileMenu(false)} accessibilityRole="button" accessibilityLabel="Close account panel">
               <Ionicons name="close" size={26} color={Colors.white} />
@@ -559,10 +570,6 @@ export default function AdminDashboardScreen() {
               <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
             </TouchableOpacity>
             <View style={styles.dropdownDivider} />
-            <TouchableOpacity style={styles.dropdownItemLogout} onPress={handleLogout} accessibilityRole="button" accessibilityLabel="Sign Out">
-              <Ionicons name="log-out-outline" size={24} color={Colors.textPrimary} />
-              <Text style={styles.dropdownItemTextLogout}>Sign Out</Text>
-            </TouchableOpacity>
             <TouchableOpacity
               style={styles.dropdownItem}
               onPress={() => { setShowProfileMenu(false); setShowDeleteModal(true); }}
@@ -573,6 +580,11 @@ export default function AdminDashboardScreen() {
               <Text style={[styles.dropdownItemText, styles.accountDeleteText]}>Delete My Account</Text>
             </TouchableOpacity>
           </ScrollView>
+          <View style={[styles.accountFooter, { paddingBottom: Math.max(accountInsets.bottom, 12) }]}>            <TouchableOpacity style={styles.dropdownItemLogout} onPress={handleLogout} accessibilityRole="button" accessibilityLabel="Sign Out">
+              <Ionicons name="log-out-outline" size={24} color={Colors.statusLate} />
+              <Text style={styles.dropdownItemTextLogout}>Sign Out</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Modal>
@@ -1012,26 +1024,22 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
-  },
+   borderWidth: 2, borderColor: Colors.accent, },
   avatarImage: {
     width: 112,
     height: 112,
     borderRadius: 56,
     borderWidth: 2,
-    borderColor: Colors.gold,
+    borderColor: Colors.accent,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    alignItems: 'flex-end',
-    paddingVertical: 12,
+    backgroundColor: Colors.white,
+    alignItems: 'stretch',
   },
   dropdownMenu: {
     backgroundColor: Colors.white,
-    borderTopLeftRadius: 24,
-    borderBottomLeftRadius: 24,
-    width: '92%',
-    maxWidth: 420,
+    width: '100%',
     flex: 1,
     overflow: 'hidden',
   },
@@ -1042,7 +1050,8 @@ const styles = StyleSheet.create({
   },
   accountTitle: { color: Colors.white, fontSize: 24, fontWeight: '700', flexShrink: 1 },
   accountClose: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
-  accountScroll: { flex: 1 },
+  accountScroll: { flex: 1, minHeight: 0 },
+  accountFooter: { backgroundColor: Colors.white, borderTopWidth: 1, borderTopColor: Colors.cardBorder },
   accountContent: { paddingBottom: 24 },
   dropdownHeader: {
     padding: 16,
@@ -1055,7 +1064,7 @@ const styles = StyleSheet.create({
     height: 112,
     borderRadius: 56,
     borderWidth: 2,
-    borderColor: Colors.gold,
+    borderColor: Colors.accent,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1066,17 +1075,17 @@ const styles = StyleSheet.create({
   dropdownUserRole: { fontSize: 15, color: Colors.white, marginTop: 6, textAlign: 'center' },
   dropdownDivider: { height: 1, backgroundColor: Colors.cardBorder, marginHorizontal: 24 },
   dropdownItem: {
-    flexDirection: 'row', alignItems: 'center', minHeight: 64,
-    paddingVertical: 18, paddingHorizontal: 24, gap: 12,
+    flexDirection: 'row', alignItems: 'center', minHeight: 52,
+    paddingVertical: 12, paddingHorizontal: 24, gap: 12,
   },
   dropdownItemCopy: { flex: 1, minWidth: 0 },
   dropdownItemText: { fontSize: 17, fontWeight: '600', color: Colors.textPrimary, flexShrink: 1 },
   dropdownDescription: { fontSize: 13, color: Colors.textSecondary, marginTop: 4 },
   dropdownItemLogout: {
-    flexDirection: 'row', alignItems: 'center', minHeight: 64,
-    paddingVertical: 18, paddingHorizontal: 24, gap: 12,
+    flexDirection: 'row', alignItems: 'center', minHeight: 52,
+    paddingVertical: 12, paddingHorizontal: 24, gap: 12,
   },
-  dropdownItemTextLogout: { fontSize: 17, color: Colors.textPrimary, fontWeight: '600', flexShrink: 1 },
+  dropdownItemTextLogout: { fontSize: 17, color: Colors.statusLate, fontWeight: '600', flexShrink: 1 },
   accountDeleteText: { color: Colors.statusLate, fontSize: 15 },
   // Create Group Modal Styles
   createClubModalOverlay: {

@@ -1,5 +1,6 @@
 """Offline Stage 3A routes: financial agreement, bounded history and read-only integrity."""
 import copy
+from test_admin_dashboard_financials import legacy_admin_dashboard
 import ast
 import subprocess
 from pathlib import Path
@@ -104,7 +105,7 @@ class PaymentContractTests(unittest.IsolatedAsyncioTestCase):
         root = Path(__file__).resolve().parents[1]
         current = ast.parse((root / 'backend/server.py').read_text())
         previous = ast.parse(subprocess.check_output(['git', 'show', 'eca3c952b8978d632c45cb79b5009540cbeef8a7:backend/server.py'], cwd=root, text=True))
-        functions = lambda tree: {node.name: node for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
+        functions = lambda tree: {node.name: legacy_admin_dashboard(node) for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
         old, new = functions(previous), functions(current)
         reads = {'get_group_payment_records', 'get_person_contribution_records', 'personal_contribution_view', 'get_personal_contributions', 'get_member_club_details', 'get_group_contributions', 'get_club_detail', 'get_member_dashboard'}
         self.assertEqual({name for name in old if ast.dump(old[name]) != ast.dump(new[name])}, reads)

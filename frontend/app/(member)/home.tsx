@@ -3,6 +3,7 @@ import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image, TextInput, Platform, KeyboardAvoidingView } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import { StatusPill } from '../../components/StatusPill';
 import { AdBanner } from '../../components/AdBanner';
@@ -56,6 +57,8 @@ interface PendingInvitation {
 
 export default function MemberHomeScreen() {
   const { user, token, logout } = useAuth();
+  const accountInsets = useSafeAreaInsets();
+  const [administrationExpanded, setAdministrationExpanded] = useState(false);
   const router = useRouter();
   const [photoExpanded, setPhotoExpanded] = useState(false);
   const dashboardScroll = useRef<ScrollView>(null);
@@ -87,6 +90,7 @@ export default function MemberHomeScreen() {
   const [errorOwner, setErrorOwner] = useState<string | null>(null);
   const dashboardData = dashboardOwner === sessionKey ? storedDashboardData : null;
   const dashboardError = errorOwner === sessionKey ? storedDashboardError : null;
+  const latestDashboard = useRef(dashboardData); latestDashboard.current = dashboardData;
   const loading = storedLoading || (!dashboardData && !dashboardError);
   const confirmedAmount = dashboardData?.summary.confirmed_collected;
   const confirmedAmountAvailable = dashboardData?.summary.confirmed_collected_availability === 'AVAILABLE'
@@ -125,6 +129,7 @@ export default function MemberHomeScreen() {
     setInvitationsLoading(false);
     setAcceptingInvitation(null);
     setShowProfileMenu(false);
+    setAdministrationExpanded(false);
     setShowDeleteModal(false);
     setShowCreateGroup(false);
     setPhotoExpanded(false);
@@ -591,7 +596,7 @@ export default function MemberHomeScreen() {
           accessibilityLabel="Close account panel backdrop"
         />
         <View style={styles.dropdownMenu} accessibilityViewIsModal>
-          <View style={styles.accountToolbar}>
+          <View style={[styles.accountToolbar, { paddingTop: Math.max(accountInsets.top, 8) }]}>
             <Text style={styles.accountTitle}>Clubvel</Text>
             <TouchableOpacity style={styles.accountClose} onPress={() => setShowProfileMenu(false)} accessibilityRole="button" accessibilityLabel="Close account panel">
               <Ionicons name="close" size={26} color={Colors.white} />
@@ -658,17 +663,25 @@ export default function MemberHomeScreen() {
             </TouchableOpacity>
             {dashboardData?.clubs.some(club => club.role === 'admin' || club.role === 'treasurer') && <TouchableOpacity style={styles.dropdownItem} accessibilityRole="button" accessibilityLabel="Club administration" onPress={() => {
               if (latestSession.current !== sessionKey) return;
-              setShowProfileMenu(false); dashboardScroll.current?.scrollTo({ y: clubsOffset.current, animated: true });
+              setAdministrationExpanded(value => !value);
             }}>
               <Ionicons name="settings-outline" size={24} color={Colors.textPrimary} />
-              <View style={styles.dropdownItemCopy}><Text style={styles.dropdownItemText}>Club administration</Text><Text style={styles.dropdownDescription}>Choose a club you administer from My Clubs</Text></View>
+              <View style={styles.dropdownItemCopy}><Text style={styles.dropdownItemText}>Club administration</Text><Text style={styles.dropdownDescription}>Open your authorised club dashboard</Text></View>
               <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
             </TouchableOpacity>}
+            {administrationExpanded && dashboardData?.clubs.filter(club => club.role === 'admin' || club.role === 'treasurer').map(club => (
+              <TouchableOpacity key={club.id} style={styles.dropdownItem} accessibilityRole="button" accessibilityLabel={`Administer ${club.name}`} onPress={() => {
+                if (latestSession.current !== sessionKey || !latestDashboard.current?.clubs.some(current => current.id === club.id && (current.role === 'admin' || current.role === 'treasurer'))) return;
+                setShowProfileMenu(false);
+                setAdministrationExpanded(false);
+                router.push({ pathname: '/(treasurer)/dashboard', params: { groupId: club.id } });
+              }}>
+                <Ionicons name="people-outline" size={24} color={Colors.accent} />
+                <Text style={styles.dropdownItemText}>{club.name}</Text>
+                <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            ))}
             <View style={styles.dropdownDivider} />
-            <TouchableOpacity style={styles.dropdownItemLogout} onPress={handleLogout} accessibilityRole="button" accessibilityLabel="Sign Out">
-              <Ionicons name="log-out-outline" size={24} color={Colors.textPrimary} />
-              <Text style={styles.dropdownItemTextLogout}>Sign Out</Text>
-            </TouchableOpacity>
             <TouchableOpacity
               style={styles.dropdownItem}
               onPress={() => { setShowProfileMenu(false); setShowDeleteModal(true); }}
@@ -679,6 +692,11 @@ export default function MemberHomeScreen() {
               <Text style={[styles.dropdownItemText, styles.accountDeleteText]}>Delete My Account</Text>
             </TouchableOpacity>
           </ScrollView>
+          <View style={[styles.accountFooter, { paddingBottom: Math.max(accountInsets.bottom, 12) }]}>            <TouchableOpacity style={styles.dropdownItemLogout} onPress={handleLogout} accessibilityRole="button" accessibilityLabel="Sign Out">
+              <Ionicons name="log-out-outline" size={24} color={Colors.statusLate} />
+              <Text style={styles.dropdownItemTextLogout}>Sign Out</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Modal>
@@ -1064,26 +1082,22 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
-  },
+   borderWidth: 2, borderColor: Colors.accent, },
   avatarImage: {
     width: 112,
     height: 112,
     borderRadius: 56,
     borderWidth: 2,
-    borderColor: Colors.gold,
+    borderColor: Colors.accent,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    alignItems: 'flex-end',
-    paddingVertical: 12,
+    backgroundColor: Colors.white,
+    alignItems: 'stretch',
   },
   dropdownMenu: {
     backgroundColor: Colors.white,
-    borderTopLeftRadius: 24,
-    borderBottomLeftRadius: 24,
-    width: '92%',
-    maxWidth: 420,
+    width: '100%',
     flex: 1,
     overflow: 'hidden',
   },
@@ -1094,7 +1108,8 @@ const styles = StyleSheet.create({
   },
   accountTitle: { color: Colors.white, fontSize: 24, fontWeight: '700', flexShrink: 1 },
   accountClose: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
-  accountScroll: { flex: 1 },
+  accountScroll: { flex: 1, minHeight: 0 },
+  accountFooter: { backgroundColor: Colors.white, borderTopWidth: 1, borderTopColor: Colors.cardBorder },
   accountContent: { paddingBottom: 24 },
   dropdownHeader: {
     padding: 16,
@@ -1107,7 +1122,7 @@ const styles = StyleSheet.create({
     height: 112,
     borderRadius: 56,
     borderWidth: 2,
-    borderColor: Colors.gold,
+    borderColor: Colors.accent,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
@@ -1118,17 +1133,17 @@ const styles = StyleSheet.create({
   dropdownUserRole: { fontSize: 15, color: Colors.white, marginTop: 6, textAlign: 'center' },
   dropdownDivider: { height: 1, backgroundColor: Colors.cardBorder, marginHorizontal: 24 },
   dropdownItem: {
-    flexDirection: 'row', alignItems: 'center', minHeight: 64,
-    paddingVertical: 18, paddingHorizontal: 24, gap: 12,
+    flexDirection: 'row', alignItems: 'center', minHeight: 52,
+    paddingVertical: 12, paddingHorizontal: 24, gap: 12,
   },
   dropdownItemCopy: { flex: 1, minWidth: 0 },
   dropdownItemText: { fontSize: 17, fontWeight: '600', color: Colors.textPrimary, flexShrink: 1 },
   dropdownDescription: { fontSize: 13, color: Colors.textSecondary, marginTop: 4 },
   dropdownItemLogout: {
-    flexDirection: 'row', alignItems: 'center', minHeight: 64,
-    paddingVertical: 18, paddingHorizontal: 24, gap: 12,
+    flexDirection: 'row', alignItems: 'center', minHeight: 52,
+    paddingVertical: 12, paddingHorizontal: 24, gap: 12,
   },
-  dropdownItemTextLogout: { fontSize: 17, color: Colors.textPrimary, fontWeight: '600', flexShrink: 1 },
+  dropdownItemTextLogout: { fontSize: 17, color: Colors.statusLate, fontWeight: '600', flexShrink: 1 },
   accountDeleteText: { color: Colors.statusLate, fontSize: 15 },
   // Delete Account Modal Styles
   deleteModalOverlay: {
