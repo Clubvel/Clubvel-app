@@ -4,6 +4,11 @@ const ts = require('typescript');
 
 function load(file, dependencies = {}) {
   dependencies = { "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 24, bottom: 24, left: 0, right: 0 }) }, ...dependencies };
+  if (dependencies['expo-router']) dependencies['expo-router'] = { useLocalSearchParams: () => ({}), ...dependencies['expo-router'] };
+  if (file !== 'components/ProfilePhotoFrame.tsx' && dependencies.react && dependencies['react-native']) {
+    const frame = load('components/ProfilePhotoFrame.tsx', { react: dependencies.react, 'react-native': dependencies['react-native'], '../constants/Colors': dependencies['../../constants/Colors'] || dependencies['../../../constants/Colors'] || dependencies['../constants/Colors'] });
+    for (const name of ['./ProfilePhotoFrame', '../../components/ProfilePhotoFrame', '../../../components/ProfilePhotoFrame']) if (!(name in dependencies)) dependencies[name] = frame;
+  }
   const module = { exports: {} };
   const code = ts.transpileModule(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.React, esModuleInterop: true },
@@ -20,7 +25,7 @@ function engine() {
   const same = (a, b) => a && a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
   const react = {
     Fragment: 'Fragment',
-    createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
+    createElement: (type, props, ...children) => type?.name === 'ProfilePhotoFrame' ? type({ ...props, children }) : ({ type, props: { ...props, children } }),
     useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = typeof initial === 'function' ? initial() : initial; return [slots[i], v => { slots[i] = typeof v === 'function' ? v(slots[i]) : v; }]; },
     useRef(initial) { const i = cursor++; return slots[i] ||= { current: initial }; },
     useCallback(fn, deps) { const i = cursor++; if (!slots[i] || !same(slots[i].deps, deps)) slots[i] = { fn, deps }; return slots[i].fn; },

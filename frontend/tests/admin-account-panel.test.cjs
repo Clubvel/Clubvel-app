@@ -52,7 +52,7 @@ test('Admin photo shares authenticated header image with 112px cover/circle/ring
   assert.equal(avatar.props.source.uri, c.auth.user.profile_photo);
   assert.equal(avatar.props.resizeMode, 'cover');
   assert.deepEqual([style(avatar).width, style(avatar).height, style(avatar).borderRadius], [112, 112, 56]);
-  assert.equal(style(avatar).borderWidth, 2); assert.equal(style(avatar).borderColor, 'accent');
+  assert.equal(style(avatar).borderWidth, 1); assert.equal(style(avatar).borderColor, 'white');
   const header = nodes(c.render()).find(n => n.type === 'Image' && style(n).width === 112);
   assert.equal(header.props.source.uri, avatar.props.source.uri);
   c.auth.user.profile_photo = 'data:image/jpeg;base64,replacement';
@@ -63,7 +63,7 @@ test('Admin initials fallback has the same 112px treatment and safely handles mi
   const c = setup(null); await c.ready(); c.open();
   const avatar = nodes(c.panel()).find(n => style(n).width === 112);
   assert.equal(avatar.type, 'View'); assert.equal(text(avatar), 'A');
-  assert.deepEqual([style(avatar).height, style(avatar).borderRadius, style(avatar).borderColor], [112, 56, 'accent']);
+  assert.deepEqual([style(avatar).height, style(avatar).borderRadius, style(avatar).borderColor], [112, 56, 'white']);
   c.auth.user.full_name = ''; assert.equal(text(nodes(c.panel()).find(n => style(n).width === 112)), '?');
 });
 for (const count of [0, 1, 3]) {
@@ -150,6 +150,7 @@ test('Approved account panels, header styles and existing security/action handle
   const styles = source => new Function('StyleSheet', 'Colors', source.slice(source.indexOf('const styles = StyleSheet.create(')) + '; return styles;')(native.StyleSheet, colors);
   const oldStyles = styles(previous), newStyles = styles(current);
   // Approved navy filled controls; every other property and handler stays protected.
+  oldStyles.clubCard={...oldStyles.clubCard,backgroundColor:colors.softSage};
   for (const name of ['typeButtonActive', 'createClubSubmitButton']) oldStyles[name] = { ...oldStyles[name], backgroundColor: colors.primary };
   for (const [name, value] of Object.entries(oldStyles)) {
     if (name !== 'modalOverlay' && !name.startsWith('dropdown') && !['header','brandName','avatar','avatarImage','accountToolbar','accountTitle'].includes(name)) assert.deepEqual(newStyles[name], value, name);

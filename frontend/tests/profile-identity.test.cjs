@@ -25,12 +25,12 @@ const style=n=>Object.assign({},...([n.props.style].flat().filter(Boolean)));
 test('Home photo is 112px, circular, covered and retains its clementine ring',async()=>{
  const c=await setup();const image=nodes(c.render()).find(n=>n.type==='Image');
  assert.deepEqual([style(image).width,style(image).height,style(image).borderRadius],[112,112,56]);
- assert.equal(style(image).borderWidth,2);assert.equal(style(image).borderColor,'accent');assert.equal(image.props.resizeMode,'cover');
+ assert.equal(style(image).borderWidth,1);assert.equal(style(image).borderColor,'white');assert.equal(image.props.resizeMode,'cover');
  assert.equal(image.props.source.uri,'data:image/jpeg;base64,existing');
 });
 test('Home fallback matches 112px photo footprint and scales existing person icon',async()=>{
  const c=await setup('home',null);const tree=c.render();const avatar=nodes(tree).find(n=>n.props?.accessibilityLabel==='Expand profile photo');
- const circle=nodes(avatar).find(n=>n.type==='View');assert.deepEqual([style(circle).width,style(circle).height,style(circle).borderRadius],[112,112,56]);
+ const circle=nodes(avatar).find(n=>n.type==='View'&&style(n).width===112);assert.deepEqual([style(circle).width,style(circle).height,style(circle).borderRadius],[112,112,56]);
  assert.equal(nodes(avatar).find(n=>n.type==='Ionicons').props.size,32);
 });
 test('Home header keeps existing menu/profile route and reserves space on a 320px screen',async()=>{
@@ -47,7 +47,7 @@ test('Profile keeps 112px identity, safe fallback and wraps long names',async()=
  for(const photo of ['data:image/jpeg;base64,existing',null]){
   const c=await setup('profile',photo),tree=c.render();
   const avatar=nodes(tree).find(n=>n.props?.accessibilityLabel===(photo?'View full-size profile photo':'Add profile photo'));
-  const imageOrCircle=nodes(avatar).find(n=>n.type===(photo?'Image':'View'));
+  const imageOrCircle=nodes(avatar).find(n=>n.type===(photo?'Image':'View')&&style(n).width===112);
   assert.deepEqual([style(imageOrCircle).width,style(imageOrCircle).height,style(imageOrCircle).borderRadius],[112,112,56]);
   const name=nodes(tree).find(n=>n.type==='Text'&&text(n)===c.auth.user.full_name);assert.equal(style(name).textAlign,'center');assert.equal(style(name).alignSelf,'stretch');
   assert.ok(button(tree,'Change photo'));
@@ -71,7 +71,7 @@ test('account panel displays the current photo or initials at 112px with accurat
   const tree=c.render(),panel=nodes(tree).find(n=>n.props?.accessibilityViewIsModal);
   const avatar=nodes(panel).find(n=>style(n).width===112);
   assert.deepEqual([style(avatar).width,style(avatar).height,style(avatar).borderRadius],[112,112,56]);
-  assert.equal(style(avatar).borderColor,'accent');
+  assert.equal(style(avatar).borderColor,'white');
   if(photo){assert.equal(avatar.props.source.uri,photo);assert.equal(avatar.props.resizeMode,'cover');}
   else assert.equal(text(avatar),'A');
   assert.match(text(panel),new RegExp(`Member of ${count} ${count===1?'Group':'Groups'}`));

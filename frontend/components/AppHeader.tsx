@@ -1,4 +1,5 @@
 import React, { useState } from 'react';
+import ProfilePhotoFrame from './ProfilePhotoFrame';
 import ProfilePhotoViewer from './ProfilePhotoViewer';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
@@ -55,13 +56,13 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         )}
       {showProfile && (
         <TouchableOpacity onPress={() => user?.profile_photo ? setPhotoExpanded(true) : handleProfilePress()} style={styles.profileButton} accessibilityLabel="Expand profile photo">
-          {user?.profile_photo ? (
+          <ProfilePhotoFrame tone={[Colors.white, Colors.background, Colors.lightBackground, Colors.iceBlue, Colors.softSage].includes(backgroundColor) ? "light" : "dark"}>{user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
             <View style={styles.profilePlaceholder}>
               <Ionicons name="person" size={32} color={Colors.white} />
             </View>
-          )}
+          )}</ProfilePhotoFrame>
         </TouchableOpacity>
       )}
         <View style={styles.titleContainer}>
@@ -120,12 +121,12 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 2,
-    borderColor: Colors.accent,
+    borderWidth: 1,
+    borderColor: Colors.white,
   },
   profilePlaceholder: {
-    borderWidth: 2,
-    borderColor: Colors.accent,
+    borderWidth: 1,
+    borderColor: Colors.white,
     width: 112,
     height: 112,
     borderRadius: 56,

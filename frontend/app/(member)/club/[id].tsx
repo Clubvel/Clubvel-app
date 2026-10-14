@@ -360,7 +360,7 @@ export default function ClubDetailScreen() {
                 <Text style={styles.bankDetailValue}>{clubData.payment_reference.account_number || 'Not available'}</Text>
               </View>
               <View style={styles.bankDetailRow}><Text style={styles.bankDetailLabel}>Account Holder</Text><Text style={styles.bankDetailValue}>{clubData.group.bank_account_holder || "Not available"}</Text></View>
-              {(!clubData.payment_reference.bank_name || !clubData.payment_reference.account_number || !clubData.group.bank_account_holder) && <Text style={styles.infoText}>Your club has not provided all banking details. Please confirm them with your administrator before paying.</Text>}
+              {(!clubData.payment_reference.bank_name || !clubData.payment_reference.account_number || !clubData.group.bank_account_holder) && <Text style={[styles.infoText, { color: Colors.white }]}>Your club has not provided all banking details. Please confirm them with your administrator before paying.</Text>}
               <View style={styles.bankDetailRow}>
                 <Text style={styles.bankDetailLabel}>Amount</Text>
                 <Text style={styles.bankDetailValue}>{selectedContribution ? paymentMoney(selectedContribution.outstanding_amount) : clubData.payment_reference.amount == null ? 'Not recorded' : paymentMoney(clubData.payment_reference.amount)} </Text>
@@ -564,7 +564,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   referenceCard: {
-    backgroundColor: Colors.sage,
+    backgroundColor: Colors.midnightNavy,
   },
   referenceCodeContainer: {
     alignItems: 'center',

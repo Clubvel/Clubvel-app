@@ -1,4 +1,5 @@
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
+import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
 import { ClaimPaymentRecord } from '../../components/ClaimPaymentRecord';
 import { ClaimPayoutDate } from '../../components/ClaimPayoutDate';
 import React, { useRef, useState, useCallback } from 'react';
@@ -270,13 +271,13 @@ export default function TreasurerClaimsScreen() {
           onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(treasurer)/profile')}
           style={styles.profileButton}
         >
-          {user?.profile_photo ? (
+          <ProfilePhotoFrame>{user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
             <View style={styles.profilePlaceholder}>
               <Ionicons name="person" size={32} color={Colors.white} />
             </View>
-          )}
+          )}</ProfilePhotoFrame>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Claims Management</Text>
       
@@ -552,8 +553,8 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 2,
-    borderColor: Colors.accent,
+    borderWidth: 1,
+    borderColor: Colors.white,
   },
   profilePlaceholder: {
     width: 112,
@@ -562,7 +563,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
-   borderWidth: 2, borderColor: Colors.accent, },
+   borderWidth: 1, borderColor: Colors.white, },
   content: {
     flex: 1,
   },

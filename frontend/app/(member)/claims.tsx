@@ -1,4 +1,5 @@
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
+import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ActivityIndicator,
@@ -268,13 +269,13 @@ export default function ClaimsScreen() {
           style={styles.profileButton}
           onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(member)/profile')}
         >
-          {user?.profile_photo ? (
+          <ProfilePhotoFrame>{user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
             <View style={styles.profilePlaceholder}>
               <Ionicons name="person" size={32} color={Colors.white} />
             </View>
-          )}
+          )}</ProfilePhotoFrame>
         </TouchableOpacity>
         <Text style={styles.headerTitle}>Claims</Text>
       
@@ -525,8 +526,8 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 2,
-    borderColor: Colors.accent,
+    borderWidth: 1,
+    borderColor: Colors.white,
   },
   profilePlaceholder: {
     width: 112,
@@ -535,7 +536,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.accent,
     justifyContent: 'center',
     alignItems: 'center',
-   borderWidth: 2, borderColor: Colors.accent, },
+   borderWidth: 1, borderColor: Colors.white, },
   content: {
     flexGrow: 1,
     padding: 24,
@@ -651,17 +652,17 @@ const styles = StyleSheet.create({
     marginTop: 12,
     padding: 12,
     borderRadius: 10,
-    backgroundColor: Colors.sage,
+    backgroundColor: Colors.errorSurface,
   },
   rejectionLabel: {
     fontSize: 12,
     fontWeight: '700',
-    color: Colors.white,
+    color: Colors.statusLate,
     marginBottom: 4,
   },
   rejectionText: {
     fontSize: 13,
-    color: Colors.white,
+    color: Colors.textPrimary,
     lineHeight: 18,
   },
   modalBackdrop: {

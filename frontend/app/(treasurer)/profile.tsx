@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
+import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
 import EditProfile from '../../components/EditProfile';
 
 interface AdminStats {
@@ -132,13 +133,13 @@ export default function ProfileScreen() {
       {/* Header */}
       <View style={styles.header}>
         <TouchableOpacity style={styles.avatarContainer} onPress={() => user?.profile_photo ? setPhotoExpanded(true) : handleChangePhoto()} disabled={uploading}>
-          {user?.profile_photo ? (
+          <ProfilePhotoFrame>{user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
           ) : (
             <View style={styles.avatar}>
               <Ionicons name="person" size={32} color={Colors.white} />
             </View>
-          )}
+          )}</ProfilePhotoFrame>
           <View style={styles.editBadge}>
             {uploading ? (
               <ActivityIndicator size="small" color={Colors.white} />
@@ -372,13 +373,13 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
-   borderWidth: 2, borderColor: Colors.accent, },
+   borderWidth: 1, borderColor: Colors.white, },
   avatarImage: {
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 2,
-    borderColor: Colors.accent,
+    borderWidth: 1,
+    borderColor: Colors.white,
   },
   editBadge: {
     position: 'absolute',

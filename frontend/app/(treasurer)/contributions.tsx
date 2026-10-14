@@ -1,4 +1,5 @@
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
+import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
 import React, { useCallback, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Image, Modal, TextInput, RefreshControl } from 'react-native';
 import { Colors } from '../../constants/Colors';
@@ -206,13 +207,13 @@ export default function ContributionsScreen() {
       {/* Header with Month Navigation and Profile */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(treasurer)/profile')} style={styles.profileButton}>
-          {user?.profile_photo ? (
+          <ProfilePhotoFrame>{user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
             <View style={styles.profilePlaceholder}>
               <Ionicons name="person" size={32} color={Colors.white} />
             </View>
-          )}
+          )}</ProfilePhotoFrame>
         </TouchableOpacity>
         <View style={styles.headerLeft}>
           <Text style={styles.headerTitle}>Payments</Text>
@@ -420,8 +421,8 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 2,
-    borderColor: Colors.accent,
+    borderWidth: 1,
+    borderColor: Colors.white,
   },
   profilePlaceholder: {
     width: 112,
@@ -430,7 +431,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
-   borderWidth: 2, borderColor: Colors.accent, },
+   borderWidth: 1, borderColor: Colors.white, },
   monthNav: {
     backgroundColor: Colors.darkGreen,
     paddingHorizontal: 24,

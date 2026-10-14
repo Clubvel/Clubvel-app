@@ -76,12 +76,18 @@ test('account tabs and existing financial screens are unchanged from Phase 3C', 
   const claimsActual = fs.readFileSync(path.join(root, claimsFile), 'utf8').replace(/\r\n/g, '\n');
   // Permit only the explicitly reviewed status-colour and rejection-panel edits.
   const presentationOnly = claimsActual
+      .replace("import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';\n", '')
+      .replaceAll('<ProfilePhotoFrame>', '').replaceAll('</ProfilePhotoFrame>', '')
+      .replace(/(profileImage: \{[^{}]*?borderWidth: )1/, '$12')
+      .replace(/(profileImage: \{[^{}]*?borderColor: )Colors.white/, '$1Colors.accent')
+      .replace(/(profilePlaceholder: \{[^{}]*?borderWidth: )1/, '$12')
+      .replace(/(profilePlaceholder: \{[^{}]*?borderColor: )Colors.white/, '$1Colors.accent')
     .replace(/const getStatusColor = \(status: string\) => \{[\s\S]*?\n\};\n\n/, '')
     .replace('style={[styles.statusText, { color: getStatusColor(claim.status) }]}', 'style={styles.statusText}')
     .replace(/(statusText: \{\n    fontSize: 13,\n)/, '$1    color: Colors.accent;\n'.replace(';', ','))
-    .replace(/(rejectionBox: \{[\s\S]*?backgroundColor: )Colors.sage/, '$1Colors.softSage')
-    .replace(/(rejectionLabel: \{[\s\S]*?color: )Colors.white/, '$1Colors.sage')
-    .replace(/(rejectionText: \{[\s\S]*?color: )Colors.white/, '$1Colors.textSecondary');
+      .replace(/(rejectionBox: \{[\s\S]*?backgroundColor: )Colors.errorSurface/, '$1Colors.softSage')
+      .replace(/(rejectionLabel: \{[\s\S]*?color: )Colors.statusLate/, '$1Colors.sage')
+      .replace(/(rejectionText: \{[\s\S]*?color: )Colors.textPrimary/, '$1Colors.textSecondary');
   assert.equal(presentationOnly, claimsExpected);
 
 });

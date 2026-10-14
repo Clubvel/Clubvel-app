@@ -168,7 +168,8 @@ test('physically approved header, PDF service and export handlers stay unchanged
   const source = fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n');
   const baseline = cp.execFileSync('git', ['show', 'eb8dc4927fc65e08244aceae45799c75af8aca87:' + file], { cwd: root, encoding: 'utf8' });
   const header = s => s.slice(s.indexOf('      {/* Header */}'), s.indexOf('      <ScrollView'));
-  assert.equal(header(source), header(baseline));
+  // The approved pure avatar frame changes presentation, preserving the complete header contents and handlers.
+  assert.equal(header(source).replaceAll('<ProfilePhotoFrame>', '').replaceAll('</ProfilePhotoFrame>', ''), header(baseline));
   assert.match(source, /Other available exports/); assert.match(source, /do not use the club or month selected above/);
   assert.doesNotMatch(source, /Legacy exports|legacy shortcut|Member Statement/);
   const currentBaseline = cp.execFileSync('git', ['show', '3f49618fb54e7a74802d4d47bfbd4057866b59fe:' + file], { cwd: root, encoding: 'utf8' });

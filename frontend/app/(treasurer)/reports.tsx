@@ -1,4 +1,5 @@
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
+import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
 import React, { useCallback, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, ActivityIndicator, RefreshControl, Image } from 'react-native';
 import { Colors } from '../../constants/Colors';
@@ -357,13 +358,13 @@ export default function ReportsScreen() {
           onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(treasurer)/profile')}
           style={styles.profileButton}
         >
-          {user?.profile_photo ? (
+          <ProfilePhotoFrame>{user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
             <View style={styles.profilePlaceholder}>
               <Text style={styles.profileInitial}>{(user?.full_name || '').trim().charAt(0).toUpperCase() || '?'}</Text>
             </View>
-          )}
+          )}</ProfilePhotoFrame>
         </TouchableOpacity>
         <View style={styles.headerTitleContainer}><Text style={styles.headerTitle}>Reports</Text></View>
       </View>
@@ -447,15 +448,15 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 2,
-    borderColor: Colors.accent,
+    borderWidth: 1,
+    borderColor: Colors.white,
   },
   profilePlaceholder: {
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 2,
-    borderColor: Colors.accent,
+    borderWidth: 1,
+    borderColor: Colors.white,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',

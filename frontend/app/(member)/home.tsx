@@ -5,6 +5,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
+import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
 import { StatusPill } from '../../components/StatusPill';
 import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
@@ -424,13 +425,13 @@ export default function MemberHomeScreen() {
             accessibilityLabel="Expand profile photo"
             onPress={() => user?.profile_photo ? setPhotoExpanded(true) : setShowProfileMenu(true)}
           >
-            {user?.profile_photo ? (
+            <ProfilePhotoFrame>{user?.profile_photo ? (
               <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
             ) : (
               <View style={styles.avatar}>
                 <Ionicons name="person" size={32} color={Colors.white} />
               </View>
-            )}
+            )}</ProfilePhotoFrame>
           </TouchableOpacity>
           <Text style={styles.brandName}>Clubvel</Text>
           <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open profile menu" onPress={() => setShowProfileMenu(true)} style={{ padding: 8, flexShrink: 0 }}>
@@ -602,16 +603,16 @@ export default function MemberHomeScreen() {
               <Ionicons name="close" size={26} color={Colors.white} />
             </TouchableOpacity>
           </View>
-          <ScrollView style={styles.accountScroll} contentContainerStyle={styles.accountContent}>
+          <ScrollView key={administrationExpanded ? "administration" : "account"} style={styles.accountScroll} contentContainerStyle={styles.accountContent}>
             <View style={styles.dropdownHeader}>
               <TouchableOpacity style={{ minWidth: 112, minHeight: 112 }} onPress={() => { if (user?.profile_photo) { setShowProfileMenu(false); setPhotoExpanded(true); } }} accessibilityRole="button" accessibilityLabel="View full-size profile photo">
-              {user?.profile_photo ? (
+              <ProfilePhotoFrame>{user?.profile_photo ? (
                 <Image source={{ uri: user.profile_photo }} style={styles.dropdownAvatar} resizeMode="cover" />
               ) : (
                 <View style={styles.dropdownAvatar}>
                   <Text style={styles.dropdownAvatarText}>{(user?.full_name || '').trim().charAt(0).toUpperCase() || '?'}</Text>
                 </View>
-              )}
+              )}</ProfilePhotoFrame>
               </TouchableOpacity>
               <View style={styles.dropdownUserInfo}>
                 <Text style={styles.dropdownUserName}>{user?.full_name}</Text>
@@ -620,6 +621,24 @@ export default function MemberHomeScreen() {
                 </Text>
               </View>
             </View>
+            {administrationExpanded ? <>
+              <TouchableOpacity style={styles.dropdownItem} accessibilityRole="button" accessibilityLabel="Back to account menu" onPress={() => setAdministrationExpanded(false)}>
+                <Ionicons name="arrow-back" size={24} color={Colors.primary} /><Text style={styles.dropdownItemText}>Back to account menu</Text>
+              </TouchableOpacity>
+              <Text style={[styles.dropdownItemText, { paddingHorizontal: 24, paddingVertical: 12 }]}>Choose a club to administer</Text>
+            {dashboardData?.clubs.filter(club => club.role === 'admin' || club.role === 'treasurer').map(club => (
+              <TouchableOpacity key={club.id} style={styles.dropdownItem} accessibilityRole="button" accessibilityLabel={`Administer ${club.name}`} onPress={() => {
+                if (latestSession.current !== sessionKey || !latestDashboard.current?.clubs.some(current => current.id === club.id && (current.role === 'admin' || current.role === 'treasurer'))) return;
+                setShowProfileMenu(false);
+                setAdministrationExpanded(false);
+                router.push({ pathname: '/(treasurer)/dashboard', params: { groupId: club.id } });
+              }}>
+                <Ionicons name="people-outline" size={24} color={Colors.accent} />
+                <Text style={styles.dropdownItemText}>{club.name}</Text>
+                <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            ))}
+            </> : <>
             <View style={styles.dropdownDivider} />
             <TouchableOpacity style={styles.dropdownItem} onPress={navigateToProfile} accessibilityRole="button" accessibilityLabel="My Profile">
               <Ionicons name="person-outline" size={24} color={Colors.textPrimary} />
@@ -663,24 +682,12 @@ export default function MemberHomeScreen() {
             </TouchableOpacity>
             {dashboardData?.clubs.some(club => club.role === 'admin' || club.role === 'treasurer') && <TouchableOpacity style={styles.dropdownItem} accessibilityRole="button" accessibilityLabel="Club administration" onPress={() => {
               if (latestSession.current !== sessionKey) return;
-              setAdministrationExpanded(value => !value);
+              setAdministrationExpanded(true);
             }}>
               <Ionicons name="settings-outline" size={24} color={Colors.textPrimary} />
               <View style={styles.dropdownItemCopy}><Text style={styles.dropdownItemText}>Club administration</Text><Text style={styles.dropdownDescription}>Open your authorised club dashboard</Text></View>
               <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
             </TouchableOpacity>}
-            {administrationExpanded && dashboardData?.clubs.filter(club => club.role === 'admin' || club.role === 'treasurer').map(club => (
-              <TouchableOpacity key={club.id} style={styles.dropdownItem} accessibilityRole="button" accessibilityLabel={`Administer ${club.name}`} onPress={() => {
-                if (latestSession.current !== sessionKey || !latestDashboard.current?.clubs.some(current => current.id === club.id && (current.role === 'admin' || current.role === 'treasurer'))) return;
-                setShowProfileMenu(false);
-                setAdministrationExpanded(false);
-                router.push({ pathname: '/(treasurer)/dashboard', params: { groupId: club.id } });
-              }}>
-                <Ionicons name="people-outline" size={24} color={Colors.accent} />
-                <Text style={styles.dropdownItemText}>{club.name}</Text>
-                <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
-              </TouchableOpacity>
-            ))}
             <View style={styles.dropdownDivider} />
             <TouchableOpacity
               style={styles.dropdownItem}
@@ -691,6 +698,7 @@ export default function MemberHomeScreen() {
               <Ionicons name="trash-outline" size={24} color={Colors.statusLate} />
               <Text style={[styles.dropdownItemText, styles.accountDeleteText]}>Delete My Account</Text>
             </TouchableOpacity>
+            </>}
           </ScrollView>
           <View style={[styles.accountFooter, { paddingBottom: Math.max(accountInsets.bottom, 12) }]}>            <TouchableOpacity style={styles.dropdownItemLogout} onPress={handleLogout} accessibilityRole="button" accessibilityLabel="Sign Out">
               <Ionicons name="log-out-outline" size={24} color={Colors.statusLate} />
@@ -967,7 +975,7 @@ const styles = StyleSheet.create({
     marginBottom: 16,
   },
   clubCard: {
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.softSage,
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
@@ -1082,13 +1090,13 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
-   borderWidth: 2, borderColor: Colors.accent, },
+   borderWidth: 1, borderColor: Colors.white, },
   avatarImage: {
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 2,
-    borderColor: Colors.accent,
+    borderWidth: 1,
+    borderColor: Colors.white,
   },
   modalOverlay: {
     flex: 1,
@@ -1121,8 +1129,8 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 2,
-    borderColor: Colors.accent,
+    borderWidth: 1,
+    borderColor: Colors.white,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',

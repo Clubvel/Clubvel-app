@@ -394,3 +394,17 @@ test('Club accordion expansion does not carry into another account',async()=>{
  const c=await setup();assert.ok(nodes(c.render()).some(n=>n.props?.accessibilityLabel==='Select contribution contribution-a'));
  c.authState.user={id:'other'};c.authState.token='other-token';assert.doesNotMatch(text(c.render()),/Club A|Wrong reference/);
 });
+
+test('October club-scoped proofs reconcile 4 = 3 confirmed + 0 pending + 1 declined, excluding other periods/clubs',async()=>{
+ const c=await setup();c.params.scope='club';c.params.group_id='group-a';c.params.year='2026';c.params.month='10';
+ c.state.records=[1,2,3].map(n=>({...c.record,contribution_id:`confirmed-${n}`,status:'confirmed',proof_review_status:'approved',proof_eligible:false}));
+ c.state.records.push({...c.record,contribution_id:'declined',status:'proof_uploaded',proof_review_status:'declined'});
+ c.state.records.push({...c.record,contribution_id:'other-club',group_id:'group-b',group_name:'Other club'}, {...c.record,contribution_id:'september',month:9});
+ c.render();c.ui.blur();c.ui.focus();await tick();const tree=c.render();
+ assert.match(text(nodes(tree).find(n=>n.props.accessibilityLabel==='Show total proofs')),/Total Proofs4/);
+ assert.match(text(nodes(tree).find(n=>n.props.accessibilityLabel==='Show confirmed')),/Confirmed3/);
+ assert.match(text(nodes(tree).find(n=>n.props.accessibilityLabel==='Show pending')),/Pending0/);
+ assert.match(text(nodes(tree).find(n=>n.props.accessibilityLabel==='Show declined proofs')),/Declined: 1/);
+ assert.match(text(nodes(tree).find(n=>n.props.accessibilityLabel==='Show other proofs')),/Other: 0/);
+ assert.doesNotMatch(text(tree),/Other club/);
+});

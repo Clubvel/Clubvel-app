@@ -7,6 +7,7 @@ import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
 import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
+import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
 import { AdBanner } from '../../components/AdBanner';
 import axios from 'axios';
 
@@ -216,13 +217,13 @@ export default function MembersScreen() {
       {/* Header with Profile Photo */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(treasurer)/profile')} style={styles.profileButton}>
-          {user?.profile_photo ? (
+          <ProfilePhotoFrame>{user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
             <View style={styles.profilePlaceholder}>
               <Ionicons name="person" size={32} color={Colors.white} />
             </View>
-          )}
+          )}</ProfilePhotoFrame>
         </TouchableOpacity>
         <View style={styles.headerLeft}>
           <Text style={styles.headerTitle}>Members</Text>
@@ -444,8 +445,8 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 2,
-    borderColor: Colors.accent,
+    borderWidth: 1,
+    borderColor: Colors.white,
   },
   profilePlaceholder: {
     width: 112,
@@ -454,7 +455,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
-   borderWidth: 2, borderColor: Colors.accent, },
+   borderWidth: 1, borderColor: Colors.white, },
   content: {
     flex: 1,
   },

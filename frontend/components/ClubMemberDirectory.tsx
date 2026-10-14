@@ -1,3 +1,4 @@
+import ProfilePhotoFrame from './ProfilePhotoFrame';
 import React, { useCallback, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { useFocusEffect } from 'expo-router';
@@ -77,10 +78,11 @@ export default function ClubMemberDirectory({ groupId, search = '', renderDetail
     const photoTicket = sequence.current;
     return (
     <TouchableOpacity accessibilityRole="button" accessibilityLabel={`View photo of ${member.name}`} disabled={!usablePhoto(member)}
-      onPress={() => { setSelectionOwner(context); setPhoto(member); }} style={styles.avatar}>
+      onPress={() => { setSelectionOwner(context); setPhoto(member); }} style={{ flexShrink: 0 }}>
+      <ProfilePhotoFrame size={48} tone="light"><View style={styles.avatar}>
       {usablePhoto(member) ? <Image source={{ uri: member.profile_photo! }} style={styles.image} resizeMode="cover"
         onError={() => { if (latest.current === context && sequence.current === photoTicket) setFailedPhotos(previous => ({ ...previous, [photoKey(member)]: true })); }} /> :
-        <Text style={styles.initials}>{initials(member.name)}</Text>}
+        <Text style={styles.initials}>{initials(member.name)}</Text>}</View></ProfilePhotoFrame>
     </TouchableOpacity>
     );
   };
@@ -110,7 +112,7 @@ export default function ClubMemberDirectory({ groupId, search = '', renderDetail
 const styles = StyleSheet.create({
   section: { padding: 16 }, title: { fontSize: 20, fontWeight: '600', color: Colors.textPrimary, marginBottom: 12 },
   row: { flexDirection: 'row', alignItems: 'center', padding: 16, marginBottom: 12, backgroundColor: Colors.white, borderRadius: 12, borderWidth: 1, borderColor: Colors.cardBorder },
-  avatar: { width: 48, height: 48, borderRadius: 24, borderWidth: 2, borderColor: Colors.accent, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
+  avatar: { width: 48, height: 48, borderRadius: 24, borderWidth: 1, borderColor: Colors.white, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
   image: { width: '100%', height: '100%' }, initials: { color: Colors.white, fontSize: 16, fontWeight: '600' },
   identity: { flex: 1, marginLeft: 16 }, name: { fontSize: 16, fontWeight: '600', color: Colors.textPrimary }, role: { color: Colors.textSecondary, marginTop: 4 },
   overlay: { flex: 1, backgroundColor: 'rgba(0,0,0,0.5)', alignItems: 'center', justifyContent: 'center', padding: 24 },

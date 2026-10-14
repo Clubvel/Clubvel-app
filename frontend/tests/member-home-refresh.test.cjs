@@ -2,15 +2,16 @@ const test = require('node:test');
 const assert = require('node:assert/strict');
 const { load, engine, tick, nodes, text, button, native, colors } = require('./ui-harness.cjs');
 
-function setup(screen = 'member', holdInvitations = false) {
+function setup(screen = 'member', holdInvitations = false, params = {}, initialUser = { id: 'member', full_name: 'Test Member', first_name: 'Test' }, initialContextRole = 'admin') {
   const ui = engine(), requests = [], invitations = [], actions = [], alerts = [], routes = [];
-  const auth = { user: { id: 'member', full_name: 'Test Member', first_name: 'Test' }, token: 'session' };
+  const contextRequests=[]; const contextState={ handler:null, role:initialContextRole };
+  const auth = { user: initialUser, token: 'session' };
   const Screen = load(screen === 'member' ? 'app/(member)/home.tsx' : 'app/(treasurer)/dashboard.tsx', {
     react: ui.react,
     'react-native': { ...native, Alert: {alert: (...args) => alerts.push(args)}, RefreshControl: 'RefreshControl', TextInput: 'TextInput',
       KeyboardAvoidingView: 'KeyboardAvoidingView', Platform: { OS: 'android' },
       Keyboard: { dismiss() {} }, TouchableWithoutFeedback: 'TouchableWithoutFeedback' },
-    'expo-router': { useFocusEffect: ui.useFocusEffect, useRouter: () => ({ push: r => routes.push(r) }) },
+    'expo-router': { useLocalSearchParams:()=>params, useFocusEffect: ui.useFocusEffect, useRouter: () => ({ push: r => routes.push(r) }) },
     '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': { useAuth: () => auth },
     '../../components/StatusPill': { StatusPill: 'StatusPill' },
@@ -19,19 +20,24 @@ function setup(screen = 'member', holdInvitations = false) {
     '../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '@react-native-async-storage/async-storage': {},
-    axios: { get: url => url.includes('/invitations/') ? (holdInvitations ? new Promise(resolve => invitations.push({url,resolve})) : Promise.resolve({ data: { invitations: [] } }))
+    axios: { get: (url,options) => url.endsWith('/context') ? (() => {
+      contextRequests.push({url,options});
+      if(contextState.handler) return contextState.handler(url,options);
+      const id=decodeURIComponent(url.match(/groups\/([^/]+)\/context/)[1]);
+      return Promise.resolve({data:{club:{id,name:id==='group-a'||id==='a'?'WeTravel':'Eighty8'},membership:{id:'membership-'+id,status:'active',role:contextState.role}}});
+    })() : url.includes('/invitations/') ? (holdInvitations ? new Promise(resolve => invitations.push({url,resolve})) : Promise.resolve({ data: { invitations: [] } }))
       : new Promise(resolve => requests.push({ url, resolve })), post: (url,body,options) => new Promise((resolve,reject)=>actions.push({url,body,options,resolve,reject})) },
   }).default;
   const render = () => ui.render(Screen);
   const respond = async (index, name, role = 'member') => {
     requests[index].resolve({ data: { user: auth.user,
-      summary: { total_saved: 0, confirmed_collected: 0, confirmed_collected_availability: "AVAILABLE", active_clubs: 1, overdue_contributions: 0, upcoming_payments: 0, claims_count: 0 },
+      summary: { total_saved: 0, confirmed_collected_current_period: 0, confirmed_collected: 0, confirmed_collected_availability: "AVAILABLE", active_clubs: 1, overdue_contributions: 0, upcoming_payments: 0, claims_count: 0 },
       clubs: [{ id: 'group-a', name, role, member_count: 2, collected: 0, expected: 200, due_date: 25, late_count: 0, monthly_contribution: 100, contribution_mode: 'fixed_monthly', status: 'pending' }] } });
     await tick();
   };
   const refresh = () => nodes(render()).find(n => n.type === 'ScrollView').props.refreshControl.props.onRefresh();
   render();
-  return { ui, auth, render, requests, invitations, actions, alerts, routes, respond, refresh };
+  return { ui, auth, contextRequests, contextState, params, render, requests, invitations, actions, alerts, routes, respond, refresh };
 }
 
 test('initial Home load uses the existing dashboard endpoint once', async () => {
@@ -124,7 +130,7 @@ for (const role of ['member', 'admin']) for (const count of [0, 3]) {
     c.requests[0].resolve({ data: { user: { id: 'member', full_name: 'Test Member', first_name: 'Test' },
       summary: { total_saved: 200, confirmed_collected: 200, confirmed_collected_availability: "AVAILABLE", active_clubs: 1, upcoming_payments: count, claims_count: 2,
         upcoming_payout_amount: 100, total_clubs: 1, total_members: 2,
-        total_collected_this_month: 200, late_members_count: count },
+        total_collected_this_month: 200, confirmed_collected_current_period: 200, late_members_count: count },
       clubs: [], urgent_alerts: [], next_claim: null } });
     await tick();
     const tree = c.render();
@@ -330,4 +336,55 @@ test('many authorised administration choices stay scrollable without hiding Sign
  const c=setup();c.requests[0].resolve({data:{user:c.auth.user,summary:{active_clubs:4},clubs:['A','B','C','D'].map((name,index)=>({id:String(index),name,role:'admin'}))}});await tick();
  button(c.render(),'Club administration').props.onPress();const choices=nodes(c.render()).filter(n=>n.props?.accessibilityLabel?.startsWith('Administer '));assert.equal(choices.length,4);
  choices[3].props.onPress();assert.equal(c.routes.at(-1).params.groupId,'3');
+});
+
+const managedData=(clubs)=>({summary:{total_clubs:clubs.length,total_members:9,total_collected_this_month:999,confirmed_collected_current_period:999,late_members_count:9},clubs,urgent_alerts:[],next_claim:null});
+test('Jimmy completes the club picker, authenticated Admin layout and selected-club management journey',async()=>{
+ const member=setup('member',false,{}, {id:'jimmy',full_name:'Jimmy',first_name:'Jimmy'});await member.respond(0,'WeTravel','admin');
+ button(member.render(),'Open your authorised club dashboard').props.onPress();let tree=member.render();
+ assert.match(text(tree),/Choose a club to administer/);assert.ok(nodes(tree).some(n=>n.type==='ScrollView'&&n.props.key==='administration'));
+ nodes(tree).find(n=>n.props.accessibilityLabel==='Administer WeTravel').props.onPress();const route=member.routes.at(-1);assert.equal(route.pathname,'/(treasurer)/dashboard');assert.equal(route.params.groupId,'group-a');
+ const ui=engine();const Layout=load('app/(treasurer)/_layout.tsx',{react:ui.react,'react-native':native,'expo-router':{Tabs:{Screen:'Screen'},Redirect:'Redirect'},'../../contexts/AuthContext':{useAuth:()=>({user:member.auth.user,loading:false})},'../../constants/Colors':{Colors:colors},'@expo/vector-icons':{Ionicons:'Ionicons'}}).default;
+ assert.notEqual(ui.render(Layout).type,'Redirect');
+ const admin=setup('admin',false,route.params,member.auth.user);assert.ok(admin.requests[0].url.endsWith('/api/admin/dashboard/jimmy'));
+ admin.requests[0].resolve({data:managedData([{id:'group-a',name:'WeTravel',member_count:2,late_count:0,financial_summary:{collected:500,total_expected:700,collection_rate:71.4}}])});await tick();
+ assert.match(text(admin.render()),/WeTravel administration/);assert.doesNotMatch(text(admin.render()),/R999.00/);
+ for(const [label,destination,key] of [['Manage members','members','groupId'],['Manage payments','contributions','groupId'],['Manage claims','claims','groupId'],['Monthly reports','reports','group_id']]){
+  nodes(admin.render()).find(n=>n.props.accessibilityLabel===label).props.onPress();assert.equal(admin.routes.at(-1).pathname,`/(treasurer)/${destination}`);assert.equal(admin.routes.at(-1).params[key],'group-a');
+ }
+});
+test('Brown and an explicitly unauthorized club never receive Admin controls or another club fallback',async()=>{
+ const member=setup();await member.respond(0,'WeTravel','member');assert.equal(button(member.render(),'Club administration'),undefined);
+ for(const clubs of [[],[{id:'other',name:'Other Club',member_count:2,late_count:0}]]){
+  const c=setup('admin',false,{groupId:'group-a'},{id:'brown',full_name:'Brown'},'member');c.requests[0].resolve({data:managedData(clubs)});await tick();
+  assert.match(text(c.render()),/Administration access to this club is unavailable/);assert.equal(button(c.render(),'Manage members'),undefined);assert.doesNotMatch(text(c.render()),/Other Club|R999/);
+ }
+});
+test('rapid selected-club switching and revoked rights reject stale Admin management callbacks',async()=>{
+ const c=setup('admin',false,{groupId:'a'});c.requests[0].resolve({data:managedData([{id:'a',name:'WeTravel',member_count:2,late_count:0},{id:'b',name:'Eighty8',member_count:1,late_count:0}])});await tick();const old=nodes(c.render()).find(n=>n.props.accessibilityLabel==='Manage members');
+ c.params.groupId='b';c.render();await tick();assert.match(text(c.render()),/Eighty8 administration/);assert.doesNotMatch(text(c.render()),/WeTravel administration/);old.props.onPress();assert.deepEqual(c.routes,[]);
+ c.params.groupId='a';c.render();c.auth.token='new-session';c.render();old.props.onPress();assert.deepEqual(c.routes,[]);assert.equal(button(c.render(),'Manage members'),undefined);
+});
+test('older backend response shows explicit unverified totals, never a fabricated or legacy collection value',async()=>{
+ const c=setup('admin');const data=managedData([]);delete data.summary.confirmed_collected_current_period;c.requests[0].resolve({data});await tick();assert.match(text(c.render()),/Collected This MonthTotal not verified—/);assert.doesNotMatch(text(c.render()),/R999.00/);
+});
+
+test('denied Admin refresh immediately masks prior data and invalidates old management callbacks',async()=>{
+ const c=setup('admin',false,{groupId:'a'});c.requests[0].resolve({data:managedData([{id:'a',name:'WeTravel',member_count:2,late_count:0}])});await tick();const old=nodes(c.render()).find(n=>n.props.accessibilityLabel==='Manage members');
+ c.refresh();c.requests[1].resolve(Promise.reject({response:{status:403}}));await tick();assert.doesNotMatch(text(c.render()),/WeTravel administration/);assert.match(text(c.render()),/Administration access has been denied/);old.props.onPress();assert.deepEqual(c.routes,[]);
+});
+
+test('verified club Admin controls remain usable when financial dashboard fails, without inventing totals',async()=>{
+ const c=setup('admin',false,{groupId:'group-a'},{id:'jimmy',full_name:'Jimmy'});
+ c.requests[0].resolve(Promise.reject({response:{status:500}}));await tick();
+ assert.match(text(c.render()),/WeTravel administration/);assert.match(text(c.render()),/Could not load administration/);assert.doesNotMatch(text(c.render()),/R0.00|R999.00/);
+ nodes(c.render()).find(n=>n.props.accessibilityLabel==='Manage members').props.onPress();assert.equal(c.routes.at(-1).params.groupId,'group-a');
+ assert.equal(c.contextRequests.length,1);assert.equal(c.contextRequests[0].options.headers.Authorization,'Bearer session');
+});
+test('Admin A-B-A context tickets reject old callbacks and delayed B responses',async()=>{
+ const c=setup('admin',false,{groupId:'a'});c.requests[0].resolve({data:managedData([{id:'a',name:'WeTravel',member_count:2,late_count:0},{id:'b',name:'Eighty8',member_count:2,late_count:0}])});await tick();const old=nodes(c.render()).find(n=>n.props.accessibilityLabel==='Manage members');
+ const pending=[];c.contextState.handler=url=>new Promise(resolve=>pending.push({url,resolve}));
+ c.params.groupId='b';c.render();c.params.groupId='a';c.render();assert.equal(button(c.render(),'Manage members'),undefined);old.props.onPress();assert.deepEqual(c.routes,[]);
+ pending[1].resolve({data:{club:{id:'a',name:'Current WeTravel'},membership:{id:'a',role:'admin',status:'active'}}});await tick();assert.match(text(c.render()),/Current WeTravel administration/);
+ pending[0].resolve({data:{club:{id:'b',name:'Stale Eighty8'},membership:{id:'b',role:'admin',status:'active'}}});await tick();assert.doesNotMatch(text(c.render()),/Stale Eighty8/);old.props.onPress();assert.deepEqual(c.routes,[]);
 });

@@ -4,12 +4,13 @@ import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, A
 import { useAuth } from '../../contexts/AuthContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
+import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
 import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
 import { addPaymentReminder } from '../../services/paymentReminder';
-import { useFocusEffect, useRouter } from 'expo-router';
+import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface LateMember {
@@ -60,6 +61,9 @@ export default function AdminDashboardScreen() {
   const { user, token, logout } = useAuth();
   const accountInsets = useSafeAreaInsets();
   const router = useRouter();
+  const params = useLocalSearchParams<{ groupId?: string | string[] }>();
+  const selectedGroupId = typeof params.groupId === "string" && params.groupId.trim() ? params.groupId : null;
+  const invalidGroupRoute = params.groupId !== undefined && selectedGroupId === null;
   const [photoExpanded, setPhotoExpanded] = useState(false);
   const dashboardScroll = useRef<ScrollView>(null);
   const clubsOffset = useRef(0);
@@ -88,8 +92,33 @@ export default function AdminDashboardScreen() {
   latestSession.current = sessionKey;
   const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
   const [errorOwner, setErrorOwner] = useState<string | null>(null);
-  const dashboardData = dashboardOwner === sessionKey ? storedDashboardData : null;
-  const dashboardError = errorOwner === sessionKey ? storedDashboardError : null;
+  const administrationIdentity = JSON.stringify([sessionKey, selectedGroupId, invalidGroupRoute]);
+  const administrationRevision = useRef({ identity: administrationIdentity, value: 0 });
+  if (administrationRevision.current.identity !== administrationIdentity) administrationRevision.current = { identity: administrationIdentity, value: administrationRevision.current.value + 1 };
+  const administrationContext = JSON.stringify([administrationIdentity, administrationRevision.current.value]);
+  const latestAdministrationKey = useRef(administrationContext);
+  latestAdministrationKey.current = administrationContext;
+  const administrationRequest = useRef(0);
+  const administrationPending = useRef<{ key: string; ticket: number } | null>(null);
+  const [storedAdministration, setAdministration] = useState<{ owner: string; club: { id: string; name: string } | null; error: string | null } | null>(null);
+  const administration = storedAdministration?.owner === administrationContext ? storedAdministration : null;
+  const accountDashboard = dashboardOwner === sessionKey ? storedDashboardData : null;
+  const selectedClub = administration?.club;
+  const financialClub = selectedGroupId ? accountDashboard?.clubs.find(club => club.id === selectedGroupId) : null;
+  const dashboardData = selectedGroupId ? selectedClub && financialClub && accountDashboard ? {
+    ...accountDashboard, clubs: [{ ...financialClub, name: selectedClub.name }], urgent_alerts: [], next_claim: null,
+    summary: { ...accountDashboard.summary, total_clubs: 1, total_members: financialClub.member_count,
+      late_members_count: financialClub.late_count,
+      confirmed_collected_current_period: financialClub.financial_summary?.collected ?? null },
+  } : null : invalidGroupRoute ? null : accountDashboard;
+  const dashboardError = (invalidGroupRoute ? 'The selected club could not be verified.' : administration?.error) ||
+    (errorOwner === sessionKey ? storedDashboardError : null) ||
+    (selectedGroupId && selectedClub && accountDashboard && !financialClub ? 'Club financial totals were not returned. Your verified management access remains available.' : null);
+  const latestAdministration = useRef({ context: administrationContext, club: selectedClub });
+  latestAdministration.current = { context: administrationContext, club: selectedClub };
+  const confirmedTotal = dashboardData?.summary.confirmed_collected_current_period;
+  const confirmedTotalAvailable = typeof confirmedTotal === 'number' && Number.isFinite(confirmedTotal) && confirmedTotal >= 0;
+  const verifiedCount = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : '—';
   const loading = storedLoading || (!dashboardData && !dashboardError);
   const dashboardCountAvailable = dashboardData !== null && storedCountAvailable;
   useEffect(() => {
@@ -105,6 +134,27 @@ export default function AdminDashboardScreen() {
     setShowCreateClubModal(false);
     setPhotoExpanded(false);
   }, [sessionKey]);
+  const fetchAdministration = useCallback(async (force = false) => {
+    if (!selectedGroupId || !user?.id || !token || invalidGroupRoute) return;
+    const key = administrationContext;
+    if (latestAdministrationKey.current !== key || (!force && administrationPending.current?.key === key)) return;
+    const ticket = ++administrationRequest.current;
+    administrationPending.current = { key, ticket };
+    try {
+      const response = await axios.get(`${API_URL}/api/groups/${encodeURIComponent(selectedGroupId)}/context`, { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 });
+      if (latestAdministrationKey.current !== key || administrationRequest.current !== ticket) return;
+      const context = response.data;
+      if (context?.club?.id !== selectedGroupId || typeof context.club.name !== 'string' || !context.membership?.id || context.membership.status !== 'active' || !['admin', 'treasurer'].includes(context.membership.role)) {
+        setAdministration({ owner: key, club: null, error: 'Administration access to this club is unavailable. Return to Member Home or refresh your permissions.' });
+        return;
+      }
+      setAdministration({ owner: key, club: context.club, error: null });
+    } catch {
+      if (latestAdministrationKey.current === key && administrationRequest.current === ticket) setAdministration({ owner: key, club: null, error: 'Administration access to this club could not be verified. Please retry.' });
+    } finally {
+      if (administrationPending.current?.ticket === ticket) administrationPending.current = null;
+    }
+  }, [API_URL, administrationContext, invalidGroupRoute, selectedGroupId, token, user?.id]);
   const dashboardRequest = useRef(0);
   const dashboardInFlight = useRef<{ key: string; promise: Promise<void> } | null>(null);
   const fetchDashboard = useCallback((force = false) => {
@@ -120,14 +170,18 @@ export default function AdminDashboardScreen() {
           headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
         });
         if (request !== dashboardRequest.current || latestSession.current !== key) return;
+        if (!response.data?.summary || !Array.isArray(response.data.clubs) || response.data.clubs.some((club: Club) => typeof club?.id !== "string" || typeof club?.name !== "string")) throw new Error("Invalid administration response");
         setDashboardData(response.data); setDashboardOwner(key);
         const count = response.data?.summary?.total_clubs;
         setDashboardCountAvailable(Number.isInteger(count) && count >= 0);
-      } catch (error) {
+      } catch (error: any) {
         if (request !== dashboardRequest.current || latestSession.current !== key) return;
         setDashboardCountAvailable(false);
-        setDashboardError('Could not refresh your dashboard.'); setErrorOwner(key);
-        console.error('Error fetching admin dashboard:', error);
+        const status = error.response?.status;
+        if ([401, 403, 409].includes(status)) { setDashboardData(null); setDashboardOwner(null); }
+        if ([401, 403].includes(status)) { ++administrationRequest.current; setAdministration({ owner: latestAdministrationKey.current, club: null, error: status === 403 ? "Administration access has been denied. Refresh your club permissions." : "Your session could not be verified. Please sign in again." }); }
+        setDashboardError(status === 403 ? 'Administration access has been denied. Refresh your club permissions.' : status === 401 ? 'Your session could not be verified. Please sign in again.' : status === 409 ? 'Club financial records need checking. Please contact your administrator.' : 'Could not load administration. Please retry.'); setErrorOwner(key);
+        console.error('Administration request failed; HTTP status:', status ?? 'unavailable');
       } finally {
         if (request === dashboardRequest.current && latestSession.current === key) {
           setLoading(false); setRefreshing(false); dashboardInFlight.current = null;
@@ -138,12 +192,13 @@ export default function AdminDashboardScreen() {
     return promise;
   }, [API_URL, user?.id, token]);
 
-  useFocusEffect(useCallback(() => { void fetchDashboard(); }, [fetchDashboard]));
+  useFocusEffect(useCallback(() => { void fetchDashboard(); void fetchAdministration(); }, [fetchDashboard, fetchAdministration]));
 
   const onRefresh = () => {
     if (latestSession.current !== sessionKey) return;
     setRefreshing(true);
     void fetchDashboard(true);
+    void fetchAdministration(true);
   };
 
   const handleRemindMember = (member: LateMember) => {
@@ -306,13 +361,13 @@ export default function AdminDashboardScreen() {
           style={styles.avatarButton}
           onPress={() => user?.profile_photo ? setPhotoExpanded(true) : setShowProfileMenu(true)}
         >
-          {user?.profile_photo ? (
+          <ProfilePhotoFrame>{user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
           ) : (
             <View style={styles.avatar}>
               <Ionicons name="person" size={32} color={Colors.white} />
             </View>
-          )}
+          )}</ProfilePhotoFrame>
         </TouchableOpacity>
         <Text style={styles.brandName}>Clubvel</Text>
           <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open profile menu" onPress={() => setShowProfileMenu(true)} style={{ padding: 8, flexShrink: 0 }}>
@@ -320,40 +375,53 @@ export default function AdminDashboardScreen() {
           </TouchableOpacity>
       </View>
 
+      {selectedClub && <View style={{ padding: 24, gap: 12 }}>
+        <Text style={styles.clubName}>{selectedClub.name} administration</Text>
+        {([
+          ['Manage members', '/(treasurer)/members', { groupId: selectedClub.id }],
+          ['Manage payments', '/(treasurer)/contributions', { groupId: selectedClub.id }],
+          ['Manage claims', '/(treasurer)/claims', { groupId: selectedClub.id }],
+          ['Monthly reports', '/(treasurer)/reports', { group_id: selectedClub.id }],
+        ] as const).map(([label, pathname, routeParams]) => <TouchableOpacity key={label} style={styles.dropdownItem} accessibilityRole="button" accessibilityLabel={label} onPress={() => {
+          if (latestSession.current !== sessionKey || latestAdministration.current.context !== administrationContext || latestAdministration.current.club?.id !== selectedGroupId) return;
+          router.push({ pathname, params: routeParams });
+        }}><Text style={styles.dropdownItemText}>{label}</Text><Ionicons name="chevron-forward" size={18} color={Colors.primary} /></TouchableOpacity>)}
+      </View>}
       {!!dashboardError && !!dashboardData && <Text accessibilityRole="alert">{dashboardError} Pull down to refresh.</Text>}
       {loading ? (
         <View style={styles.loadingContainer}><ActivityIndicator size="large" color={Colors.mediumGreen} /><Text>Loading dashboard…</Text></View>
       ) : dashboardError && !dashboardData ? (
-        <View style={styles.loadingContainer}><Text>{dashboardError}</Text><TouchableOpacity onPress={() => { setLoading(true); void fetchDashboard(); }}><Text>Retry</Text></TouchableOpacity></View>
+        <View style={styles.loadingContainer}><Text>{dashboardError}</Text><TouchableOpacity onPress={() => { setLoading(true); void fetchDashboard(true); void fetchAdministration(true); }}><Text>Retry</Text></TouchableOpacity></View>
       ) : (<>
       {/* Summary Cards */}
       <View style={styles.summaryContainer}>
         <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Show All Clubs" activeOpacity={0.75} onPress={() => dashboardScroll.current?.scrollTo({ y: clubsOffset.current, animated: true })}>
           <Text style={styles.summaryLabel}>Total Clubs</Text>
           <View>
-            <Text style={styles.summaryValue}>{dashboardData?.summary.total_clubs || 0}</Text>
+            <Text style={styles.summaryValue}>{verifiedCount(dashboardData?.summary.total_clubs)}</Text>
             <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} style={{ position: 'absolute', top: '100%', left: 0 }} />
           </View>
         </TouchableOpacity>
 
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Total Members</Text>
-          <Text style={styles.summaryValue}>{dashboardData?.summary.total_members || 0}</Text>
+          <Text style={styles.summaryValue}>{verifiedCount(dashboardData?.summary.total_members)}</Text>
         </View>
       </View>
 
       <View style={styles.summaryContainer}>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Collected This Month</Text>
+          {!confirmedTotalAvailable && <Text style={styles.clubMetaText}>Total not verified</Text>}
           <Text style={[styles.summaryValue, { color: Colors.statusPaid }]}>
-            {paymentMoney(dashboardData?.summary.confirmed_collected_current_period)}
+            {confirmedTotalAvailable ? paymentMoney(confirmedTotal) : "—"}
           </Text>
         </View>
 
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Late Members</Text>
           <Text style={[styles.summaryValue, styles.lateValue]}>
-            {dashboardData?.summary.late_members_count || 0}
+            {verifiedCount(dashboardData?.summary.late_members_count)}
           </Text>
         </View>
       </View>
@@ -513,13 +581,13 @@ export default function AdminDashboardScreen() {
           <ScrollView style={styles.accountScroll} contentContainerStyle={styles.accountContent}>
             <View style={styles.dropdownHeader}>
               <TouchableOpacity style={{ minWidth: 112, minHeight: 112 }} onPress={() => { if (user?.profile_photo) { setShowProfileMenu(false); setPhotoExpanded(true); } }} accessibilityRole="button" accessibilityLabel="View full-size profile photo">
-              {user?.profile_photo ? (
+              <ProfilePhotoFrame>{user?.profile_photo ? (
                 <Image source={{ uri: user.profile_photo }} style={styles.dropdownAvatar} resizeMode="cover" />
               ) : (
                 <View style={styles.dropdownAvatar}>
                   <Text style={styles.dropdownAvatarText}>{(user?.full_name || '').trim().charAt(0).toUpperCase() || '?'}</Text>
                 </View>
-              )}
+              )}</ProfilePhotoFrame>
               </TouchableOpacity>
               <View style={styles.dropdownUserInfo}>
                 <Text style={styles.dropdownUserName}>{user?.full_name}</Text>
@@ -873,7 +941,7 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
   },
   clubCard: {
-    backgroundColor: Colors.white,
+    backgroundColor: Colors.softSage,
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
@@ -1024,13 +1092,13 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
-   borderWidth: 2, borderColor: Colors.accent, },
+   borderWidth: 1, borderColor: Colors.white, },
   avatarImage: {
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 2,
-    borderColor: Colors.accent,
+    borderWidth: 1,
+    borderColor: Colors.white,
   },
   modalOverlay: {
     flex: 1,
@@ -1063,8 +1131,8 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 2,
-    borderColor: Colors.accent,
+    borderWidth: 1,
+    borderColor: Colors.white,
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',

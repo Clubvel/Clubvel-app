@@ -7,6 +7,7 @@ import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
+import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
 import EditProfile from '../../components/EditProfile';
 
 interface UserStats {
@@ -162,13 +163,13 @@ export default function ProfileScreen() {
       <View style={styles.header}>
         <TouchableOpacity style={styles.avatarContainer} onPress={() => user?.profile_photo ? setPhotoExpanded(true) : handleChangePhoto()} disabled={uploading}
           accessibilityRole="button" accessibilityLabel={user?.profile_photo ? "View full-size profile photo" : "Add profile photo"}>
-          {user?.profile_photo ? (
+          <ProfilePhotoFrame>{user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
           ) : (
             <View style={styles.avatar}>
               <Ionicons name="person" size={32} color={Colors.white} />
             </View>
-          )}
+          )}</ProfilePhotoFrame>
           <View style={styles.editBadge}>
             {uploading ? (
               <ActivityIndicator size="small" color={Colors.white} />
@@ -383,7 +384,7 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   photoActionText: {
-    color: Colors.accent,
+    color: Colors.white,
     fontSize: 14,
     fontWeight: '600',
     paddingVertical: 8,
@@ -395,7 +396,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.gold,
     justifyContent: 'center',
     alignItems: 'center',
-   borderWidth: 2, borderColor: Colors.accent, },
+   borderWidth: 1, borderColor: Colors.white, },
   avatarContainer: {
     position: 'relative',
     marginBottom: 12,
@@ -404,8 +405,8 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 2,
-    borderColor: Colors.accent,
+    borderWidth: 1,
+    borderColor: Colors.white,
   },
   editBadge: {
     position: 'absolute',
