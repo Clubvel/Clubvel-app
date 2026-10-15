@@ -4,11 +4,15 @@ const fs = require('node:fs');
 const path = require('node:path');
 const { load, engine, tick, nodes, text, native, colors } = require('./ui-harness.cjs');
 function setup(from = 'member') {
-  const ui = engine(), requests = [], routes = [], auth = { user: { id: 'jimmy' }, token: 'session-a', loading: false }, params = { id: 'travel', from };
+  const ui = engine(), requests = [], claimRequests=[], routes = [], auth = { user: { id: 'jimmy',full_name:'Jimmy',profile_photo:'data:image/jpeg;base64,current' }, token: 'session-a', loading: false }, params = { id: 'travel', from }, claimState={records:[]};
+  const axios={get:(url,options)=>url.includes('/api/member/claims/') ? (claimRequests.push({url,options}),Promise.resolve({data:{claims:claimState.records}})) : new Promise((resolve,reject)=>requests.push({url,options,resolve,reject}))};
   const Screen = load('app/club/[id].tsx', {
     react: ui.react, 'react-native': native, 'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 24, bottom: 16 }) },
     'expo-router': { Redirect: 'Redirect', useFocusEffect: ui.useFocusEffect, useLocalSearchParams: () => params, useRouter: () => ({ push: route => routes.push(route), replace: route => routes.push(route) }) },
-    axios: { get: (url, options) => new Promise((resolve, reject) => requests.push({ url, options, resolve, reject })) },
+    axios,
+    '../../components/ClubMemberDirectory':{__esModule:true,default:'ClubMemberDirectory'},'../../components/ProfilePhotoViewer':{__esModule:true,default:'ProfilePhotoViewer'},
+    '../../services/clubGreeting':load('services/clubGreeting.ts'),
+    '../../hooks/usePersonalClaims':load('hooks/usePersonalClaims.ts',{react:ui.react,'expo-router':{useFocusEffect:ui.useFocusEffect},axios}),
     '../../contexts/AuthContext': { useAuth: () => auth }, '../../constants/Colors': { Colors: colors },
   }).default;
   const render = () => ui.render(Screen);
@@ -17,11 +21,13 @@ function setup(from = 'member') {
     requests[index].resolve({ data: { club: { id, name: id === 'travel' ? 'WeTraveling' : 'Eighty8' }, membership: { id: id + '-member', role, status: 'active' }, clubs: [{ id: 'travel', name: 'WeTraveling' }, { id: 'eight', name: 'Eighty8' }], period: { month: 10, year: 2026, timezone: 'Africa/Johannesburg' }, record_count: count, own_financial_summary: { total_expected: amount, collected: amount, outstanding: 0, awaiting_confirmation: 0 }, availability: { total_expected: amount === null ? 'UNAVAILABLE' : 'AVAILABLE', collected: amount === null ? 'UNAVAILABLE' : 'AVAILABLE', outstanding: 'AVAILABLE', awaiting_confirmation: 'AVAILABLE' } } });
     await tick(); return render();
   };
-  render(); return { ui, requests, routes, auth, params, render, tap, reply };
+  render(); return { ui, requests, claimRequests, claimState, routes, auth, params, render, tap, reply };
 }
 test('Member Club Home loads one authenticated context and only own financial position', async () => {
   const c = setup(); await c.reply(0); assert.equal(c.requests.length, 1); assert.ok(c.requests[0].url.endsWith('/api/groups/travel/context')); assert.equal(c.requests[0].options.headers.Authorization, 'Bearer session-a');
-  assert.match(text(c.render()), /WeTraveling/); assert.match(text(c.render()), /Confirmed Collected: R100.00/); assert.doesNotMatch(text(c.render()), /Club management|Announcements|Events|Documents/);
+  assert.match(text(c.render()), /WeTraveling/); assert.match(text(c.render()), /Confirmed Collected: R100.00/); assert.doesNotMatch(text(c.render()), /Club management|Documents/);
+  assert.match(text(c.render()), /Announcements are not available in this version/);assert.match(text(c.render()), /Events are not available in this version/);
+  assert.ok(!nodes(c.render()).some(n=>n.props?.accessibilityLabel==='Announcements'||n.props?.accessibilityLabel==='Events'));
   c.ui.focus(); assert.equal(c.requests.length, 2); c.ui.focus(); assert.equal(c.requests.length, 2);
 });
 test('Admin entry points depend on the selected membership role, not account identity', async () => {
@@ -65,7 +71,7 @@ test('account tabs and existing financial screens are unchanged from Phase 3C', 
     let expected=cp.execFileSync('git', ['show', '3aff743a88b3b128e5e9f58c6c62368e8d3df370:' + file], { cwd: root, encoding: 'utf8' });
     if (file.endsWith('_layout.tsx')) expected = expected.replace('tabBarActiveTintColor: Colors.mediumGreen', 'tabBarActiveTintColor: Colors.royalBlue');
     if (file.endsWith('club-detail.tsx')) expected = expected.replace(/(approveClaimButton: \{[^{}]*?backgroundColor: )Colors.accent/, '$1Colors.primary');
-    if (file.endsWith('club-detail.tsx')) expected=expected.replace(/(memberAvatar: \{[^{}]*)(\})/, '$1 borderWidth: 2, borderColor: Colors.accent, $2');
+    if (file.endsWith('club-detail.tsx')) expected=expected.replace(/(memberAvatar: \{[^{}]*)(\})/, '$1 borderWidth: 2, borderColor: Colors.avatarRing, $2');
     assert.equal(fs.readFileSync(path.join(root,file), 'utf8').replace(/\r\n/g, '\n'),expected);
   }
   // claims.tsx has intentional status color and rejection panel changes
@@ -108,6 +114,34 @@ test('Admin role refresh immediately removes management controls when selected m
 
 
 test('Shared Club Home exposes both interfaces only when selected club grants administration',async()=>{
- const c=setup('member');await c.reply(0,'travel','admin');c.tap('Admin Home');assert.equal(c.routes.at(-1),'/(treasurer)/dashboard');c.tap('Member Home');assert.equal(c.routes.at(-1),'/(member)/home');
+ const c=setup('member');await c.reply(0,'travel','admin');c.tap('Admin Home');assert.deepEqual(c.routes.at(-1),{pathname:'/(treasurer)/dashboard',params:{groupId:'travel'}});c.tap('Member Home');assert.equal(c.routes.at(-1),'/(member)/home');
  c.params.id='eight';c.render();await c.reply(1,'eight','member');assert.doesNotMatch(text(c.render()),/Admin Home/);assert.match(text(c.render()),/Member Home/);
+});
+
+test('shared club header centres its regular title, retains 112px portrait and reuses directory photo data',async()=>{
+ const c=setup();c.auth.user.full_name='Brown Member';await c.reply(0);const tree=c.render();
+ const title=nodes(tree).find(n=>n.props.accessibilityRole==='header');assert.equal(title.props.style.textAlign,'center');assert.equal(title.props.style.fontWeight,'400');
+ assert.match(text(tree),/Good (morning|afternoon|evening), Brown!/);assert.doesNotMatch(text(tree),/Member Dashboard|Here's what's happening|Morning\/Afternoon/);
+ const image=nodes(tree).find(n=>n.type==='Image');assert.deepEqual([image.props.style.width,image.props.style.height,image.props.style.borderRadius],[112,112,56]);assert.equal(image.props.resizeMode,'cover');
+ const directory=nodes(tree).find(n=>n.type==='ClubMemberDirectory');assert.equal(directory.props.groupId,'travel');
+ for(const width of [320,360,393,412])assert.ok(width-48-116-16>=140,'greeting can wrap beside the unchanged photo');
+ assert.equal(c.claimRequests.length,1);c.render();c.render();assert.equal(c.claimRequests.length,1);
+});
+test('photo viewer closes on dismissal, club/account changes and rapid A-B-A; old Admin shortcuts cannot navigate',async()=>{
+ const c=setup();await c.reply(0,'travel','admin');c.tap('View your profile photo');let viewer=nodes(c.render()).find(n=>n.type==='ProfilePhotoViewer');assert.equal(viewer.props.visible,true);viewer.props.onClose();assert.equal(nodes(c.render()).find(n=>n.type==='ProfilePhotoViewer').props.visible,false);
+ c.tap('View your profile photo');const old=nodes(c.render()).find(n=>n.props.accessibilityLabel==='Admin Home');c.params.id='eight';c.render();assert.equal(nodes(c.render()).find(n=>n.type==='ProfilePhotoViewer').props.visible,false);
+ c.params.id='travel';c.render();await c.reply(2,'travel','member');old.props.onPress();assert.deepEqual(c.routes,[]);assert.equal(nodes(c.render()).find(n=>n.type==='ProfilePhotoViewer').props.visible,false);
+ c.tap('View your profile photo');c.auth.user={id:'brown',full_name:'Brown',profile_photo:'data:image/png;base64,new'};c.auth.token='new-session';c.render();assert.equal(nodes(c.render()).find(n=>n.type==='ProfilePhotoViewer').props.visible,false);
+});
+test('club claims preview filters own records by the active club without refetching for every club switch',async()=>{
+ const c=setup();await c.reply(0);c.claimState.records=[{claim_id:'mine',group_id:'travel',group_name:'WeTraveling',status:'approved',amount:1250},{claim_id:'other',group_id:'eight',group_name:'Eighty8',status:'approved',amount:999}];
+ c.ui.blur();c.ui.focus();await c.reply(1);assert.match(text(c.render()),/R1250.00/);assert.doesNotMatch(text(c.render()),/R999.00/);
+ const reads=c.claimRequests.length;c.params.id='eight';c.render();assert.doesNotMatch(text(c.render()),/R1250.00/);await c.reply(2,'eight');assert.match(text(c.render()),/R999.00/);assert.equal(c.claimRequests.length,reads);
+ c.auth.user={id:'brown'};c.auth.token='other-account';assert.doesNotMatch(text(c.render()),/R999.00|R1250.00/);
+});
+
+test('claim preview retains backend pending_review and legacy upcoming states without inventing missing amounts',async()=>{
+ const c=setup();await c.reply(0);c.claimState.records=[{claim_id:'pending',group_id:'travel',group_name:'WeTraveling',status:'pending_review',amount:null},{claim_id:'legacy',group_id:'travel',group_name:'WeTraveling',status:'upcoming',amount:250}];
+ c.ui.blur();c.ui.focus();await c.reply(1);const card=nodes(c.render()).find(n=>n.type==='View'&&text(n.props.children?.[0])==='Your upcoming claims and payouts');
+ assert.match(text(card),/Claim awaiting reviewAmount unavailable/);assert.match(text(card),/Upcoming claimR250.00/);assert.doesNotMatch(text(card),/R0.00/);
 });

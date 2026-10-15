@@ -278,8 +278,12 @@ export default function MemberHomeScreen() {
   };
 
   const openClub = (club: Club) => {
-    if (latestSession.current !== sessionKey || !dashboardData) return;
+    if (latestSession.current !== sessionKey || !latestDashboard.current?.clubs.some(current => current.id === club.id)) return;
     router.push({ pathname: '/club/[id]', params: { id: club.id, from: 'member' } });
+  };
+  const openAdministration = (club: Club) => {
+    if (latestSession.current !== sessionKey || !latestDashboard.current?.clubs.some(current => current.id === club.id && ['admin', 'treasurer'].includes(current.role))) return;
+    router.push({ pathname: '/(treasurer)/dashboard', params: { groupId: club.id } });
   };
 
   const createGroup = async () => {
@@ -529,9 +533,13 @@ export default function MemberHomeScreen() {
 
         {dashboardData?.clubs && dashboardData.clubs.length > 0 ? (
           dashboardData.clubs.map((club) => (
-            <TouchableOpacity
+            <View
               key={club.id}
               style={styles.clubCard}
+            >
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={`Open ${club.name} as member`}
               onPress={() => openClub(club)}
             >
               <View style={styles.clubCardHeader}>
@@ -556,6 +564,11 @@ export default function MemberHomeScreen() {
                   subtleAccent={club.status_label === 'Goal based' || club.status_label === 'No contribution recorded' || club.status_label === 'No contributions yet'} />
               </View>
             </TouchableOpacity>
+            {(club.role === 'admin' || club.role === 'treasurer') && <View style={styles.clubActions}>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${club.name} administration`} style={styles.clubAdministration} onPress={() => openAdministration(club)}><Text style={styles.clubAdministrationText}>Admin dashboard</Text><Ionicons name="chevron-forward" size={18} color={Colors.white} /></TouchableOpacity>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel={`View ${club.name} as member`} style={styles.clubMemberAction} onPress={() => openClub(club)}><Text style={styles.clubMemberText}>View as member</Text></TouchableOpacity>
+            </View>}
+            </View>
           ))
         ) : (
           <View style={styles.emptyState}>
@@ -987,6 +1000,11 @@ const styles = StyleSheet.create({
     justifyContent: 'space-between',
     alignItems: 'flex-start',
   },
+  clubActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  clubAdministration: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: 12, minHeight: 48, borderRadius: 8, backgroundColor: Colors.corporateBlue, flexGrow: 1 },
+  clubAdministrationText: { color: Colors.white, fontWeight: '600', flexShrink: 1 },
+  clubMemberAction: { minHeight: 48, padding: 12, justifyContent: 'center' },
+  clubMemberText: { color: Colors.primary, fontWeight: '600' },
   clubInfo: {
     flex: 1,
     marginRight: 12,

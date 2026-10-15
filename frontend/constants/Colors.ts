@@ -1,12 +1,15 @@
 export const Colors = {
-  // Approved corporate banking identity; semantic payment colours remain independent.
-  midnightNavy: '#061641',
+  // Interface surfaces are independent of the approved icon/splash artwork.
+  midnightNavy: '#082B60',
+  headerBackground: '#082B60',
+  avatarRing: '#FF9800',
+  secondaryHighlight: '#397F78',
   corporateBlue: '#0756C9',
   royalBlue: '#2677E8',
   iceBlue: '#E8F2FF',
-  lightGrey: '#F4F7FA',
-  primary: '#0756C9',
-  primaryDark: '#0756C9',
+  lightGrey: '#F7F8F4',
+  primary: '#082B60',
+  primaryDark: '#082B60',
   primaryLight: '#E8F2FF',
   
   // Alert/Accent Colors
@@ -16,13 +19,13 @@ export const Colors = {
   softSage: '#E5EFE9',
   
   // Background Colors
-  background: '#F4F7FA',       // Crisp white canvas
-  lightBackground: '#F4F7FA',  // Soft neutral gray background
+  background: '#F7F8F4',
+  lightBackground: '#F7F8F4',
   cardBackground: '#FFFFFF',   // White card backgrounds
   cardBorder: '#E5E7EB',       // Light gray borders
   
   // Typography Colors
-  textPrimary: '#273443',      // Dark graphite gray - high contrast readability
+  textPrimary: '#243348',
   textSecondary: '#6B7280',    // Medium gray for secondary text
   textMuted: '#6B7280',        // Light gray for muted text
   
@@ -38,10 +41,10 @@ export const Colors = {
   black: '#000000',
   
   // Legacy color mappings (for backward compatibility)
-  darkGreen: '#0756C9',
-  mediumGreen: '#0756C9',
-  primaryGreen: '#0756C9',
+  darkGreen: '#082B60',
+  mediumGreen: '#082B60',
+  primaryGreen: '#082B60',
   lightGreen: '#E8F2FF',
-  gold: '#0756C9',
-  lightGold: '#E8F2FF',
+  gold: '#F59E0B',
+  lightGold: '#FFF4DB',
 };

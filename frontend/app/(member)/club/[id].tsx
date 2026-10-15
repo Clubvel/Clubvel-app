@@ -35,7 +35,7 @@ interface ClubDetails {
     proof_delete_eligible?: boolean;
   } | null;
   contributions?: (NonNullable<ClubDetails['current_contribution']> & { contribution_id: string; amount_paid?: number; payment_state?: string; confirmed_amount?: number | null; outstanding_amount?: number | null; historical_only?: boolean; proof_eligible?: boolean; payment_reference?: string })[];
-  payment_reference: {
+  payment_reference?: {
     reference_code: string;
     bank_name: string;
     account_number: string;
@@ -114,9 +114,8 @@ export default function ClubDetailScreen() {
       });
       const data = response.data;
       if (!data?.group || data.group.id !== id || typeof data.group.name !== 'string' ||
-          !data.payment_reference || !Array.isArray(data.payment_history) ||
+          !Array.isArray(data.payment_history) ||
           (data.current_contribution != null && (typeof data.current_contribution.amount_due !== 'number' || !Number.isFinite(data.current_contribution.amount_due))) ||
-          (data.payment_reference.amount != null && (typeof data.payment_reference.amount !== 'number' || !Number.isFinite(data.payment_reference.amount))) ||
           data.payment_history.some((payment: any) => !payment || typeof payment.amount !== 'number' || !Number.isFinite(payment.amount))) {
         throw new Error('Invalid club response');
       }
@@ -195,7 +194,7 @@ export default function ClubDetailScreen() {
     const ticket = ++actionTicket.current;
     const current = () => screenActive.current && previousAction.current === owner && actionTicket.current === ticket;
     const target = displayedClub.current_contribution;
-    const reference = selectedContribution?.payment_reference || clubData?.payment_reference.reference_code;
+    const reference = selectedContribution?.payment_reference || clubData?.payment_reference?.reference_code;
     const actor = user.id;
     const sessionToken = token;
     uploadPending.current = true;
@@ -336,36 +335,6 @@ export default function ClubDetailScreen() {
               </TouchableOpacity>
             )}
             </> : <Text style={styles.infoText}>{selectedContributionId ? 'Requested contribution unavailable. Select a recorded contribution.' : (clubData.contributions?.length || 0) > 1 ? 'Select a contribution record.' : 'No contribution recorded for this month.'}</Text>}
-          </View>
-        </View>
-
-        {/* Payment Reference */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Your Payment Reference</Text>
-          <View style={[styles.card, styles.referenceCard]}>
-            <View style={styles.referenceCodeContainer}>
-              <Text style={styles.referenceLabel}>Reference Code</Text>
-              <Text style={styles.referenceCode}>{selectedContribution?.payment_reference || clubData?.payment_reference.reference_code || 'Not available'}</Text>
-            </View>
-
-            <View style={styles.divider} />
-
-            <View style={styles.bankDetails}>
-              <View style={styles.bankDetailRow}>
-                <Text style={styles.bankDetailLabel}>Bank</Text>
-                <Text style={styles.bankDetailValue}>{clubData.payment_reference.bank_name || 'Not available'}</Text>
-              </View>
-              <View style={styles.bankDetailRow}>
-                <Text style={styles.bankDetailLabel}>Account Number</Text>
-                <Text style={styles.bankDetailValue}>{clubData.payment_reference.account_number || 'Not available'}</Text>
-              </View>
-              <View style={styles.bankDetailRow}><Text style={styles.bankDetailLabel}>Account Holder</Text><Text style={styles.bankDetailValue}>{clubData.group.bank_account_holder || "Not available"}</Text></View>
-              {(!clubData.payment_reference.bank_name || !clubData.payment_reference.account_number || !clubData.group.bank_account_holder) && <Text style={[styles.infoText, { color: Colors.white }]}>Your club has not provided all banking details. Please confirm them with your administrator before paying.</Text>}
-              <View style={styles.bankDetailRow}>
-                <Text style={styles.bankDetailLabel}>Amount</Text>
-                <Text style={styles.bankDetailValue}>{selectedContribution ? paymentMoney(selectedContribution.outstanding_amount) : clubData.payment_reference.amount == null ? 'Not recorded' : paymentMoney(clubData.payment_reference.amount)} </Text>
-              </View>
-            </View>
           </View>
         </View>
 
@@ -562,44 +531,6 @@ const styles = StyleSheet.create({
     color: Colors.mediumGreen,
     fontSize: 14,
     fontWeight: '600',
-  },
-  referenceCard: {
-    backgroundColor: Colors.midnightNavy,
-  },
-  referenceCodeContainer: {
-    alignItems: 'center',
-    paddingVertical: 4,
-  },
-  referenceLabel: {
-    fontSize: 12,
-    color: 'rgba(255, 255, 255, 0.7)',
-    marginBottom: 8,
-  },
-  referenceCode: {
-    fontSize: 32,
-    fontWeight: 'bold',
-    color: Colors.white,
-    letterSpacing: 1,
-    textAlign: 'center',
-  },
-  bankDetails: {
-    gap: 8,
-  },
-  bankDetailRow: {
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    gap: 12,
-  },
-  bankDetailLabel: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.7)',
-  },
-  bankDetailValue: {
-    flex: 1,
-    textAlign: 'right',
-    fontSize: 14,
-    fontWeight: '600',
-    color: Colors.white,
   },
   historyCard: {
     backgroundColor: Colors.white,

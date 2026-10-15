@@ -252,7 +252,7 @@ test('new member with no contribution opens club without inventing an obligation
     payment_reference: { amount: null, reference_code: 'REF' }, payment_history: [] };
   c.ui.blur(); c.ui.focus(); await tick();
   assert.ok(text(c.render()).includes('No contribution recorded for this month.'));
-  assert.ok(text(c.render()).includes('Not recorded'));
+  assert.doesNotMatch(text(c.render()), /Your Payment Reference|Reference Code|Account Number|Not recorded/);
   assert.equal(button(c.render(), 'Upload Proof of Payment'), undefined);
 });
 
@@ -337,13 +337,28 @@ test('Payments cancels an old-account picker and immediately masks old financial
  assert.equal(c.requests.filter(r=>r.url.endsWith('/upload-proof')).length,0);
 });
 
-test('member banking shows holder, context navigation and unavailable missing fields',async()=>{
+test('Member banking and reference cards are absent while club payment navigation is preserved',async()=>{
  const c=await setup('club');
  c.state.club={group:{id:'group-a',name:'Club A',bank_account_holder:'Club holder'},current_contribution:null,contributions:[],payment_reference:{amount:null,reference_code:null},payment_history:[]};
  c.ui.blur();c.ui.focus();await tick();
- assert.match(text(c.render()),/Club holder/);assert.match(text(c.render()),/Not available/);
+ assert.doesNotMatch(text(c.render()),/Club holder|Your Payment Reference|Reference Code|Account Holder|Account Number|Not available|banking details/);
  nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Open club payments').props.onPress();
  assert.equal(c.routes.at(-1).params.group_id,'group-a');assert.equal(c.routes.at(-1).params.month,'10');
+});
+
+test('hidden banking fields and historical references remain internal while exact-record proof upload and history work',async()=>{
+ const c=await setup('club');const record={...c.record,payment_reference:'HISTORICAL-REFERENCE',proof_eligible:true,proof_uploaded:false,proof_review_status:null,proof_decline_reason:null,status:'pending'};
+ c.state.club={group:{id:'group-a',name:'Club A',bank_name:'PRIVATE BANK',bank_account_number:'PRIVATE ACCOUNT',bank_account_holder:'PRIVATE HOLDER'},current_contribution:{...record,id:record.contribution_id},contributions:[record],payment_reference:{reference_code:'LEGACY REFERENCE',bank_name:'PRIVATE BANK',account_number:'PRIVATE ACCOUNT',amount:9876},payment_history:[{contribution_id:'historic',month:9,year:2026,amount:100,status:'confirmed',confirmed_amount:100,outstanding_amount:0,payment_state:'confirmed'}]};
+ c.ui.blur();c.ui.focus();await tick();const tree=c.render();
+ assert.doesNotMatch(text(tree),/PRIVATE BANK|PRIVATE ACCOUNT|PRIVATE HOLDER|HISTORICAL-REFERENCE|LEGACY REFERENCE|R9876|Your Payment Reference/);
+ assert.match(text(tree),/Payment History|September 2026/);
+ await button(tree,'Upload Proof of Payment').props.onPress();
+ const write=c.requests.find(r=>r.url.endsWith('/upload-proof'));
+ assert.equal(write.data.contribution_id,'contribution-a');assert.equal(write.data.reference_number,'HISTORICAL-REFERENCE');assert.equal(write.options.headers.Authorization,'Bearer member-session');
+});
+test('absence of removed banking metadata cannot block valid contributions or payment history',async()=>{
+ const c=await setup('club');c.state.club={group:{id:'group-a',name:'Club A'},current_contribution:{...c.record,id:c.record.contribution_id},payment_history:[]};
+ c.ui.blur();c.ui.focus();await tick();const tree=c.render();assert.ok(button(tree,'Replace Proof'));assert.doesNotMatch(text(tree),/Unable to load|Your Payment Reference|banking details/);
 });
 
 

@@ -17,10 +17,15 @@ export const StatusPill: React.FC<StatusPillProps> = ({ status, label, subtleAcc
         return Colors.statusPaid;
       case 'late':
       case 'proof_declined':
+      case 'rejected':
+      case 'failed':
+      case 'overdue':
         return Colors.statusLate;
       case 'due':
-        return Colors.statusDue;
       case 'pending':
+      case 'proof_uploaded':
+      case 'awaiting_confirmation':
+        return Colors.statusDue;
       case 'upcoming':
       default:
         return Colors.statusUpcoming;
@@ -43,18 +48,27 @@ export const StatusPill: React.FC<StatusPillProps> = ({ status, label, subtleAcc
       case 'pending':
         return 'Upcoming';
       case 'proof_uploaded':
+      case 'awaiting_confirmation':
         return 'Pending Confirmation';
       case 'proof_declined':
         return 'Proof Declined';
+      case 'rejected':
+        return 'Rejected';
+      case 'failed':
+        return 'Failed';
+      case 'overdue':
+        return 'Overdue';
       default:
         return 'Pending';
     }
   };
 
+  const statusColor = getStatusColor();
+  const foreground = [Colors.statusPaid, Colors.statusDue, Colors.statusUpcoming].includes(statusColor) ? Colors.black : Colors.white;
   return (
-    <View style={[styles.pill, { backgroundColor: subtleAccent ? Colors.accentLight : getStatusColor(),
+    <View style={[styles.pill, { backgroundColor: subtleAccent ? Colors.accentLight : statusColor,
       ...(subtleAccent ? { borderWidth: 1, borderColor: Colors.accentLight } : {}) }]}>
-      <Text style={[styles.text, subtleAccent && { color: Colors.accent }]}>{getStatusLabel()}</Text>
+      <Text style={[styles.text, { color: subtleAccent ? Colors.primary : foreground }]}>{getStatusLabel()}</Text>
     </View>
   );
 };

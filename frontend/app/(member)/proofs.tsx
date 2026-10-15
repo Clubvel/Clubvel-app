@@ -692,7 +692,7 @@ export default function ProofOfPaymentsScreen() {
             <Text>Confirmed Collected: {paymentMoney(record.confirmed_amount)}</Text>
             <Text>Recorded, unconfirmed: {paymentMoney(record.recorded_unconfirmed_amount)}</Text>
             <Text>Outstanding: {paymentMoney(record.outstanding_amount)}</Text>
-            {record.historical_only ? <Text>Historical contribution — read only</Text> : <TouchableOpacity accessibilityLabel={`Open contribution ${record.contribution_id}`} onPress={() => router.push({ pathname: '/(member)/club/[id]', params: { id: record.group_id, month: String(record.month), year: String(record.year), contribution_id: record.contribution_id, scope: params.scope, from: params.from } })}><Text>Banking details and history</Text></TouchableOpacity>}
+            {record.historical_only ? <Text>Historical contribution — read only</Text> : <TouchableOpacity accessibilityLabel={`Open contribution ${record.contribution_id}`} onPress={() => router.push({ pathname: '/(member)/club/[id]', params: { id: record.group_id, month: String(record.month), year: String(record.year), contribution_id: record.contribution_id, scope: params.scope, from: params.from } })}><Text>Contribution details and history</Text></TouchableOpacity>}
             {!record.historical_only && record.proof_eligible && <TouchableOpacity accessibilityLabel={`Upload proof for contribution ${record.contribution_id}`} disabled={uploading} onPress={() => uploadProofForClub({ id: record.group_id, name: record.group_name, amount_due: record.amount_due }, record.contribution_id)}><Text>{record.proof_review_status === 'declined' ? 'Replace Proof' : 'Upload Proof'}</Text></TouchableOpacity>}
           </View>)}
             </View>}

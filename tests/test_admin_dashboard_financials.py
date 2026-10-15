@@ -4,7 +4,7 @@ import copy
 import unittest
 from datetime import datetime
 from unittest.mock import AsyncMock
-from test_payment_proof_review import SOURCE, environment
+from test_payment_proof_review import SOURCE, environment, Collection
 
 class October(datetime):
     @classmethod
@@ -59,6 +59,36 @@ class DashboardFinancialTests(unittest.IsolatedAsyncioTestCase):
             await ns['get_admin_dashboard']('admin-user','Bearer member-user')
         self.assertEqual(error.exception.status_code,403)
         ns['verify_treasurer_owns_groups'].assert_not_awaited()
+
+    async def test_dashboard_and_existing_month_endpoint_agree_without_lifetime_or_payment_date_substitution(self):
+        from test_monthly_reports import service
+        ns=dashboard()
+        sample=ns['db'].contributions.records[0]
+        ns['db'].groups.records[0]['contribution_mode']='flexible_goal'
+        ns['db'].contributions.records=[
+            {**sample,'id':'confirmed-a','month':10,'year':2026,'amount_due':5000,'amount_paid':5000,'contribution_status':'confirmed'},
+            {**sample,'id':'confirmed-b','month':10,'year':2026,'amount_due':500,'amount_paid':500,'contribution_status':'paid'},
+            {**sample,'id':'pending','month':10,'year':2026,'amount_due':1200,'amount_paid':200,'contribution_status':'proof_uploaded'},
+            {**sample,'id':'september','month':9,'year':2026,'amount_due':300,'amount_paid':300,'contribution_status':'confirmed','payment_date':October(2026,10,2)},
+            {**sample,'id':'other-club','group_id':'group-b','month':10,'year':2026,'amount_due':9000,'amount_paid':9000,'contribution_status':'paid'}]
+        ns['db'].claims=Collection([])
+        before=copy.deepcopy({key:value.records for key,value in vars(ns['db']).items()})
+        route=next(node for node in ast.parse(SOURCE.read_text()).body if isinstance(node,ast.AsyncFunctionDef) and node.name=='get_monthly_group_report')
+        route.decorator_list=[]
+        ns['monthly_report']=service.monthly_report
+        exec(compile(ast.Module(body=[route],type_ignores=[]),'actual-read-only-monthly-report', 'exec'),ns)
+        admin=await ns['get_admin_dashboard']('admin-user','Bearer admin-user')
+        month=await ns['get_group_contributions']('group-a',10,2026,'admin-user','Bearer admin-user')
+        previous=await ns['get_group_contributions']('group-a',9,2026,'admin-user','Bearer admin-user')
+        readonly=await ns['get_monthly_group_report']('group-a',2026,10,'Bearer admin-user')
+        self.assertEqual(admin['clubs'][0]['financial_summary'],month['summary'])
+        self.assertEqual(month['summary']['collected'],5500)
+        self.assertEqual(previous['summary']['collected'],300)
+        self.assertEqual(month['summary']['total_expected'],6700)
+        self.assertEqual(readonly['summary']['confirmed'],5500)
+        self.assertEqual(readonly['summary']['expected'],6700)
+        self.assertEqual(readonly['period'],{'year':2026,'month':10,'timezone':'Africa/Johannesburg'})
+        self.assertEqual({key:value.records for key,value in vars(ns['db']).items()},before)
 
 
 def legacy_admin_dashboard(node):

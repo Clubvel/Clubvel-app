@@ -69,9 +69,15 @@ export function usePersonalClaims(userId: string | undefined, token: string | nu
   const [state, setState] = useState<State>({ person: userId, phase: 'loading', records: [] });
   const request = useRef(0);
   const apiUrl = process.env.EXPO_PUBLIC_BACKEND_URL;
+  const session = JSON.stringify([apiUrl, userId, token]);
+  const latest = useRef(session); latest.current = session;
+  const pending = useRef<{ owner: string; ticket: number; promise: Promise<void> } | null>(null);
   const [refreshing, setRefreshing] = useState(false);
-  const reload = useCallback(async () => {
+  const fetch = useCallback((force = false) => {
+    if (latest.current !== session) return Promise.resolve();
+    if (!force && pending.current?.owner === session) return pending.current.promise;
     const ticket = ++request.current;
+    const promise = (async () => {
     setRefreshing(true);
     setState(previous => previous.person === userId && previous.credential === token && (previous.phase === 'ready' || previous.phase === 'empty')
       ? previous : { person: userId, credential: token, phase: 'loading', records: [] });
@@ -81,14 +87,25 @@ export function usePersonalClaims(userId: string | undefined, token: string | nu
         headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
       });
       const records = personalClaims(response.data);
-      if (ticket === request.current) setState({ person: userId, credential: token, phase: records.length ? 'ready' : 'empty', records });
+      if (ticket === request.current && latest.current === session) setState({ person: userId, credential: token, phase: records.length ? 'ready' : 'empty', records });
     } catch {
-      if (ticket === request.current) setState({ person: userId, credential: token, phase: 'error', records: [] });
-    } finally { if (ticket === request.current) setRefreshing(false); }
-  }, [apiUrl, userId, token]);
+      if (ticket === request.current && latest.current === session) setState({ person: userId, credential: token, phase: 'error', records: [] });
+    } finally {
+      if (ticket === request.current && latest.current === session) setRefreshing(false);
+      if (pending.current?.ticket === ticket) pending.current = null;
+    }
+    })();
+    pending.current = { owner: session, ticket, promise };
+    return promise;
+  }, [apiUrl, userId, token, session]);
+  // Explicit refreshes (including after a claim action) must obtain fresh records.
+  const reload = useCallback(() => fetch(true), [fetch]);
   useFocusEffect(useCallback(() => {
-    void reload();
-    return () => { request.current += 1; };
-  }, [reload]));
+    void fetch();
+    return () => {
+      if (latest.current === session) request.current += 1;
+      if (pending.current?.owner === session) pending.current = null;
+    };
+  }, [fetch, session]));
   return { ...(state.person === userId && state.credential === token ? state : { person: userId, phase: 'loading' as const, records: [] }), refreshing, reload };
 }

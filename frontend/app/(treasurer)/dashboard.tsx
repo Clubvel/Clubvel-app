@@ -1,4 +1,5 @@
 import { paymentMoney } from '../../services/paymentSummaryRecords';
+import { currentReportPeriod, REPORT_MONTHS } from '../../services/monthlyReport';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Linking, Alert, Modal, Image, TextInput, KeyboardAvoidingView, Platform, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
@@ -86,6 +87,7 @@ export default function AdminDashboardScreen() {
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
   const reminderInFlight = useRef(false);
+  const [financialPeriod, setFinancialPeriod] = useState(currentReportPeriod);
 
   const sessionKey = JSON.stringify([API_URL, user?.id, token]);
   const latestSession = useRef(sessionKey);
@@ -105,17 +107,60 @@ export default function AdminDashboardScreen() {
   const accountDashboard = dashboardOwner === sessionKey ? storedDashboardData : null;
   const selectedClub = administration?.club;
   const financialClub = selectedGroupId ? accountDashboard?.clubs.find(club => club.id === selectedGroupId) : null;
+  // Older dashboards lack these additive fields. Read the existing, authorized
+  // obligation-month report, whose authorization never reconciles memberships.
+  // Never substitute legacy/lifetime totals or an explicitly unavailable amount.
+  const needsFinancialRead = !!selectedClub && !!financialClub && !Object.prototype.hasOwnProperty.call(financialClub, 'financial_summary');
+  const financialKey = JSON.stringify([administrationContext, financialPeriod.year, financialPeriod.month]);
+  const latestFinancialKey = useRef(financialKey); latestFinancialKey.current = financialKey;
+  const financialSequence = useRef(0);
+  const financialPending = useRef<{ key: string; ticket: number } | null>(null);
+  const [storedFinancial, setFinancial] = useState<{ owner: string; summary: Club['financial_summary']; error: string | null } | null>(null);
+  const financialRead = needsFinancialRead && storedFinancial?.owner === financialKey ? storedFinancial : null;
+  const selectedSummary = needsFinancialRead ? financialRead?.summary : financialClub?.financial_summary;
   const dashboardData = selectedGroupId ? selectedClub && financialClub && accountDashboard ? {
-    ...accountDashboard, clubs: [{ ...financialClub, name: selectedClub.name }], urgent_alerts: [], next_claim: null,
+    ...accountDashboard, clubs: [{ ...financialClub, name: selectedClub.name, financial_summary: selectedSummary,
+      period: needsFinancialRead ? { ...financialPeriod, timezone: 'Africa/Johannesburg' } : financialClub.period }], urgent_alerts: [], next_claim: null,
     summary: { ...accountDashboard.summary, total_clubs: 1, total_members: financialClub.member_count,
       late_members_count: financialClub.late_count,
-      confirmed_collected_current_period: financialClub.financial_summary?.collected ?? null },
+      confirmed_collected_current_period: selectedSummary?.collected ?? null },
   } : null : invalidGroupRoute ? null : accountDashboard;
   const dashboardError = (invalidGroupRoute ? 'The selected club could not be verified.' : administration?.error) ||
     (errorOwner === sessionKey ? storedDashboardError : null) ||
     (selectedGroupId && selectedClub && accountDashboard && !financialClub ? 'Club financial totals were not returned. Your verified management access remains available.' : null);
   const latestAdministration = useRef({ context: administrationContext, club: selectedClub });
   latestAdministration.current = { context: administrationContext, club: selectedClub };
+  const fetchSelectedFinancials = useCallback(async (force = false) => {
+    if (!needsFinancialRead || !selectedGroupId || !user?.id || !token || latestFinancialKey.current !== financialKey || latestAdministration.current.context !== administrationContext || !latestAdministration.current.club) return;
+    if (!force && financialPending.current?.key === financialKey) return;
+    const ticket = ++financialSequence.current;
+    financialPending.current = { key: financialKey, ticket };
+    const current = () => latestFinancialKey.current === financialKey && financialSequence.current === ticket && latestAdministration.current.context === administrationContext && latestAdministration.current.club?.id === selectedGroupId;
+    try {
+      const response = await axios.get(`${API_URL}/api/treasurer/reports/${encodeURIComponent(selectedGroupId)}/monthly`, {
+        params: financialPeriod, headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+      });
+      if (!current()) return;
+      const data = response.data;
+      if (data?.schema_version !== 1 || data.club?.id !== selectedGroupId || data.period?.month !== financialPeriod.month || data.period?.year !== financialPeriod.year || data.period?.timezone !== 'Africa/Johannesburg' || !data.summary ||
+          ['confirmed', 'expected', 'outstanding', 'awaiting_review'].some(field =>
+            data.summary[field] !== null && (typeof data.summary[field] !== 'number' || !Number.isFinite(data.summary[field]) || data.summary[field] < 0))) throw new Error('Invalid monthly financial response');
+      const { confirmed, expected } = data.summary;
+      // Percentage is presentation of verified report totals; money is never recalculated.
+      const rate = confirmed == null || expected == null ? null : expected === 0 ? 0 : Math.round(confirmed / expected * 1000) / 10;
+      setFinancial({ owner: financialKey, summary: { collected: confirmed, total_expected: expected, collection_rate: rate }, error: null });
+    } catch (failure: any) {
+      if (!current()) return;
+      setFinancial({ owner: financialKey, summary: undefined, error: 'Monthly totals could not be verified. Please retry.' });
+      if ([401, 403].includes(failure.response?.status)) {
+        ++administrationRequest.current;
+        setAdministration({ owner: administrationContext, club: null, error: 'Administration access could not be verified. Refresh your club permissions.' });
+      }
+    } finally {
+      if (financialPending.current?.ticket === ticket) financialPending.current = null;
+    }
+  }, [API_URL, administrationContext, financialKey, financialPeriod, needsFinancialRead, selectedGroupId, token, user?.id]);
+  useFocusEffect(useCallback(() => { void fetchSelectedFinancials(); }, [fetchSelectedFinancials]));
   const confirmedTotal = dashboardData?.summary.confirmed_collected_current_period;
   const confirmedTotalAvailable = typeof confirmedTotal === 'number' && Number.isFinite(confirmedTotal) && confirmedTotal >= 0;
   const verifiedCount = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : '—';
@@ -197,8 +242,11 @@ export default function AdminDashboardScreen() {
   const onRefresh = () => {
     if (latestSession.current !== sessionKey) return;
     setRefreshing(true);
+    const nextPeriod = currentReportPeriod();
+    setFinancialPeriod(previous => previous.year === nextPeriod.year && previous.month === nextPeriod.month ? previous : nextPeriod);
     void fetchDashboard(true);
     void fetchAdministration(true);
+    void fetchSelectedFinancials(true);
   };
 
   const handleRemindMember = (member: LateMember) => {
@@ -412,10 +460,12 @@ export default function AdminDashboardScreen() {
       <View style={styles.summaryContainer}>
         <View style={styles.summaryCard}>
           <Text style={styles.summaryLabel}>Collected This Month</Text>
+          {selectedGroupId && <Text style={styles.clubMetaText}>Confirmed · {REPORT_MONTHS[((needsFinancialRead ? financialPeriod.month : financialClub?.period?.month) || financialPeriod.month) - 1]} {(needsFinancialRead ? financialPeriod.year : financialClub?.period?.year) || financialPeriod.year}</Text>}
           {!confirmedTotalAvailable && <Text style={styles.clubMetaText}>Total not verified</Text>}
           <Text style={[styles.summaryValue, { color: Colors.statusPaid }]}>
             {confirmedTotalAvailable ? paymentMoney(confirmedTotal) : "—"}
           </Text>
+          {financialRead?.error && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Retry monthly club totals" onPress={() => void fetchSelectedFinancials(true)}><Text>{financialRead.error}</Text></TouchableOpacity>}
         </View>
 
         <View style={styles.summaryCard}>
@@ -501,17 +551,17 @@ export default function AdminDashboardScreen() {
               <Text style={styles.clubMetaText}>Confirmed / recorded obligations{club.period ? ` - ${club.period.month}/${club.period.year}` : ""}</Text>
               {club.contribution_mode === "flexible_goal" && <Text style={styles.clubMetaText}>{paymentMoney(club.target_amount_per_member)} goal per member</Text>}
               <View style={styles.clubProgress}>
-                <View style={styles.progressBar}>
+                {typeof club.financial_summary?.collection_rate === 'number' && Number.isFinite(club.financial_summary.collection_rate) && <View style={styles.progressBar}>
                   <View
                     style={[
                       styles.progressFill,
                       {
-                        width: `${Math.min(100, Math.max(0, club.financial_summary?.collection_rate ?? 0))}%`,
+                        width: `${Math.min(100, Math.max(0, club.financial_summary.collection_rate))}%`,
                         backgroundColor: club.late_count > 0 ? Colors.gold : Colors.statusPaid,
                       },
                     ]}
                   />
-                </View>
+                </View>}
                 <Text style={styles.progressText}>
                   <Text style={{ color: Colors.accent }}>{paymentMoney(club.financial_summary?.collected)}</Text>
                       <Text style={{ color: Colors.textMuted }}> / </Text>

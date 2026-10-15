@@ -5,6 +5,7 @@ const ts = require('typescript');
 function load(file, dependencies = {}) {
   dependencies = { "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 24, bottom: 24, left: 0, right: 0 }) }, ...dependencies };
   if (dependencies['expo-router']) dependencies['expo-router'] = { useLocalSearchParams: () => ({}), ...dependencies['expo-router'] };
+  if (file === 'app/(treasurer)/dashboard.tsx' && !dependencies['../../services/monthlyReport']) dependencies['../../services/monthlyReport'] = load('services/monthlyReport.ts');
   if (file !== 'components/ProfilePhotoFrame.tsx' && dependencies.react && dependencies['react-native']) {
     const frame = load('components/ProfilePhotoFrame.tsx', { react: dependencies.react, 'react-native': dependencies['react-native'], '../constants/Colors': dependencies['../../constants/Colors'] || dependencies['../../../constants/Colors'] || dependencies['../constants/Colors'] });
     for (const name of ['./ProfilePhotoFrame', '../../components/ProfilePhotoFrame', '../../../components/ProfilePhotoFrame']) if (!(name in dependencies)) dependencies[name] = frame;

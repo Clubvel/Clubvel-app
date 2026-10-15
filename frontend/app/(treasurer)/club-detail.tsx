@@ -1334,7 +1334,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.mediumGreen,
     justifyContent: 'center',
     alignItems: 'center',
-   borderWidth: 2, borderColor: Colors.accent, },
+   borderWidth: 2, borderColor: Colors.avatarRing, },
   memberAvatarText: {
     fontSize: 18,
     fontWeight: 'bold',

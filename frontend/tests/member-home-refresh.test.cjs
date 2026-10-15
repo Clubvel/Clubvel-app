@@ -5,6 +5,7 @@ const { load, engine, tick, nodes, text, button, native, colors } = require('./u
 function setup(screen = 'member', holdInvitations = false, params = {}, initialUser = { id: 'member', full_name: 'Test Member', first_name: 'Test' }, initialContextRole = 'admin') {
   const ui = engine(), requests = [], invitations = [], actions = [], alerts = [], routes = [];
   const contextRequests=[]; const contextState={ handler:null, role:initialContextRole };
+  const financialRequests=[]; const financialState={ handler:null };
   const auth = { user: initialUser, token: 'session' };
   const Screen = load(screen === 'member' ? 'app/(member)/home.tsx' : 'app/(treasurer)/dashboard.tsx', {
     react: ui.react,
@@ -18,9 +19,15 @@ function setup(screen = 'member', holdInvitations = false, params = {}, initialU
     '../../components/AdBanner': { AdBanner: 'AdBanner' },
     '../../services/paymentReminder': { addPaymentReminder: async () => {} },
     '../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
+    '../../services/monthlyReport': { ...load('services/monthlyReport.ts'), currentReportPeriod: () => ({ year: 2026, month: 10 }) },
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '@react-native-async-storage/async-storage': {},
-    axios: { get: (url,options) => url.endsWith('/context') ? (() => {
+    axios: { get: (url,options) => url.includes('/api/treasurer/reports/') ? (() => {
+      financialRequests.push({url,options});
+      if(financialState.handler) return financialState.handler(url,options);
+      const [,id]=url.match(/reports\/([^/]+)\/monthly/);
+      return Promise.resolve({data:{schema_version:1,club:{id:decodeURIComponent(id)},period:{...options.params,timezone:'Africa/Johannesburg'},summary:{confirmed:0,expected:0,outstanding:0,awaiting_review:0},contributions:[]}});
+    })() : url.endsWith('/context') ? (() => {
       contextRequests.push({url,options});
       if(contextState.handler) return contextState.handler(url,options);
       const id=decodeURIComponent(url.match(/groups\/([^/]+)\/context/)[1]);
@@ -37,7 +44,7 @@ function setup(screen = 'member', holdInvitations = false, params = {}, initialU
   };
   const refresh = () => nodes(render()).find(n => n.type === 'ScrollView').props.refreshControl.props.onRefresh();
   render();
-  return { ui, auth, contextRequests, contextState, params, render, requests, invitations, actions, alerts, routes, respond, refresh };
+  return { ui, auth, contextRequests, contextState, financialRequests, financialState, params, render, requests, invitations, actions, alerts, routes, respond, refresh };
 }
 
 test('initial Home load uses the existing dashboard endpoint once', async () => {
@@ -387,4 +394,85 @@ test('Admin A-B-A context tickets reject old callbacks and delayed B responses',
  c.params.groupId='b';c.render();c.params.groupId='a';c.render();assert.equal(button(c.render(),'Manage members'),undefined);old.props.onPress();assert.deepEqual(c.routes,[]);
  pending[1].resolve({data:{club:{id:'a',name:'Current WeTravel'},membership:{id:'a',role:'admin',status:'active'}}});await tick();assert.match(text(c.render()),/Current WeTravel administration/);
  pending[0].resolve({data:{club:{id:'b',name:'Stale Eighty8'},membership:{id:'b',role:'admin',status:'active'}}});await tick();assert.doesNotMatch(text(c.render()),/Stale Eighty8/);old.props.onPress();assert.deepEqual(c.routes,[]);
+});
+
+const monthlyReply=(url,changes={})=>{
+ const [,id]=url.match(/reports\/([^/]+)\/monthly/);
+ return {schema_version:1,club:{id:decodeURIComponent(id)},period:{month:10,year:2026,timezone:'Africa/Johannesburg'},summary:{confirmed:5500,expected:6700,outstanding:1200,awaiting_review:300},...changes};
+};
+async function olderClubDashboard(c){
+ c.requests[0].resolve({data:managedData([{id:c.params.groupId,name:'WeTravel',member_count:2,late_count:0,collected:90000,expected:90000}])});
+ await tick();c.render();await tick();return c.render();
+}
+test('older dashboard obtains R5500 confirmed for the exact authorized October club, never the legacy lifetime figure',async()=>{
+ const c=setup('admin',false,{groupId:'group-a'},{id:'jimmy',full_name:'Jimmy'});
+ c.financialState.handler=url=>Promise.resolve({data:monthlyReply(url)});
+ const tree=await olderClubDashboard(c);
+ assert.match(text(tree),/Confirmed · October 2026R5500.00/);assert.doesNotMatch(text(tree),/R90000|Total not verified/);
+ assert.equal(c.financialRequests.length,1);const r=c.financialRequests[0];
+ assert.ok(r.url.endsWith('/api/treasurer/reports/group-a/monthly'));
+ assert.deepEqual(r.options.params,{month:10,year:2026});assert.equal(r.options.headers.Authorization,'Bearer session');
+ assert.ok(nodes(tree).some(n=>Array.isArray(n.props?.style)&&n.props.style.some(s=>s?.width==='82.1%')));
+ c.render();assert.equal(c.financialRequests.length,1);
+});
+test('modern authoritative totals and explicit nulls never trigger another financial request',async()=>{
+ for(const collected of [5500,0,null]){
+  const c=setup('admin',false,{groupId:'group-a'});
+  c.requests[0].resolve({data:managedData([{id:'group-a',name:'WeTravel',member_count:2,late_count:0,financial_summary:{collected,total_expected:6700,collection_rate:collected===null?null:0}}])});await tick();c.render();await tick();const content=text(c.render());
+  assert.equal(c.financialRequests.length,0);
+  if(collected===null)assert.match(content,/Total not verified—/);else assert.ok(content.includes(`R${collected.toFixed(2)}`));
+ }
+});
+test('an empty verified obligation month is genuine zero; explicitly unavailable monthly totals remain unknown',async()=>{
+ for(const collected of [0,null]){
+  const c=setup('admin',false,{groupId:'group-a'});c.financialState.handler=url=>Promise.resolve({data:monthlyReply(url,{summary:{confirmed:collected,expected:collected,outstanding:collected,awaiting_review:collected}})});
+  const tree=await olderClubDashboard(c);
+  if(collected===0)assert.match(text(tree),/Confirmed · October 2026R0.00/);else{assert.match(text(tree),/Total not verified—/);assert.doesNotMatch(text(tree),/R0.00/);}
+ }
+});
+test('wrong club, wrong month/year and malformed monthly aggregates are rejected without invented zeros',async()=>{
+ for(const change of [{club:{id:'other'}},{period:{month:9,year:2026,timezone:'Africa/Johannesburg'}},{period:{month:10,year:2025,timezone:'Africa/Johannesburg'}},{period:{month:10,year:2026,timezone:'UTC'}},{schema_version:0},{summary:{confirmed:'5500'}},{summary:{confirmed:NaN}},{summary:{confirmed:-1}}]){
+  const c=setup('admin',false,{groupId:'group-a'});c.financialState.handler=url=>Promise.resolve({data:monthlyReply(url,change)});
+  const tree=await olderClubDashboard(c);assert.match(text(tree),/Total not verified—/);assert.doesNotMatch(text(tree),/R5500|R90000|R0.00/);assert.ok(nodes(tree).some(n=>n.props.accessibilityLabel==='Retry monthly club totals'));
+ }
+});
+test('financial read failure permits retry while verified administration stays available',async()=>{
+ const c=setup('admin',false,{groupId:'group-a'});c.financialState.handler=()=>Promise.reject({response:{status:500}});
+ const tree=await olderClubDashboard(c);assert.ok(nodes(tree).some(n=>n.props.accessibilityLabel==='Manage members'));
+ c.financialState.handler=url=>Promise.resolve({data:monthlyReply(url)});
+ nodes(tree).find(n=>n.props.accessibilityLabel==='Retry monthly club totals').props.onPress();await tick();assert.match(text(c.render()),/R5500.00/);assert.equal(c.financialRequests.length,2);
+});
+test('financial authorization denial masks management and old callbacks; Members never initiate the read',async()=>{
+ const c=setup('admin',false,{groupId:'group-a'});let reject;
+ c.financialState.handler=()=>new Promise((_,r)=>{reject=r;});await olderClubDashboard(c);const old=nodes(c.render()).find(n=>n.props.accessibilityLabel==='Manage members');
+ reject({response:{status:403}});await tick();const tree=c.render();assert.doesNotMatch(text(tree),/WeTravel administration/);old.props.onPress();assert.deepEqual(c.routes,[]);
+ const member=setup('admin',false,{groupId:'group-a'},{id:'brown'},'member');await olderClubDashboard(member);assert.equal(member.financialRequests.length,0);
+});
+test('A-B-A and account switching reject delayed monthly totals and retain newer request ownership',async()=>{
+ const c=setup('admin',false,{groupId:'a'});const pending=[];
+ c.financialState.handler=url=>new Promise((resolve,reject)=>pending.push({url,resolve,reject}));
+ c.requests[0].resolve({data:managedData(['a','b'].map(id=>({id,name:id,member_count:2,late_count:0})))});await tick();c.render();await tick();
+ c.params.groupId='b';c.render();await tick();c.render();await tick();
+ c.params.groupId='a';c.render();await tick();c.render();await tick();assert.equal(pending.length,3);
+ pending[0].reject({response:{status:500}});pending[1].resolve({data:monthlyReply(pending[1].url)});await tick();c.render();assert.doesNotMatch(text(c.render()),/R5500.00|Monthly totals could not/);
+ pending[2].resolve({data:monthlyReply(pending[2].url,{summary:{confirmed:200,expected:300,outstanding:100,awaiting_review:0}})});await tick();assert.match(text(c.render()),/R200.00/);
+ c.refresh();c.render();const final=pending.at(-1);c.contextState.role='member';c.auth.user={id:'brown'};c.auth.token='other-session';assert.doesNotMatch(text(c.render()),/R5500.00|R200.00|WeTravel administration/);final.resolve({data:monthlyReply(final.url)});await tick();assert.doesNotMatch(text(c.render()),/R5500.00|R200.00|WeTravel administration/);
+});
+test('Johannesburg reporting month changes at the local boundary rather than UTC midnight',()=>{
+ const {currentReportPeriod}=load('services/monthlyReport.ts');assert.deepEqual(currentReportPeriod(new Date('2026-09-30T22:30:00Z')),{year:2026,month:10});
+});
+
+test('Jimmy and Treasurer fixtures enter their selected Admin dashboard directly from the club card and can still enter as Members',async()=>{
+ for(const role of ['admin','treasurer']){
+  const c=setup();await c.respond(0,'WeTravel',role);
+  nodes(c.render()).find(n=>n.props.accessibilityLabel==='Open WeTravel administration').props.onPress();
+  assert.deepEqual(c.routes.at(-1),{pathname:'/(treasurer)/dashboard',params:{groupId:'group-a'}});assert.equal(c.routes.length,1);
+  nodes(c.render()).find(n=>n.props.accessibilityLabel==='View WeTravel as member').props.onPress();assert.deepEqual(c.routes.at(-1),{pathname:'/club/[id]',params:{id:'group-a',from:'member'}});
+ }
+});
+test('Brown Member fixture has no card Admin action; a stale shortcut cannot survive role revocation or account switching',async()=>{
+ const brown=setup();await brown.respond(0,'WeTravel','member');assert.equal(nodes(brown.render()).find(n=>n.props.accessibilityLabel==='Open WeTravel administration'),undefined);
+ const c=setup();await c.respond(0,'WeTravel','admin');const old=nodes(c.render()).find(n=>n.props.accessibilityLabel==='Open WeTravel administration');
+ c.refresh();await c.respond(1,'WeTravel','member');c.render();old.props.onPress();assert.deepEqual(c.routes,[]);
+ c.auth.user={id:'brown'};c.auth.token='brown-session';c.render();old.props.onPress();assert.deepEqual(c.routes,[]);
 });
