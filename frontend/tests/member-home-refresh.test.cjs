@@ -92,8 +92,8 @@ test('member and administrator club cards enter the appropriate Club views', asy
   assert.deepEqual(c.routes, [{ pathname: '/club/[id]', params: { id: 'group-a', from: 'member' } }]);
   c.refresh(); await c.respond(1, 'WeTraveling', 'admin');
   button(c.render(), 'WeTraveling').props.onPress();
-  assert.deepEqual(c.routes[1], { pathname: '/club/[id]',
-    params: { id: 'group-a', from: 'member' } });
+  assert.deepEqual(c.routes[1], { pathname: '/(treasurer)/dashboard',
+    params: { groupId: 'group-a' } });
 });
 
 test('Home displays its existing header while the first dashboard response is unresolved', async () => {
@@ -294,8 +294,8 @@ test('mixed club roles route Members, Admins and Treasurers using each selected 
   {id:'eight',name:'Eighty8',role:'member',member_count:2},
   {id:'third',name:'Third Club',role:'treasurer',member_count:2}
  ]}});await tick();
- for(const [name,id,pathname] of [['WeTravel','travel','/club/[id]'],['Eighty8','eight','/club/[id]'],['Third Club','third','/club/[id]']]){
-  button(c.render(),name).props.onPress();assert.equal(c.routes.at(-1).pathname,pathname);assert.equal(c.routes.at(-1).params.id,id);
+ for(const [name,id,pathname] of [['WeTravel','travel','/(treasurer)/dashboard'],['Eighty8','eight','/club/[id]'],['Third Club','third','/(treasurer)/dashboard']]){
+  button(c.render(),name).props.onPress();assert.equal(c.routes.at(-1).pathname,pathname);assert.equal(c.routes.at(-1).params[ pathname === '/club/[id]' ? 'id' : 'groupId'],id);
  }
 });
 

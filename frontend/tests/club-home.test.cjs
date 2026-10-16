@@ -36,7 +36,7 @@ test('Admin entry points depend on the selected membership role, not account ide
 });
 test('Member destinations preserve selected club and obligation period where supported', async () => {
   const c = setup(); await c.reply(0); c.tap('Contribution history'); assert.deepEqual(c.routes.at(-1), { pathname: '/(member)/club/[id]', params: { id: 'travel', month: '10', year: '2026', contribution_id: '', scope: 'club', from: 'member', section: 'history' } }); c.tap('My Contributions'); assert.deepEqual(c.routes.at(-1), { pathname: '/(member)/club/[id]', params: { id: 'travel', month: '10', year: '2026', contribution_id: '', scope: 'club', from: 'member' } });
-  c.tap('Members'); assert.deepEqual(c.routes.at(-1), { pathname: '/club/[id]/members', params: { id: 'travel', from: 'member' } }); c.tap('Payments and Proofs'); assert.equal(c.routes.at(-1).params.group_id, 'travel'); assert.equal(c.routes.at(-1).params.month, '10');
+  c.tap('My Club'); assert.deepEqual(c.routes.at(-1), { pathname: '/club/[id]/info', params: { id: 'travel', from: 'member', month: '10', year: '2026' } }); c.tap('Payments and Proofs'); assert.equal(c.routes.at(-1).params.group_id, 'travel'); assert.equal(c.routes.at(-1).params.month, '10');
   c.tap('Payouts and Claims'); assert.equal(c.routes.at(-1), '/(member)/claims'); assert.match(text(c.render()), /across your active clubs/);
 });
 test('Admin management destinations carry the current club and existing routes remain usable', async () => {
@@ -128,7 +128,7 @@ test('shared club header centres its regular title, retains 112px portrait and r
  const title=nodes(tree).find(n=>n.props.accessibilityRole==='header');assert.equal(title.props.style.textAlign,'center');assert.equal(title.props.style.fontWeight,'400');
  assert.match(text(tree),/Good (morning|afternoon|evening), Brown!/);assert.doesNotMatch(text(tree),/Member Dashboard|Here's what's happening|Morning\/Afternoon/);
  const image=nodes(tree).find(n=>n.type==='Image');assert.deepEqual([image.props.style.width,image.props.style.height,image.props.style.borderRadius],[112,112,56]);assert.equal(image.props.resizeMode,'cover');
- const directory=nodes(tree).find(n=>n.type==='ClubMemberDirectory');assert.equal(directory.props.groupId,'travel');
+ assert.equal(nodes(tree).find(n=>n.type==='ClubMemberDirectory'),undefined); c.tap('My Club'); assert.equal(c.routes.at(-1).params.id,'travel');
  for(const width of [320,360,393,412])assert.ok(width-48-116-16>=140,'greeting can wrap beside the unchanged photo');
  assert.equal(c.claimRequests.length,1);c.render();c.render();assert.equal(c.claimRequests.length,1);
 });
@@ -149,4 +149,9 @@ test('claim preview retains backend pending_review and legacy upcoming states wi
  const c=setup();await c.reply(0);c.claimState.records=[{claim_id:'pending',group_id:'travel',group_name:'WeTraveling',status:'pending_review',amount:null},{claim_id:'legacy',group_id:'travel',group_name:'WeTraveling',status:'upcoming',amount:250}];
  c.ui.blur();c.ui.focus();await c.reply(1);const card=nodes(c.render()).find(n=>n.type==='View'&&text(n.props.children?.[0])==='Your upcoming claims and payouts');
  assert.match(text(card),/Claim awaiting reviewAmount unavailable/);assert.match(text(card),/Upcoming claimR250.00/);assert.doesNotMatch(text(card),/R0.00/);
+});
+
+
+test('club dashboard alerts use the existing authenticated destination and stale account callbacks cannot navigate',async()=>{
+ const c=setup();await c.reply(0);const old=nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Club alerts');c.tap('Club alerts');assert.equal(c.routes.at(-1),'/(member)/alerts');c.auth.user={id:'other'};c.auth.token='other-session';c.render();old.props.onPress();assert.equal(c.routes.length,1);assert.equal(nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Club alerts'),undefined);
 });

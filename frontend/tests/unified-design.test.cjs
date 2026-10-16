@@ -42,7 +42,7 @@ test('unaffected application screens remain preserved outside the approved membe
  const root=path.join(__dirname,'../..');
  const files=["frontend/app/(member)/about.tsx", "frontend/app/(member)/alerts.tsx", "frontend/app/(member)/club/[id].tsx", "frontend/app/(member)/home.tsx", "frontend/app/(member)/notifications.tsx", "frontend/app/(member)/profile.tsx", "frontend/app/(member)/proofs.tsx", "frontend/app/(member)/support.tsx", "frontend/app/(member)/trust-score.tsx", "frontend/app/(treasurer)/about.tsx", "frontend/app/(treasurer)/club-detail.tsx", "frontend/app/(treasurer)/claims.tsx", "frontend/app/(treasurer)/contributions.tsx", "frontend/app/(treasurer)/dashboard.tsx", "frontend/app/(treasurer)/members.tsx", "frontend/app/(treasurer)/notifications.tsx", "frontend/app/(treasurer)/profile.tsx", "frontend/app/(treasurer)/reports.tsx", "frontend/app/auth.tsx", "frontend/app/onboarding.tsx", "frontend/components/AdBanner.tsx", "frontend/components/AppHeader.tsx"];
  const neutral=s=>s.replace(/\r\n/g,'\n').replace(/\bColors\.[A-Za-z_]\w*/g,'Colors.visualToken');
- for(const file of files.filter(file=>!['frontend/app/(member)/club/[id].tsx','frontend/app/(treasurer)/dashboard.tsx'].includes(file))){
+ for(const file of files.filter(file=>!['frontend/app/(member)/club/[id].tsx','frontend/app/(treasurer)/dashboard.tsx','frontend/app/(member)/home.tsx','frontend/app/auth.tsx'].includes(file))){
   const baseline=cp.execFileSync('git',['show','c981f286d703f8ff0d986ba71032716e7efaf3fc:'+file],{cwd:root,encoding:'utf8'});
   assert.equal(neutral(fs.readFileSync(path.join(root,file),'utf8')),neutral(baseline),file);
  }

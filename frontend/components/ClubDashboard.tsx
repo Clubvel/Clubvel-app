@@ -8,15 +8,15 @@ import { paymentMoney } from '../services/paymentSummaryRecords';
 
 export type ClubTile = { label: string; icon: React.ComponentProps<typeof Ionicons>['name']; onPress: () => void; accessibilityLabel?: string };
 export type ActivityRow = { id: string; title: string; detail: string; date?: string; state: 'paid' | 'pending' | 'declined' | 'recorded'; onPress?: () => void };
-export function ClubWelcomeHeader({ clubName, displayName, photoUri, topInset = 24, onBack, onMenu, onPhotoPress, onPhotoError, greeting }: {
+export function ClubWelcomeHeader({ clubName, displayName, photoUri, topInset = 24, onBack, onMenu, onPhotoPress, onPhotoError, onNotifications, greeting }: {
   clubName: string; displayName?: string; photoUri?: string | null; topInset?: number; onBack?: () => void; onMenu?: () => void;
-  onPhotoPress?: () => void; onPhotoError?: () => void; greeting?: string;
+  onPhotoPress?: () => void; onPhotoError?: () => void; onNotifications?: () => void; greeting?: string;
 }) {
   return <View style={[dashboardStyles.header, { paddingTop: Math.max(topInset, 16) }]}>
     <View style={dashboardStyles.titleRow}>
-      <View style={dashboardStyles.headerSide}>{onBack && <TouchableOpacity accessibilityLabel="Back to account Home" style={dashboardStyles.headerControl} onPress={onBack}><Ionicons name="chevron-back" size={22} color={Colors.white} /></TouchableOpacity>}</View>
+      <View style={dashboardStyles.headerSide}>{onBack && <TouchableOpacity accessibilityRole="button" accessibilityLabel="Back to account Home" style={dashboardStyles.headerControl} onPress={onBack}><Ionicons name="chevron-back" size={22} color={Colors.white} /></TouchableOpacity>}</View>
       <Text accessibilityRole="header" style={dashboardStyles.clubName}>{clubName}</Text>
-      <View style={dashboardStyles.headerSide}>{onMenu && <TouchableOpacity accessibilityLabel="Open profile menu" style={dashboardStyles.headerControl} onPress={onMenu}><Ionicons name="menu" size={22} color={Colors.white} /></TouchableOpacity>}</View>
+      <View style={dashboardStyles.headerSide}>{onMenu ? <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open profile menu" style={dashboardStyles.headerControl} onPress={onMenu}><Ionicons name="menu" size={22} color={Colors.white} /></TouchableOpacity> : onNotifications ? <TouchableOpacity accessibilityRole="button" accessibilityLabel="Club alerts" style={dashboardStyles.headerControl} onPress={onNotifications}><Ionicons name="notifications" size={22} color={Colors.white} /></TouchableOpacity> : null}</View>
     </View>
     <View style={dashboardStyles.welcomeRow}>
       <TouchableOpacity accessibilityRole="button" accessibilityLabel="View your profile photo" disabled={!photoUri || !onPhotoPress} onPress={onPhotoPress} style={dashboardStyles.photoButton}>
@@ -64,3 +64,10 @@ export const dashboardStyles = StyleSheet.create({
   activityRow: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 78, paddingVertical: 13, borderBottomWidth: 1, borderBottomColor: Colors.cardBorder }, activityIcon: { width: 42, height: 42, borderRadius: 21, justifyContent: 'center', alignItems: 'center', flexShrink: 0 }, activityCopy: { flex: 1, minWidth: 0 }, activityTitle: { fontSize: 14, fontWeight: '500', color: Colors.primary }, activityDate: { fontSize: 12, color: Colors.textSecondary, maxWidth: 64 },
   overview: { flexDirection: 'row', borderRadius: 14, backgroundColor: Colors.lightBackground, paddingVertical: 16, marginTop: 12 }, overviewItem: { flex: 1, minWidth: 0, alignItems: 'center', paddingHorizontal: 4, gap: 8 }, overviewValue: { color: Colors.primary, fontSize: 16, fontWeight: '500', textAlign: 'center' }, overviewLabel: { fontSize: 11, lineHeight: 16, color: Colors.textSecondary, textAlign: 'center' },
 });
+
+
+export function ClubBottomNavigation({ active, onHome, onContributions, onClaims, onMore, bottomInset = 0 }: { active: 'home' | 'more'; onHome: () => void; onContributions: () => void; onClaims: () => void; onMore: () => void; bottomInset?: number }) {
+  return <View accessibilityLabel="Club navigation" style={{ flexDirection: 'row', backgroundColor: Colors.white, borderTopWidth: 1, borderTopColor: Colors.cardBorder, paddingBottom: Math.max(bottomInset, 8) }}>
+    {[{ label: 'Home', icon: 'home' as const, action: onHome, selected: active === 'home' }, { label: 'Contributions', icon: 'layers-outline' as const, action: onContributions }, { label: 'Claims', icon: 'card-outline' as const, action: onClaims }, { label: 'More', icon: 'ellipsis-horizontal' as const, action: onMore, selected: active === 'more' }].map(item => <TouchableOpacity key={item.label} accessibilityRole="button" accessibilityLabel={`Club ${item.label}`} accessibilityState={{ selected: !!item.selected }} onPress={item.action} style={{ flex: 1, minWidth: 0, minHeight: 58, alignItems: 'center', justifyContent: 'center', gap: 4 }}><Ionicons name={item.icon} size={23} color={item.selected ? Colors.primary : Colors.textSecondary} /><Text style={{ fontSize: 10, color: item.selected ? Colors.primary : Colors.textSecondary, textAlign: 'center' }}>{item.label}</Text></TouchableOpacity>)}
+  </View>;
+}

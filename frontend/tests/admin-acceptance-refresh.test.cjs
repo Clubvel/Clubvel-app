@@ -45,7 +45,7 @@ for (const action of ['Accept', 'Decline']) {
       if (!olderFirst) await c.pair(2, 'member', [invitation]);
       assert.equal(button(c.render(), 'Accept'), undefined);
       button(c.render(), 'Test Club').props.onPress();
-      const expectedRoute = { pathname: '/club/[id]', params: { id: 'group', from: 'member' } };
+      const expectedRoute = action === 'Accept' ? { pathname: '/(treasurer)/dashboard', params: { groupId: 'group' } } : { pathname: '/club/[id]', params: { id: 'group', from: 'member' } };
       assert.deepEqual(c.routes.at(-1), expectedRoute);
       assert.equal(c.posts[0].options.headers.Authorization, 'Bearer session');
     });
@@ -61,12 +61,13 @@ test('repeated refresh after promotion never permits an older response to restor
   await c.pair(2, 'member', [invitation]); await accepting;
   assert.equal(button(c.render(), 'Accept'), undefined);
   button(c.render(), 'Test Club').props.onPress();
-  assert.equal(c.routes.at(-1).pathname, '/club/[id]');
+  assert.equal(c.routes.at(-1).pathname, '/(treasurer)/dashboard');
+  assert.equal(c.routes.at(-1).params.groupId, 'group');
 });
 
 test('an old Join Group fetch cannot put the accepted invitation back', async () => {
   const c = setup(); await c.pair(0, 'member', [invitation]);
-  const opening = button(c.render(), 'Join Group').props.onPress();
+  const opening = button(c.render(), 'Join a Club').props.onPress();
   const accepting = button(c.render(), 'Accept').props.onPress();
   c.posts[0].resolve({ data: { admin_access: true } }); await tick();
   await c.pair(3, 'admin'); await accepting;

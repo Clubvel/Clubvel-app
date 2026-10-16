@@ -12,7 +12,7 @@ function header(screen,photo,name="Alexandra Very Long Name"){
  const ast=ts.createSourceFile('screen.tsx',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
  let jsx,styles;
  function walk(n){
-  if(ts.isJsxElement(n)&&n.openingElement.attributes.properties.some(a=>a.getText(ast)==='style={styles.header}')&&n.getText(ast).includes('user?.profile_photo'))jsx=n.getText(ast);
+  if(ts.isJsxElement(n)&&n.openingElement.attributes.properties.some(a=>ts.isJsxAttribute(a)&&a.name.getText(ast)==='style'&&/\bstyles\.header\b/.test(a.initializer?.getText(ast)||''))&&n.getText(ast).includes('user?.profile_photo'))jsx=n.getText(ast);
   if(ts.isVariableDeclaration(n)&&n.name.getText(ast)==='styles')styles=n.initializer.getText(ast);
   ts.forEachChild(n,walk);
  }
@@ -21,7 +21,7 @@ function header(screen,photo,name="Alexandra Very Long Name"){
  const ProfilePhotoFrame=load('components/ProfilePhotoFrame.tsx',{react:ui.react,'react-native':native,'../constants/Colors':{Colors:colors}}).default;
  const user={profile_photo:photo,full_name:name},router={push:r=>routes.push(r)};
  const code=ts.transpileModule(`const styles=${styles}; return (${jsx});`,{compilerOptions:{jsx:ts.JsxEmit.React}}).outputText;
- const tree=new Function('React','View','Text','Image','TouchableOpacity','Ionicons','StyleSheet','Colors','user','router','setShowProfileMenu','selectedClub','setPhotoExpanded','ProfilePhotoFrame',code)(ui.react,'View','Text','Image','TouchableOpacity','Ionicons',native.StyleSheet,colors,user,router,v=>menus.push(v),{name:'Test club'},v=>expanded.push(v),ProfilePhotoFrame);
+ const tree=new Function('React','View','Text','Image','TouchableOpacity','Ionicons','StyleSheet','Colors','user','router','setShowProfileMenu','selectedClub','setPhotoExpanded','ProfilePhotoFrame','accountInsets',code)(ui.react,'View','Text','Image','TouchableOpacity','Ionicons',native.StyleSheet,colors,user,router,v=>menus.push(v),{name:'Test club'},v=>expanded.push(v),ProfilePhotoFrame,{top:24,bottom:24});
  return {tree,routes,menus,expanded};
 }
 for(const screen of screens){

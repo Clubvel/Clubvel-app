@@ -9,9 +9,9 @@ const config = JSON.parse(fs.readFileSync(path.join(root,'frontend/app.json'),'u
 test('approved navy assets preserve identifiers, SDK targets and version',()=>{
  assert.equal(config.android.package,'com.clubvel.clubvel');assert.equal(config.ios.bundleIdentifier,'com.clubvel.clubvel');
  assert.equal(config.android.versionCode,13);assert.equal(config.version,'1.0.0');
- assert.equal(config.icon,'./assets/images/clubvel-corporate-icon.png');
- assert.equal(config.android.adaptiveIcon.foregroundImage,'./assets/images/clubvel-corporate-adaptive-icon.png');
- assert.equal(config.android.adaptiveIcon.backgroundColor,'#FFFFFF');
+ assert.equal(config.icon,'./assets/images/clubvel-midnight-icon.png');
+ assert.equal(config.android.adaptiveIcon.foregroundImage,'./assets/images/clubvel-midnight-symbol.png');
+ assert.equal(config.android.adaptiveIcon.backgroundColor,'#06285B');
  const splash=config.plugins.find(p=>Array.isArray(p)&&p[0]==='expo-splash-screen')[1];
  assert.equal(splash.image,'./assets/images/clubvel-corporate-splash.png');assert.equal(splash.backgroundColor,'#FFFFFF');assert.equal(splash.resizeMode,'contain');
  const sdk=config.plugins.find(p=>Array.isArray(p)&&p[0]==='expo-build-properties')[1].android;
@@ -40,7 +40,7 @@ test('active icon and splash files are the exact approved six-person artwork',()
   'clubvel-navy-adaptive-icon.png':'739a75ef8dc775dab6ab7f920cef579c70a66495cd3df229c548af8b8c5ae671',
   'clubvel-navy-splash.png':'8bab894566d33f00bd48670cad6a4ed890963df8978034b85465e2a47f75c80b',
  };
- assert.equal(config.ios.icon,'./assets/images/clubvel-corporate-ios-icon.png');
+ assert.equal(config.ios.icon,'./assets/images/clubvel-midnight-icon.png');
  for(const [name,hash] of Object.entries(expected)){
   const file=fs.readFileSync(path.join(root,'frontend/assets/images',name));
   assert.equal(crypto.createHash('sha256').update(file).digest('hex'),hash,name);
@@ -48,8 +48,8 @@ test('active icon and splash files are the exact approved six-person artwork',()
 });
 test('all other Expo settings and plugins remain unchanged',()=>{
  const previous=JSON.parse(cp.execFileSync('git',['show','eca3c952b8978d632c45cb79b5009540cbeef8a7:frontend/app.json'],{cwd:root,encoding:'utf8'})).expo;
- previous.icon='./assets/images/clubvel-corporate-icon.png';previous.ios.icon='./assets/images/clubvel-corporate-ios-icon.png';
- previous.android.adaptiveIcon.foregroundImage='./assets/images/clubvel-corporate-adaptive-icon.png';
+ previous.icon='./assets/images/clubvel-midnight-icon.png';previous.ios.icon='./assets/images/clubvel-midnight-icon.png';
+ previous.android.adaptiveIcon.foregroundImage='./assets/images/clubvel-midnight-symbol.png';previous.android.adaptiveIcon.backgroundColor='#06285B';
  previous.plugins.find(p=>Array.isArray(p)&&p[0]==='expo-splash-screen')[1].image='./assets/images/clubvel-corporate-splash.png';
  previous.plugins.find(p=>Array.isArray(p)&&p[0]==='expo-splash-screen')[1].android={image:'./assets/images/clubvel-corporate-adaptive-icon.png',imageWidth:200,backgroundColor:'#FFFFFF',resizeMode:'contain'};
  assert.deepEqual(config,previous);

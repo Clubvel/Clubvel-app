@@ -16,6 +16,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 interface Club {
   id: string;
   name: string;
+  group_photo?: string | null;
   member_count: number;
   monthly_contribution: number;
   group_type?: string;
@@ -422,7 +423,7 @@ export default function MemberHomeScreen() {
         }
       >
         {/* Header */}
-        <View style={styles.header}>
+        <View style={[styles.header, { paddingTop: Math.max(accountInsets.top, 16) + 12 }]}>
           <TouchableOpacity 
             style={styles.avatarButton}
             accessibilityRole="button"
@@ -437,58 +438,13 @@ export default function MemberHomeScreen() {
               </View>
             )}</ProfilePhotoFrame>
           </TouchableOpacity>
-          <Text style={styles.brandName}>Clubvel</Text>
-          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open profile menu" onPress={() => setShowProfileMenu(true)} style={{ padding: 8, flexShrink: 0 }}>
+          <View style={{ flex: 1, minWidth: 0 }}><Text style={[styles.brandName, { fontSize: 13 }]}>Clubvel</Text><Text style={styles.greeting}>Welcome back,{'\n'}{user?.full_name?.trim().split(/\s+/)[0] || 'Member'}!</Text><Text style={{ color: '#D5E1F2', fontSize: 12, marginTop: 6 }}>Save, plan, grow together</Text></View>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open profile menu" onPress={() => setShowProfileMenu(true)} style={{ padding: 8, minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
             <Ionicons name="menu" size={24} color={Colors.white} />
           </TouchableOpacity>
         </View>
 
         {!!dashboardError && !!dashboardData && <Text accessibilityRole="alert">{dashboardError} Pull down to refresh.</Text>}
-      {/* Summary Cards */}
-        <View style={styles.summaryContainer}>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Contributions</Text>
-          {confirmedAmountAvailable ? <Text style={[styles.summaryValue, { color: Colors.statusPaid }]}>
-            {paymentMoney(confirmedAmount)}
-          </Text> : loading ? <ActivityIndicator accessibilityLabel="Loading contribution total" color={Colors.primary} /> :
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Retry contribution total" onPress={() => { setLoading(true); void fetchDashboard(); }}>
-              <Text style={{ color: Colors.textSecondary }}>Unable to load · Retry</Text>
-            </TouchableOpacity>}
-        </View>
-
-        <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Show My Clubs" activeOpacity={0.75} onPress={() => dashboardScroll.current?.scrollTo({ y: clubsOffset.current, animated: true })}>
-          <Text style={styles.summaryLabel}>Groups &amp; Clubs</Text>
-          <View>
-            <Text style={styles.summaryValue}>{verifiedCount(dashboardData?.summary.active_clubs)}</Text>
-            <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} style={{ position: 'absolute', top: '100%', left: 0 }} />
-          </View>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.summaryContainer}>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Upcoming Payments</Text>
-          <Text style={[styles.summaryValue, { color: Colors.statusLate }]}>{verifiedCount(dashboardData?.summary.upcoming_payments)}</Text>
-        </View>
-
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Claims</Text>
-          <Text style={styles.summaryValue}>{verifiedCount(dashboardData?.summary.claims_count)}</Text>
-        </View>
-      </View>
-
-      <View style={styles.summaryContainer}>
-        <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Show approved claims awaiting payout" activeOpacity={0.75} onPress={() => router.push({ pathname: "/(member)/claims", params: { view: "payouts", claim_id: "" } })}>
-          <Text style={styles.summaryLabel}>Upcoming Payouts</Text>
-          <View>
-            <Text style={[styles.summaryValue, { color: Colors.accent }]}>
-              {typeof dashboardData?.summary.upcoming_payout_amount === 'number' && Number.isFinite(dashboardData.summary.upcoming_payout_amount) && dashboardData.summary.upcoming_payout_amount >= 0 ? `R${dashboardData.summary.upcoming_payout_amount.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
-            </Text>
-            <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} style={{ position: 'absolute', top: '100%', left: 0 }} />
-          </View>
-        </TouchableOpacity>
-      </View>
-
       {loading ? <View style={styles.loadingContainer}><ActivityIndicator size="large" color={Colors.primary} /><Text>Loading clubs…</Text></View> : dashboardError && !dashboardData ?
         <View style={styles.loadingContainer}><Text>{dashboardError}</Text><TouchableOpacity onPress={() => { setLoading(true); void fetchDashboard(); }}><Text>Retry</Text></TouchableOpacity></View> : (<>
       {/* My Clubs Section */}
@@ -539,29 +495,31 @@ export default function MemberHomeScreen() {
             >
             <TouchableOpacity
               accessibilityRole="button"
-              accessibilityLabel={`Open ${club.name} as member`}
-              onPress={() => openClub(club)}
+              accessibilityLabel={`Open ${club.name}`}
+              onPress={() => ['admin', 'treasurer'].includes(club.role) ? openAdministration(club) : openClub(club)}
             >
               <View style={styles.clubCardHeader}>
+                <View style={styles.clubImage}>{club.group_photo ? <Image source={{ uri: club.group_photo }} resizeMode="cover" style={styles.clubImage} /> : <Text style={{ color: Colors.primary, fontSize: 26 }}>{club.name.trim().charAt(0).toUpperCase()}</Text>}</View>
                 <View style={styles.clubInfo}>
                   <View style={styles.clubNameRow}>
                     <Text style={styles.clubName}>{club.name}</Text>
                     {(club.role === 'admin' || club.role === 'treasurer') && (
                       <View style={styles.adminBadge}>
                         <Ionicons name="shield-checkmark" size={12} color={Colors.white} />
-                        <Text style={styles.adminBadgeText}>Admin</Text>
+                        <Text style={styles.adminBadgeText}>{club.role === 'treasurer' ? 'Treasurer' : 'Admin'}</Text>
                       </View>
                     )}
                   </View>
                   <View style={styles.clubMeta}>
                     <Ionicons name="people" size={14} color={Colors.textSecondary} />
                     <Text style={styles.clubMetaText}>{club.member_count} members</Text>
-                    <Text style={styles.clubMetaText}> • </Text>
-                    <Text style={styles.clubMetaText}>{contributionDescription(club)}</Text>
+                    <Text style={[styles.clubMetaText, { flexBasis: '100%' }]}>{contributionDescription(club)}</Text>
                   </View>
+                  <View style={{ alignSelf: 'flex-start', marginTop: 6 }}><StatusPill status={club.status} label={club.status_label === 'No contribution recorded' ? 'No contributions yet' : club.status_label}
+                  subtleAccent={club.status_label === 'Goal based' || club.status_label === 'No contribution recorded' || club.status_label === 'No contributions yet'} /></View>
                 </View>
-                <StatusPill status={club.status} label={club.status_label === 'No contribution recorded' ? 'No contributions yet' : club.status_label}
-                  subtleAccent={club.status_label === 'Goal based' || club.status_label === 'No contribution recorded' || club.status_label === 'No contributions yet'} />
+                <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+
               </View>
             </TouchableOpacity>
             {(club.role === 'admin' || club.role === 'treasurer') && <View style={styles.clubActions}>
@@ -578,13 +536,13 @@ export default function MemberHomeScreen() {
           </View>
         )}
         <View style={styles.primaryActions}>
-          <TouchableOpacity style={styles.createButton} onPress={() => setShowCreateGroup(true)}>
-            <Ionicons name="add" size={20} color={Colors.white} />
-            <Text style={styles.createButtonText}>Create Group</Text>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Create a Club" style={styles.createButton} onPress={() => setShowCreateGroup(true)}>
+            <Ionicons name="add-circle" size={32} color={Colors.primary} />
+            <Text style={styles.createButtonText}>Create a Club</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.inviteButton} onPress={openInvitations}>
-            <Ionicons name="mail-outline" size={20} color={Colors.accent} />
-            <Text style={styles.inviteButtonText}>Join Group</Text>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Join a Club" style={styles.inviteButton} onPress={openInvitations}>
+            <Ionicons name="people-circle" size={32} color={Colors.primary} />
+            <Text style={styles.inviteButtonText}>Join a Club</Text>
           </TouchableOpacity>
         </View>
       </View>
@@ -592,6 +550,53 @@ export default function MemberHomeScreen() {
       {/* Advertisement Banner */}
       <AdBanner size="banner" />
      </>)}
+      {/* Summary Cards */}
+        <View style={styles.summaryContainer}>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Contributions</Text>
+          {confirmedAmountAvailable ? <Text style={[styles.summaryValue, { color: Colors.statusPaid }]}>
+            {paymentMoney(confirmedAmount)}
+          </Text> : loading ? <ActivityIndicator accessibilityLabel="Loading contribution total" color={Colors.primary} /> :
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Retry contribution total" onPress={() => { setLoading(true); void fetchDashboard(); }}>
+              <Text style={{ color: Colors.textSecondary }}>Unable to load · Retry</Text>
+            </TouchableOpacity>}
+        </View>
+
+        <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Show My Clubs" activeOpacity={0.75} onPress={() => dashboardScroll.current?.scrollTo({ y: clubsOffset.current, animated: true })}>
+          <Text style={styles.summaryLabel}>Groups &amp; Clubs</Text>
+          <View>
+            <Text style={styles.summaryValue}>{verifiedCount(dashboardData?.summary.active_clubs)}</Text>
+            <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} style={{ position: 'absolute', top: '100%', left: 0 }} />
+          </View>
+        </TouchableOpacity>
+      </View>
+
+      <View style={styles.summaryContainer}>
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Upcoming Payments</Text>
+          <Text style={[styles.summaryValue, { color: Colors.statusLate }]}>{verifiedCount(dashboardData?.summary.upcoming_payments)}</Text>
+        </View>
+
+        <View style={styles.summaryCard}>
+          <Text style={styles.summaryLabel}>Claims</Text>
+          <Text style={styles.summaryValue}>{verifiedCount(dashboardData?.summary.claims_count)}</Text>
+        </View>
+      </View>
+
+      <View style={styles.summaryContainer}>
+        <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Show approved claims awaiting payout" activeOpacity={0.75} onPress={() => router.push({ pathname: "/(member)/claims", params: { view: "payouts", claim_id: "" } })}>
+          <Text style={styles.summaryLabel}>Upcoming Payouts</Text>
+          <View>
+            <Text style={[styles.summaryValue, { color: Colors.accent }]}>
+              {typeof dashboardData?.summary.upcoming_payout_amount === 'number' && Number.isFinite(dashboardData.summary.upcoming_payout_amount) && dashboardData.summary.upcoming_payout_amount >= 0 ? `R${dashboardData.summary.upcoming_payout_amount.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+            </Text>
+            <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} style={{ position: 'absolute', top: '100%', left: 0 }} />
+          </View>
+        </TouchableOpacity>
+      </View>
+
+
+
     </ScrollView>
 
     {/* Member Account Panel */}
@@ -928,13 +933,13 @@ const styles = StyleSheet.create({
   brandName: {
     flexShrink: 1,
     fontSize: 24,
-    fontWeight: '700',
+    fontWeight: '400',
     color: Colors.white,
     letterSpacing: 0.2,
   },
   greeting: {
-    fontSize: 28,
-    fontWeight: 'bold',
+    fontSize: 23,
+    fontWeight: '400',
     color: Colors.white,
   },
   headerRight: {
@@ -987,10 +992,12 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     marginBottom: 16,
   },
+  clubImage: { width: 56, height: 56, borderRadius: 28, backgroundColor: Colors.iceBlue, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
   clubCard: {
     backgroundColor: Colors.white,
-    padding: 16,
-    borderRadius: 12,
+    padding: 14,
+    borderRadius: 18,
+    elevation: 1,
     borderWidth: 1,
     borderColor: Colors.cardBorder,
     marginBottom: 12,
@@ -998,7 +1005,9 @@ const styles = StyleSheet.create({
   clubCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    rowGap: 8,
   },
   clubActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
   clubAdministration: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: 12, minHeight: 48, borderRadius: 8, backgroundColor: Colors.corporateBlue, flexGrow: 1 },
@@ -1037,6 +1046,7 @@ const styles = StyleSheet.create({
   },
   clubMeta: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: 4,
   },
@@ -1092,8 +1102,8 @@ const styles = StyleSheet.create({
     height: 36,
   },
   logoText: {
-    fontSize: 28,
-    fontWeight: 'bold',
+    fontSize: 23,
+    fontWeight: '400',
     color: Colors.white,
     letterSpacing: 1,
   },
@@ -1265,18 +1275,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center', minHeight: 38, minWidth: 76, paddingHorizontal: 14,
   },
   acceptButtonText: { color: Colors.white, fontSize: 14, fontWeight: '700' },
-  primaryActions: { gap: 12, marginTop: 16 },
+  primaryActions: { flexDirection: 'row', gap: 12, marginTop: 16 },
   createButton: {
-    alignItems: 'center', backgroundColor: Colors.primary, borderRadius: 12,
-    flexDirection: 'row', gap: 8, justifyContent: 'center', paddingVertical: 14,
+    flex: 1, minWidth: 0, minHeight: 104, borderWidth: 1, borderColor: Colors.cardBorder, alignItems: 'center', backgroundColor: Colors.white, borderRadius: 18,
+    flexDirection: 'column', gap: 8, justifyContent: 'center', paddingVertical: 14,
   },
-  createButtonText: { color: Colors.white, fontSize: 16, fontWeight: '700' },
+  createButtonText: { color: Colors.primary, fontSize: 15, fontWeight: '400' },
   inviteButton: {
-    alignItems: 'center', backgroundColor: Colors.white, borderColor: Colors.accent,
-    borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8,
+    flex: 1, minWidth: 0, minHeight: 104, alignItems: 'center', backgroundColor: Colors.white, borderColor: Colors.cardBorder,
+    borderRadius: 18, borderWidth: 1, flexDirection: 'column', gap: 8,
     justifyContent: 'center', paddingVertical: 14,
   },
-  inviteButtonText: { color: Colors.accent, fontSize: 16, fontWeight: '700' },
+  inviteButtonText: { color: Colors.primary, fontSize: 15, fontWeight: '400' },
   formOverlay: {
     backgroundColor: 'rgba(0, 0, 0, 0.55)', flex: 1, justifyContent: 'flex-end',
   },
