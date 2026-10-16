@@ -476,3 +476,18 @@ test('Brown Member fixture has no card Admin action; a stale shortcut cannot sur
  c.refresh();await c.respond(1,'WeTravel','member');c.render();old.props.onPress();assert.deepEqual(c.routes,[]);
  c.auth.user={id:'brown'};c.auth.token='brown-session';c.render();old.props.onPress();assert.deepEqual(c.routes,[]);
 });
+
+test('reference Admin and Treasurer layouts derive tiles from the selected club role and keep existing management actions',async()=>{
+ for(const role of ['admin','treasurer']){
+  const c=setup('admin',false,{groupId:'group-a'},{id:'jimmy',full_name:'Jimmy'},role);
+  c.requests[0].resolve({data:managedData([{id:'group-a',name:'WeTravel',member_count:2,late_count:0,financial_summary:{collected:0,total_expected:0,collection_rate:0}}])});await tick();const tree=c.render();
+  assert.match(text(tree),/WeTravel/);assert.ok(button(tree,'Manage members'));
+  if(role==='treasurer'){assert.ok(nodes(tree).some(n=>n.type==='PendingConfirmations'));assert.ok(nodes(tree).some(n=>n.props?.accessibilityLabel==='Confirm Payments'));assert.equal(nodes(tree).some(n=>n.props?.accessibilityLabel==='Invitations'),false);}
+  else {assert.ok(nodes(tree).some(n=>n.props?.accessibilityLabel==='Invitations'));assert.ok(nodes(tree).some(n=>n.props?.accessibilityLabel==='Settings'));assert.equal(nodes(tree).some(n=>n.type==='PendingConfirmations'),false);}
+  const old=nodes(tree).find(n=>n.props?.accessibilityLabel==='Members');old.props.onPress();assert.equal(c.routes.at(-1).params.groupId,'group-a');
+  c.auth.user={id:'brown'};c.auth.token='new';c.render();const count=c.routes.length;old.props.onPress();assert.equal(c.routes.length,count);assert.equal(nodes(c.render()).some(n=>n.type==='PendingConfirmations'),false);
+ }
+});
+test('ordinary Member context never receives the Admin or Treasurer layout',async()=>{
+ const c=setup('admin',false,{groupId:'group-a'},{id:'brown'},'member');c.requests[0].resolve({data:managedData([{id:'group-a',name:'WeTravel',member_count:2,late_count:0}])});await tick();const t=c.render();assert.equal(nodes(t).some(n=>n.type==='PendingConfirmations'),false);assert.equal(nodes(t).some(n=>n.props?.accessibilityLabel==='Invitations'||n.props?.accessibilityLabel==='Confirm Payments'),false);
+});

@@ -1,15 +1,15 @@
 export const Colors = {
   // Interface surfaces are independent of the approved icon/splash artwork.
-  midnightNavy: '#082B60',
-  headerBackground: '#082B60',
-  avatarRing: '#2677E8',
+  midnightNavy: '#06285B',
+  headerBackground: '#06285B',
+  avatarRing: '#FFD600',
   secondaryHighlight: '#397F78',
   corporateBlue: '#0756C9',
   royalBlue: '#2677E8',
   iceBlue: '#E8F2FF',
   lightGrey: '#F7F8F4',
-  primary: '#082B60',
-  primaryDark: '#082B60',
+  primary: '#06285B',
+  primaryDark: '#06285B',
   primaryLight: '#E8F2FF',
   
   // Alert/Accent Colors
@@ -41,9 +41,9 @@ export const Colors = {
   black: '#000000',
   
   // Legacy color mappings (for backward compatibility)
-  darkGreen: '#082B60',
-  mediumGreen: '#082B60',
-  primaryGreen: '#082B60',
+  darkGreen: '#06285B',
+  mediumGreen: '#06285B',
+  primaryGreen: '#06285B',
   lightGreen: '#E8F2FF',
   gold: '#F59E0B',
   lightGold: '#FFF4DB',

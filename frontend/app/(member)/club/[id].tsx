@@ -55,13 +55,14 @@ interface ClubDetails {
 }
 
 export default function ClubDetailScreen() {
-  const params = useLocalSearchParams<{ id?: string | string[]; month?: string; year?: string; contribution_id?: string; scope?: string; from?: string }>();
+  const params = useLocalSearchParams<{ id?: string | string[]; month?: string; year?: string; contribution_id?: string; scope?: string; from?: string; section?: string }>();
   const id = Array.isArray(params.id) ? params.id[0] : params.id;
   const routeKey = JSON.stringify([id, params.month, params.year, params.contribution_id]);
   const [appliedRoute, setAppliedRoute] = useState(routeKey);
   const invalidPeriod = !!(params.month || params.year) && !(Number.isInteger(Number(params.month)) && Number(params.month) >= 1 && Number(params.month) <= 12 && Number.isInteger(Number(params.year)) && Number(params.year) >= 1 && Number(params.year) <= 9999);
   const { user, token } = useAuth();
   const router = useRouter();
+  const historyScroll = useRef<ScrollView>(null);
   const [clubData, setClubData] = useState<ClubDetails | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -339,7 +340,7 @@ export default function ClubDetailScreen() {
         </View>
 
         {/* Payment History */}
-        <View style={styles.section}>
+        <View style={styles.section} onLayout={event => { if (params.section === 'history' && latestContext.current === requestContext && screenActive.current && loadedContext === requestContext) historyScroll.current?.scrollTo({ y: Math.max(0, event.nativeEvent.layout.y - 8), animated: false }); }}>
           <Text style={styles.sectionTitle}>Payment History</Text>
           {clubData.payment_history.length > 0 ? (
             clubData.payment_history.map((payment, index) => (

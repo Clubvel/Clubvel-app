@@ -35,7 +35,7 @@ test('Admin entry points depend on the selected membership role, not account ide
   c.params.id = 'eight'; c.render(); await c.reply(1, 'eight', 'treasurer'); assert.match(text(c.render()), /Manage club/); c.tap('Review Payments'); assert.deepEqual(c.routes.at(-1), { pathname: '/(treasurer)/contributions', params: { groupId: 'eight' } });
 });
 test('Member destinations preserve selected club and obligation period where supported', async () => {
-  const c = setup(); await c.reply(0); c.tap('My Contributions'); assert.deepEqual(c.routes.at(-1), { pathname: '/(member)/club/[id]', params: { id: 'travel', month: '10', year: '2026', contribution_id: '', scope: 'club', from: 'member' } });
+  const c = setup(); await c.reply(0); c.tap('Contribution history'); assert.deepEqual(c.routes.at(-1), { pathname: '/(member)/club/[id]', params: { id: 'travel', month: '10', year: '2026', contribution_id: '', scope: 'club', from: 'member', section: 'history' } }); c.tap('My Contributions'); assert.deepEqual(c.routes.at(-1), { pathname: '/(member)/club/[id]', params: { id: 'travel', month: '10', year: '2026', contribution_id: '', scope: 'club', from: 'member' } });
   c.tap('Members'); assert.deepEqual(c.routes.at(-1), { pathname: '/club/[id]/members', params: { id: 'travel', from: 'member' } }); c.tap('Payments and Proofs'); assert.equal(c.routes.at(-1).params.group_id, 'travel'); assert.equal(c.routes.at(-1).params.month, '10');
   c.tap('Payouts and Claims'); assert.equal(c.routes.at(-1), '/(member)/claims'); assert.match(text(c.render()), /across your active clubs/);
 });
@@ -49,7 +49,7 @@ test('club switch masks the old club immediately and invalidates an in-flight re
 });
 test('rapid A-B-A switching rejects older responses even with the same club ID', async () => {
   const c = setup(); c.params.id = 'eight'; c.render(); c.params.id = 'travel'; c.render(); await c.reply(2, 'travel', 'member', 300); await c.reply(1, 'eight', 'admin', 999); await c.reply(0, 'travel', 'admin', 777);
-  assert.equal(nodes(c.render()).find(n => n.type === 'Text' && n.props.style?.fontSize === 24).props.children[0], 'WeTraveling'); assert.match(text(c.render()), /R300.00/); assert.doesNotMatch(text(c.render()), /R999|R777|Manage club/);
+  assert.equal(nodes(c.render()).find(n => n.type === 'Text' && n.props.accessibilityRole === 'header').props.children[0], 'WeTraveling'); assert.match(text(c.render()), /R300.00/); assert.doesNotMatch(text(c.render()), /R999|R777|Manage club/);
 });
 test('account and token changes immediately mask previous context and stale responses', async () => {
   const c = setup(); await c.reply(0); c.tap('Refresh Club Home'); c.auth.user = { id: 'brown' }; c.auth.token = 'session-b'; assert.doesNotMatch(text(c.render()), /WeTraveling|R100/); await c.reply(1, 'travel', 'admin', 888); assert.doesNotMatch(text(c.render()), /R888|Manage club/); await c.reply(2, 'travel', 'member', 200); assert.match(text(c.render()), /R200.00/);

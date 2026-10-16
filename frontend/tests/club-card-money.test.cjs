@@ -13,7 +13,7 @@ for (const [collected, expected] of [[200, 0], [0, 100]]) {
   test(`club card ${collected}/${expected} retains values with brand hierarchy`, () => {
     const spans = [...block.matchAll(/<Text style=\{\{ color: Colors\.(\w+) \}\}>([\s\S]*?)<\/Text>/g)];
     assert.deepEqual(spans.map(s => s[1]), ['accent', 'textMuted', 'primary']);
-    assert.deepEqual(spans.map(s => Colors[s[1]]), ['#2677E8', '#6B7280', '#082B60']);
+    assert.deepEqual(spans.map(s => Colors[s[1]]), ['#2677E8', '#6B7280', '#06285B']);
     const club = { financial_summary: { collected, total_expected: expected } };
     const paymentMoney = require("./ui-harness.cjs").load("services/paymentSummaryRecords.ts").paymentMoney;
     const rendered = spans.map(s => s[2].replace(/\{([^}]+)\}/g, (_, expression) => new Function('club', 'paymentMoney', `return ${expression}`)(club,paymentMoney))).join('');

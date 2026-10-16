@@ -22,7 +22,7 @@ async function setup(screen='home',photo='data:image/jpeg;base64,existing',clubC
 }
 const style=n=>Object.assign({},...([n.props.style].flat().filter(Boolean)));
 
-test('Home photo is 112px, circular, covered and retains its Royal Blue frame and white inner border',async()=>{
+test('Home photo is 112px, circular, covered and retains its bright yellow frame and white inner border',async()=>{
  const c=await setup();const image=nodes(c.render()).find(n=>n.type==='Image');
  assert.deepEqual([style(image).width,style(image).height,style(image).borderRadius],[112,112,56]);
  assert.equal(style(image).borderWidth,1);assert.equal(style(image).borderColor,'white');assert.equal(image.props.resizeMode,'cover');

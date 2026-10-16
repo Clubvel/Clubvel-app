@@ -6,6 +6,9 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
+import { ClubWelcomeHeader, ClubNavigationTiles, ClubOverviewCard } from '../../components/ClubDashboard';
+import PendingConfirmations from '../../components/PendingConfirmations';
+import ClubMemberDirectory from '../../components/ClubMemberDirectory';
 import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
@@ -102,7 +105,7 @@ export default function AdminDashboardScreen() {
   latestAdministrationKey.current = administrationContext;
   const administrationRequest = useRef(0);
   const administrationPending = useRef<{ key: string; ticket: number } | null>(null);
-  const [storedAdministration, setAdministration] = useState<{ owner: string; club: { id: string; name: string } | null; error: string | null } | null>(null);
+  const [storedAdministration, setAdministration] = useState<{ owner: string; club: { id: string; name: string; role?: string } | null; error: string | null } | null>(null);
   const administration = storedAdministration?.owner === administrationContext ? storedAdministration : null;
   const accountDashboard = dashboardOwner === sessionKey ? storedDashboardData : null;
   const selectedClub = administration?.club;
@@ -193,7 +196,7 @@ export default function AdminDashboardScreen() {
         setAdministration({ owner: key, club: null, error: 'Administration access to this club is unavailable. Return to Member Home or refresh your permissions.' });
         return;
       }
-      setAdministration({ owner: key, club: context.club, error: null });
+      setAdministration({ owner: key, club: { ...context.club, role: context.membership.role }, error: null });
     } catch {
       if (latestAdministrationKey.current === key && administrationRequest.current === ticket) setAdministration({ owner: key, club: null, error: 'Administration access to this club could not be verified. Please retry.' });
     } finally {
@@ -403,8 +406,8 @@ export default function AdminDashboardScreen() {
         <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
       }
     >
-      {/* Header */}
-      <View style={styles.header}>
+      {selectedClub ? <ClubWelcomeHeader clubName={selectedClub.name} displayName={user?.full_name} photoUri={user?.profile_photo} topInset={accountInsets.top} onBack={() => router.replace('/(member)/home')} onMenu={() => setShowProfileMenu(true)} onPhotoPress={() => setPhotoExpanded(true)} /> : (
+<View style={styles.header}>
         <TouchableOpacity 
           style={styles.avatarButton}
           onPress={() => user?.profile_photo ? setPhotoExpanded(true) : setShowProfileMenu(true)}
@@ -422,8 +425,26 @@ export default function AdminDashboardScreen() {
             <Ionicons name="menu" size={24} color={Colors.white} />
           </TouchableOpacity>
       </View>
-
-      {selectedClub && <View style={{ padding: 24, gap: 12 }}>
+      )}
+      {selectedClub && <View style={{ paddingHorizontal: 16 }}>
+        <ClubNavigationTiles items={(selectedClub.role === 'treasurer' ? [
+          { label: 'Members', icon: 'people' as const, route: '/(treasurer)/members', routeParams: { groupId: selectedClub.id } },
+          { label: 'Contributions', icon: 'layers-outline' as const, route: '/(treasurer)/contributions', routeParams: { groupId: selectedClub.id } },
+          { label: 'Confirm Payments', icon: 'document-text-outline' as const, route: '/(treasurer)/contributions', routeParams: { groupId: selectedClub.id } },
+          { label: 'Reports', icon: 'bar-chart' as const, route: '/(treasurer)/reports', routeParams: { group_id: selectedClub.id } },
+        ] : [
+          { label: 'Members', icon: 'people' as const, route: '/(treasurer)/members', routeParams: { groupId: selectedClub.id } },
+          { label: 'Invitations', icon: 'person-add-outline' as const, route: '/(treasurer)/members', routeParams: { groupId: selectedClub.id } },
+          { label: 'Settings', icon: 'settings-outline' as const, route: '/(treasurer)/club-detail', routeParams: { id: selectedClub.id, name: selectedClub.name, from: 'club' } },
+          { label: 'Reports', icon: 'bar-chart' as const, route: '/(treasurer)/reports', routeParams: { group_id: selectedClub.id } },
+        ]).map(item => ({ label: item.label, icon: item.icon, onPress: () => {
+          if (latestSession.current !== sessionKey || latestAdministration.current.context !== administrationContext || latestAdministration.current.club?.id !== selectedGroupId) return;
+          router.push({ pathname: item.route as '/(treasurer)/members', params: item.routeParams });
+        } }))} />
+        {selectedClub.role === 'treasurer' ? <PendingConfirmations key={administrationContext} groupId={selectedClub.id} month={financialPeriod.month} year={financialPeriod.year} onReview={() => { if (latestAdministration.current.context === administrationContext && latestAdministration.current.club?.id === selectedGroupId) router.push({ pathname: '/(treasurer)/contributions', params: { groupId: selectedClub.id } }); }} /> : <>
+          <ClubOverviewCard memberCount={financialClub?.member_count} collected={selectedSummary?.collected} expected={selectedSummary?.total_expected} period={`${(needsFinancialRead ? financialPeriod : financialClub?.period || financialPeriod).month}/${(needsFinancialRead ? financialPeriod : financialClub?.period || financialPeriod).year}`} />
+          <ClubMemberDirectory key={administrationContext} groupId={selectedClub.id} compact onViewAll={() => { if (latestAdministration.current.context === administrationContext && latestAdministration.current.club?.id === selectedGroupId) router.push({ pathname: '/(treasurer)/members', params: { groupId: selectedClub.id } }); }} />
+        </>}
         <Text style={styles.clubName}>{selectedClub.name} administration</Text>
         {([
           ['Manage members', '/(treasurer)/members', { groupId: selectedClub.id }],
@@ -442,7 +463,7 @@ export default function AdminDashboardScreen() {
         <View style={styles.loadingContainer}><Text>{dashboardError}</Text><TouchableOpacity onPress={() => { setLoading(true); void fetchDashboard(true); void fetchAdministration(true); }}><Text>Retry</Text></TouchableOpacity></View>
       ) : (<>
       {/* Summary Cards */}
-      <View style={styles.summaryContainer}>
+      {!selectedClub && <View style={styles.summaryContainer}>
         <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Show All Clubs" activeOpacity={0.75} onPress={() => dashboardScroll.current?.scrollTo({ y: clubsOffset.current, animated: true })}>
           <Text style={styles.summaryLabel}>Total Clubs</Text>
           <View>
@@ -455,7 +476,7 @@ export default function AdminDashboardScreen() {
           <Text style={styles.summaryLabel}>Total Members</Text>
           <Text style={styles.summaryValue}>{verifiedCount(dashboardData?.summary.total_members)}</Text>
         </View>
-      </View>
+      </View>}
 
       <View style={styles.summaryContainer}>
         <View style={styles.summaryCard}>

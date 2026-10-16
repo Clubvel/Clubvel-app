@@ -1,14 +1,14 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Redirect, useFocusEffect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import axios from 'axios';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../contexts/AuthContext';
 import { Colors } from '../../constants/Colors';
-import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import ClubMemberDirectory from '../../components/ClubMemberDirectory';
-import { clubGreeting } from '../../services/clubGreeting';
+import { ClubWelcomeHeader, ClubNavigationTiles } from '../../components/ClubDashboard';
+import MemberRecentActivity from '../../components/MemberRecentActivity';
 import { usePersonalClaims } from '../../hooks/usePersonalClaims';
 
 type Context = {
@@ -81,19 +81,22 @@ export default function ClubHome() {
   };
   const entry = (label: string, action: () => void, prominent = false) => <TouchableOpacity key={label} accessibilityRole="button" accessibilityLabel={label} style={[styles.entry, prominent && styles.primaryEntry]} onPress={() => { if (latest.current === key) action(); }}><Text style={[styles.entryText, prominent && styles.primaryEntryText]}>{label}</Text><Text style={prominent && styles.primaryEntryText}>›</Text></TouchableOpacity>;
   return <View style={styles.screen}>
-    <View style={[styles.header, { paddingTop: Math.max(insets.top, 16) }]}>
-      <View style={styles.headerNavigation}><TouchableOpacity accessibilityLabel="Back to account Home" style={styles.headerSide} onPress={back}><Text style={styles.back}>‹ Back</Text></TouchableOpacity><Text accessibilityRole="header" style={styles.title}>{data?.club.name || 'Club Home'}</Text><View style={styles.headerSide} /></View>
-      {data && <View style={styles.greetingRow}>
-        <TouchableOpacity disabled={!usablePhoto} accessibilityRole="button" accessibilityLabel="View your profile photo" onPress={() => { if (latest.current === key && photoUri) setPhoto({ owner: key, uri: photoUri }); }} style={styles.photoButton}>
-          <ProfilePhotoFrame>{usablePhoto ? <Image source={{ uri: photoUri! }} resizeMode="cover" style={styles.profilePhoto} onError={() => { if (latest.current === key && latestPhoto.current === photoUri && photoUri) setFailedPhoto({ owner: key, uri: photoUri }); }} /> : <View style={styles.profileFallback}><Text style={styles.profileInitial}>{user?.full_name?.trim().charAt(0).toUpperCase() || '?'}</Text></View>}</ProfilePhotoFrame>
-        </TouchableOpacity>
-        <Text style={styles.greeting}>{clubGreeting(user?.full_name)}</Text>
-      </View>}
-    </View>
+    <ClubWelcomeHeader clubName={data?.club.name || 'Club Home'} displayName={data ? user?.full_name : undefined} photoUri={data && usablePhoto ? photoUri : null} topInset={insets.top} onBack={back}
+      onPhotoPress={() => { if (latest.current === key && photoUri) setPhoto({ owner: key, uri: photoUri }); }}
+      onPhotoError={() => { if (latest.current === key && latestPhoto.current === photoUri && photoUri) setFailedPhoto({ owner: key, uri: photoUri }); }} />
     <ScrollView contentContainerStyle={[styles.content, { paddingBottom: Math.max(insets.bottom, 16) + 24 }]}>
       {!current && <ActivityIndicator accessibilityLabel="Loading Club Home" color={Colors.accent} />}
       {current?.error && <View><Text>{current.error}</Text>{entry('Retry Club Home', () => void load())}</View>}
       {data && <>
+        <ClubNavigationTiles items={[
+          { label: 'My Club', icon: 'people', accessibilityLabel: 'Members', onPress: () => { if (latest.current === key) router.push({ pathname: '/club/[id]/members', params: { id: data.club.id, from: params.from || 'member' } } as unknown as Href); } },
+          { label: 'Contributions', icon: 'layers-outline', accessibilityLabel: 'My Contributions', onPress: () => { if (latest.current === key) memberDetail(); } },
+          { label: 'Claims', icon: 'card-outline', accessibilityLabel: 'Payouts and Claims', onPress: () => { if (latest.current === key) router.push('/(member)/claims'); } },
+          { label: 'History', icon: 'bar-chart', accessibilityLabel: 'Contribution history', onPress: () => { if (latest.current === key) router.push({ pathname: '/(member)/club/[id]', params: { id: data.club.id, month: String(data.period.month), year: String(data.period.year), contribution_id: params.contribution_id || '', scope: 'club', from: params.from || 'member', section: 'history' } }); } },
+        ]} />
+        <MemberRecentActivity key={key} groupId={data.club.id} clubName={data.club.name}
+          onOpen={record => { if (latest.current === key && record.group_id === data.club.id) router.push({ pathname: '/(member)/club/[id]', params: { id: data.club.id, month: String(record.month), year: String(record.year), contribution_id: record.contribution_id, scope: 'club', from: params.from || 'member' } }); }}
+          onViewAll={() => { if (latest.current === key) memberDetail(); }} />
         {admin && entry('Admin Home', () => router.push({ pathname: '/(treasurer)/dashboard', params: { groupId: data.club.id } }), true)}
         <Text style={styles.heading}>Switch club</Text>
         <View style={styles.switcher}>{data.clubs.map(club => <TouchableOpacity key={club.id} accessibilityRole="button" accessibilityLabel={`Open ${club.name}`} onPress={() => { if (latest.current !== key) return; if (club.id !== data.club.id) { ++sequence.current; pending.current = null; setState(null); router.replace({ pathname: '/club/[id]', params: { id: club.id, from: params.from || 'member' } }); } }} style={styles.club}><Text>{club.name}{club.id === data.club.id ? ' ✓' : ''}</Text></TouchableOpacity>)}</View>
@@ -104,10 +107,7 @@ export default function ClubHome() {
           </>}
         </View>
         <ClubMemberDirectory key={data.club.id} groupId={data.club.id} />
-        {entry('Members', () => router.push({ pathname: '/club/[id]/members', params: { id: data.club.id, from: params.from || 'member' } } as unknown as Href))}
-        {entry('My Contributions', memberDetail)}
         {entry('Payments and Proofs', () => router.push({ pathname: '/(member)/proofs', params: { group_id: data.club.id, month: String(data.period.month), year: String(data.period.year), contribution_id: params.contribution_id || '', scope: 'club', from: params.from || 'member' } }))}
-        {entry('Payouts and Claims', () => router.push('/(member)/claims'))}
         <Text style={styles.caption}>Claims currently opens your personal claims across your active clubs.</Text>
         <View style={styles.card}><Text style={styles.heading}>Your upcoming claims and payouts</Text>
           {ownClaims.phase === 'loading' ? <ActivityIndicator accessibilityLabel="Loading your club claims" color={Colors.accent} /> : ownClaims.phase === 'error' ? entry('Retry your claims', () => void ownClaims.reload()) : clubClaims.length ? clubClaims.map(claim => <View key={claim.claim_id} style={styles.claimRow}><Text style={styles.entryText}>{claim.status === 'approved' ? 'Approved claim amount' : claim.status === 'upcoming' ? 'Upcoming claim' : 'Claim awaiting review'}</Text><Text style={styles.caption}>{typeof claim.amount === 'number' && Number.isFinite(claim.amount) && claim.amount >= 0 ? `R${claim.amount.toFixed(2)}` : 'Amount unavailable'}</Text></View>) : <Text style={styles.caption}>No upcoming claims recorded for this club.</Text>}
@@ -136,7 +136,7 @@ const styles = StyleSheet.create({
   profilePhoto: { width: 112, height: 112, borderRadius: 56, borderWidth: 1, borderColor: Colors.white },
   profileFallback: { width: 112, height: 112, borderRadius: 56, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.primary, borderWidth: 1, borderColor: Colors.white },
   profileInitial: { color: Colors.white, fontSize: 36 }, greeting: { color: Colors.white, fontSize: 20, fontWeight: '400', flex: 1, minWidth: 0, flexShrink: 1 },
-  content: { padding: 16, paddingBottom: 40 }, heading: { color: Colors.textPrimary, fontSize: 18, fontWeight: '600', marginVertical: 12 },
+  content: { padding: 16, paddingBottom: 40 }, heading: { color: Colors.textPrimary, fontSize: 18, fontWeight: '500', marginVertical: 12 },
   switcher: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 }, club: { padding: 12, backgroundColor: Colors.white, borderRadius: 8 },
   card: { backgroundColor: Colors.white, padding: 16, borderRadius: 12, marginVertical: 12 },
   entry: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', padding: 16, marginBottom: 8, borderRadius: 12, backgroundColor: Colors.white },

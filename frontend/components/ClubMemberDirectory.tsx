@@ -8,7 +8,7 @@ import { Colors } from '../constants/Colors';
 import ProfilePhotoViewer from './ProfilePhotoViewer';
 
 type DirectoryMember = { id: string; name: string; profile_photo: string | null; role: string };
-type Props = { groupId?: string; search?: string; renderDetails?: (memberId: string) => React.ReactNode };
+type Props = { compact?: boolean; onViewAll?: () => void; groupId?: string; search?: string; renderDetails?: (memberId: string) => React.ReactNode };
 const roleLabel = (role: string) => role === 'admin' ? 'Admin' : role === 'treasurer' ? 'Treasurer' : 'Member';
 const initials = (name: string) => name.trim().split(/\s+/).slice(0, 2).map(part => part[0]?.toUpperCase()).join('') || 'M';
 
@@ -24,7 +24,7 @@ export function directoryPhotoUri(value: string | null | undefined): string | nu
   return mime ? `data:image/${mime};base64,${encoded}` : null;
 }
 
-export default function ClubMemberDirectory({ groupId, search = '', renderDetails }: Props) {
+export default function ClubMemberDirectory({ compact = false, onViewAll, groupId, search = '', renderDetails }: Props) {
   const { user, token } = useAuth();
   const context = `${user?.id}:${token}:${groupId}`;
   const latest = useRef(context); latest.current = context;
@@ -86,11 +86,11 @@ export default function ClubMemberDirectory({ groupId, search = '', renderDetail
     </TouchableOpacity>
     );
   };
-  return <View style={styles.section}>
-    <Text style={styles.title}>Club members</Text>
+  return <View style={[styles.section, compact && styles.compactSection]}>
+    <View style={styles.headingRow}><Text style={styles.title}>Club members</Text>{onViewAll && <TouchableOpacity accessibilityLabel="View all club members" onPress={onViewAll}><Text style={styles.viewAll}>View all</Text></TouchableOpacity>}</View>
     {allowed && (loading || owner !== context) && <ActivityIndicator accessibilityLabel="Loading member directory" color={Colors.accent} />}
     {owner === context && error && <View><Text>{error}</Text><TouchableOpacity accessibilityRole="button" accessibilityLabel="Retry member directory" onPress={() => void fetchDirectory()}><Text>Retry</Text></TouchableOpacity></View>}
-    {current.filter(member => member.name.toLowerCase().includes(search.toLowerCase())).map(member => <View key={member.id} style={styles.row}>
+    {current.filter(member => member.name.toLowerCase().includes(search.toLowerCase())).slice(0, compact ? 3 : undefined).map(member => <View key={member.id} style={[styles.row, compact && styles.compactRow]}>
       {avatar(member)}
       <View style={styles.identity}><TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open profile of ${member.name}`}
         onPress={() => { setSelectionOwner(context); setProfile(member); }}><Text style={styles.name}>{member.name}</Text></TouchableOpacity>
@@ -110,6 +110,9 @@ export default function ClubMemberDirectory({ groupId, search = '', renderDetail
   </View>;
 }
 const styles = StyleSheet.create({
+  headingRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 }, viewAll: { color: Colors.corporateBlue, fontSize: 14, paddingVertical: 12 },
+  compactSection: { padding: 16, backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.cardBorder, borderRadius: 18, marginBottom: 16 },
+  compactRow: { borderWidth: 0, borderBottomWidth: 1, borderRadius: 0, paddingHorizontal: 0, marginBottom: 0 },
   section: { padding: 16 }, title: { fontSize: 20, fontWeight: '600', color: Colors.textPrimary, marginBottom: 12 },
   row: { flexDirection: 'row', alignItems: 'center', padding: 16, marginBottom: 12, backgroundColor: Colors.white, borderRadius: 12, borderWidth: 1, borderColor: Colors.cardBorder },
   avatar: { width: 48, height: 48, borderRadius: 24, borderWidth: 1, borderColor: Colors.white, backgroundColor: Colors.primary, alignItems: 'center', justifyContent: 'center', overflow: 'hidden' },
