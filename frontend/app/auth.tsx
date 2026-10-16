@@ -468,7 +468,7 @@ export default function AuthScreen() {
 
               <TouchableOpacity onPress={() => setIsLogin(true)}>
                 <Text style={styles.switchText}>
-                  Already a member? <Text style={{ color: Colors.gold }}>Sign In</Text>
+                  Already a member? <Text style={{ color: Colors.corporateBlue }}>Sign In</Text>
                 </Text>
               </TouchableOpacity>
             </>
@@ -773,7 +773,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   forgotPasswordText: {
-    color: Colors.gold,
+    color: Colors.corporateBlue,
     fontSize: 16,
     textAlign: 'center',
     fontWeight: '600',

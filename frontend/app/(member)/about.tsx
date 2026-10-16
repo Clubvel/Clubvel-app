@@ -69,7 +69,7 @@ export default function AboutScreen() {
             
             <View style={styles.featureItem}>
               <View style={styles.featureIcon}>
-                <Ionicons name="trophy" size={24} color={Colors.gold} />
+                <Ionicons name="trophy" size={24} color={Colors.corporateBlue} />
               </View>
               <View style={styles.featureContent}>
                 <Text style={styles.featureTitle}>See Your Progress</Text>

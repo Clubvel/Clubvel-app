@@ -1005,9 +1005,9 @@ export default function ProofOfPaymentsScreen() {
 
 const styles = StyleSheet.create({
   clubSection: { borderWidth: 1, borderColor: Colors.cardBorder, borderRadius: 12, overflow: 'hidden', marginBottom: 12 },
-  clubRibbon: { backgroundColor: Colors.sage, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  clubRibbon: { backgroundColor: Colors.primary, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
   clubRibbonTitle: { color: Colors.white, fontWeight: '700', fontSize: 16, flex: 1 },
-  clubOverview: { padding: 12, gap: 4, backgroundColor: Colors.softSage },
+  clubOverview: { padding: 12, gap: 4, backgroundColor: Colors.iceBlue },
   proofCategories: { flexDirection: 'row', flexWrap: 'wrap', gap: 20, paddingHorizontal: 20, paddingBottom: 12 },
 
   container: {
@@ -1052,7 +1052,7 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
    borderWidth: 1, borderColor: Colors.white, },

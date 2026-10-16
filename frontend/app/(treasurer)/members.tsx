@@ -452,7 +452,7 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
    borderWidth: 1, borderColor: Colors.white, },

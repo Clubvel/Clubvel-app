@@ -72,6 +72,11 @@ test('account tabs and existing financial screens are unchanged from Phase 3C', 
     if (file.endsWith('_layout.tsx')) expected = expected.replace('tabBarActiveTintColor: Colors.mediumGreen', 'tabBarActiveTintColor: Colors.royalBlue');
     if (file.endsWith('club-detail.tsx')) expected = expected.replace(/(approveClaimButton: \{[^{}]*?backgroundColor: )Colors.accent/, '$1Colors.primary');
     if (file.endsWith('club-detail.tsx')) expected=expected.replace(/(memberAvatar: \{[^{}]*)(\})/, '$1 borderWidth: 2, borderColor: Colors.avatarRing, $2');
+    if (file.endsWith('club-detail.tsx')) expected = expected
+      .replace('name="image-outline" size={18} color={Colors.gold}', 'name="image-outline" size={18} color={Colors.corporateBlue}')
+      .replace('name="notifications" size={18} color={Colors.gold}', 'name="notifications" size={18} color={Colors.corporateBlue}')
+      .replace(/(remindButton: \{[^{}]*?backgroundColor: )Colors.lightGold/, '$1Colors.iceBlue')
+      .replace(/(remindButtonText: \{[^{}]*?color: )Colors.gold/, '$1Colors.corporateBlue');
     assert.equal(fs.readFileSync(path.join(root,file), 'utf8').replace(/\r\n/g, '\n'),expected);
   }
   // claims.tsx has intentional status color and rejection panel changes

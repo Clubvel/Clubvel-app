@@ -110,7 +110,7 @@ Device: ${Platform.OS} ${Platform.Version}
           <Text style={styles.sectionTitle}>Contact Us</Text>
           
           <TouchableOpacity style={styles.contactCard} onPress={handleEmailSupport}>
-            <View style={[styles.contactIcon, { backgroundColor: Colors.gold }]}>
+            <View style={[styles.contactIcon, { backgroundColor: Colors.corporateBlue }]}>
               <Ionicons name="mail" size={28} color={Colors.white} />
             </View>
             <View style={styles.contactInfo}>
@@ -368,7 +368,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.cardBorder,
   },
   submitButton: {
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.corporateBlue,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

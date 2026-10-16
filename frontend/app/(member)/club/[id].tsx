@@ -472,7 +472,7 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   button: {
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.corporateBlue,
     paddingVertical: 16,
     borderRadius: 12,
     flexDirection: 'row',

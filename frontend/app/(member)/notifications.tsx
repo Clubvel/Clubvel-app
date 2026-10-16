@@ -129,7 +129,7 @@ export default function NotificationPreferencesScreen() {
           <View style={styles.preferenceItem}>
             <View style={styles.preferenceInfo}>
               <View style={styles.preferenceIconContainer}>
-                <Ionicons name="gift-outline" size={24} color={Colors.gold} />
+                <Ionicons name="gift-outline" size={24} color={Colors.corporateBlue} />
               </View>
               <View style={styles.preferenceTextContainer}>
                 <Text style={styles.preferenceTitle}>Claim Updates</Text>
@@ -141,8 +141,8 @@ export default function NotificationPreferencesScreen() {
             <Switch
               value={preferences.claim_updates}
               onValueChange={(value) => updatePreference('claim_updates', value)}
-              trackColor={{ false: Colors.cardBorder, true: Colors.lightGold }}
-              thumbColor={preferences.claim_updates ? Colors.gold : Colors.textMuted}
+              trackColor={{ false: Colors.cardBorder, true: Colors.iceBlue }}
+              thumbColor={preferences.claim_updates ? Colors.corporateBlue : Colors.textMuted}
             />
           </View>
 

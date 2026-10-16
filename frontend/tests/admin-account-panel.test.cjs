@@ -150,7 +150,7 @@ test('Approved account panels, header styles and existing security/action handle
   const styles = source => new Function('StyleSheet', 'Colors', source.slice(source.indexOf('const styles = StyleSheet.create(')) + '; return styles;')(native.StyleSheet, colors);
   const oldStyles = styles(previous), newStyles = styles(current);
   // Approved navy filled controls; every other property and handler stays protected.
-  oldStyles.clubCard={...oldStyles.clubCard,backgroundColor:colors.softSage};
+  oldStyles.clubCard={...oldStyles.clubCard,backgroundColor:colors.white};
   for (const name of ['typeButtonActive', 'createClubSubmitButton']) oldStyles[name] = { ...oldStyles[name], backgroundColor: colors.primary };
   for (const [name, value] of Object.entries(oldStyles)) {
     if (name !== 'modalOverlay' && !name.startsWith('dropdown') && !['header','brandName','avatar','avatarImage','accountToolbar','accountTitle'].includes(name)) assert.deepEqual(newStyles[name], value, name);

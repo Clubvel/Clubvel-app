@@ -34,7 +34,7 @@ for(const screen of screens){
    const frame=nodes(c.tree).find(n=>style(n).width===116);assert.ok(frame);assert.equal(style(frame).borderWidth,2);assert.equal(style(frame).borderColor,'avatarRing');assert.equal(style(frame).backgroundColor,'primary');
    if(photo){assert.equal(avatar.props.source.uri,photo);assert.equal(avatar.props.resizeMode,'cover');assert.equal(style(avatar).borderWidth,1);assert.equal(style(avatar).borderColor,'white');
    const frame=nodes(c.tree).find(n=>style(n).width===116);assert.ok(frame);assert.equal(style(frame).borderWidth,2);assert.equal(style(frame).borderColor,'avatarRing');assert.equal(style(frame).backgroundColor,'primary');}
-   else {assert.ok(['gold','accent'].includes(style(avatar).backgroundColor));if(screen.endsWith('/reports'))assert.equal(text(avatar),'A');
+   else {assert.ok(['primary','accent'].includes(style(avatar).backgroundColor));if(screen.endsWith('/reports'))assert.equal(text(avatar),'A');
     else assert.equal(nodes(avatar).find(n=>n.type==='Ionicons').props.size,32);}
    const button=nodes(c.tree).find(n=>n.type==='TouchableOpacity'&&nodes(n).includes(avatar));
    assert.equal(style(button).flexShrink,0);button.props.onPress();

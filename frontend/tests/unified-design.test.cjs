@@ -5,7 +5,7 @@ const luminance=hex=>hex.slice(1).match(/../g).map(c=>parseInt(c,16)/255).map(c=
 const contrast=(a,b)=>{const x=luminance(a),y=luminance(b);return(Math.max(x,y)+0.05)/(Math.min(x,y)+0.05);};
 test('midnight headers, action surfaces and body text retain readable contrast',()=>{
  for(const [fg,bg] of [[Colors.white,Colors.primary],[Colors.white,Colors.corporateBlue],[Colors.textPrimary,Colors.background],[Colors.textPrimary,Colors.white]])assert.ok(contrast(fg,bg)>=4.5,`${fg} on ${bg}`);
- assert.equal(Colors.avatarRing,'#FF9800');assert.equal(Colors.headerBackground,'#082B60');assert.equal(Colors.secondaryHighlight,'#397F78');
+ assert.equal(Colors.avatarRing,'#2677E8');assert.equal(Colors.headerBackground,'#082B60');assert.equal(Colors.secondaryHighlight,'#397F78');
 });
 
 test('personal claims deduplicates pending focus reads while explicit refresh remains fresh',async()=>{
@@ -34,4 +34,20 @@ for(const [status,expected] of [['paid',Colors.statusPaid],['confirmed',Colors.s
  const ui=engine(),Pill=load('components/StatusPill.tsx',{react:ui.react,'react-native':native,'../constants/Colors':{Colors}}).StatusPill;
  const tree=Pill({status}),background=Object.assign({},...tree.props.style).backgroundColor,label=nodes(tree).find(n=>n.type==='Text'),foreground=Object.assign({},...label.props.style).color;
  assert.equal(background,expected);assert.ok(contrast(foreground,background)>=4.5);assert.ok(text(label));
+});
+
+
+test('approved Royal Blue correction preserves all application code and geometry apart from colour tokens',()=>{
+ const fs=require('node:fs'),path=require('node:path'),cp=require('node:child_process');
+ const root=path.join(__dirname,'../..');
+ const files=["frontend/app/(member)/about.tsx", "frontend/app/(member)/alerts.tsx", "frontend/app/(member)/club/[id].tsx", "frontend/app/(member)/home.tsx", "frontend/app/(member)/notifications.tsx", "frontend/app/(member)/profile.tsx", "frontend/app/(member)/proofs.tsx", "frontend/app/(member)/support.tsx", "frontend/app/(member)/trust-score.tsx", "frontend/app/(treasurer)/about.tsx", "frontend/app/(treasurer)/club-detail.tsx", "frontend/app/(treasurer)/claims.tsx", "frontend/app/(treasurer)/contributions.tsx", "frontend/app/(treasurer)/dashboard.tsx", "frontend/app/(treasurer)/members.tsx", "frontend/app/(treasurer)/notifications.tsx", "frontend/app/(treasurer)/profile.tsx", "frontend/app/(treasurer)/reports.tsx", "frontend/app/auth.tsx", "frontend/app/onboarding.tsx", "frontend/components/AdBanner.tsx", "frontend/components/AppHeader.tsx"];
+ const neutral=s=>s.replace(/\r\n/g,'\n').replace(/\bColors\.[A-Za-z_]\w*/g,'Colors.visualToken');
+ for(const file of files){
+  const baseline=cp.execFileSync('git',['show','c981f286d703f8ff0d986ba71032716e7efaf3fc:'+file],{cwd:root,encoding:'utf8'});
+  assert.equal(neutral(fs.readFileSync(path.join(root,file),'utf8')),neutral(baseline),file);
+ }
+ assert.equal(Colors.primary,'#082B60');assert.equal(Colors.headerBackground,'#082B60');
+ assert.equal(Colors.avatarRing,Colors.royalBlue);
+ assert.equal(Colors.gold,'#F59E0B');assert.equal(Colors.lightGold,'#FFF4DB');
+ assert.equal(Colors.statusPaid,'#16A34A');assert.equal(Colors.statusDue,'#F59E0B');assert.equal(Colors.statusLate,'#E31B23');
 });

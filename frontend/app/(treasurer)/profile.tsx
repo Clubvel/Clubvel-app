@@ -326,7 +326,7 @@ export default function ProfileScreen() {
                 payoutSchedules.map((schedule, index) => (
                   <View key={index} style={styles.scheduleItem}>
                     <View style={styles.scheduleIcon}>
-                      <Ionicons name="calendar" size={24} color={Colors.gold} />
+                      <Ionicons name="calendar" size={24} color={Colors.corporateBlue} />
                     </View>
                     <View style={styles.scheduleInfo}>
                       <Text style={styles.scheduleName}>{schedule.club_name}</Text>
@@ -370,7 +370,7 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
    borderWidth: 1, borderColor: Colors.white, },
@@ -401,7 +401,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   roleBadge: {
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.corporateBlue,
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 12,
@@ -579,7 +579,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: Colors.lightGold,
+    backgroundColor: Colors.iceBlue,
     justifyContent: 'center',
     alignItems: 'center',
   },

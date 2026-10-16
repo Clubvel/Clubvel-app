@@ -15,7 +15,7 @@ export default function TrustScoreScreen() {
   return <View style={styles.container}>
     <View style={styles.header}><TouchableOpacity onPress={() => router.back()} style={styles.side}><Ionicons name="arrow-back" size={24} color={Colors.white}/></TouchableOpacity><Text style={styles.headerTitle}>Trust Score</Text><View style={styles.side}/></View>
     <ScrollView contentContainerStyle={styles.content}>
-      <View style={styles.hero}><Ionicons name="shield-checkmark-outline" size={54} color={Colors.gold}/><Text style={styles.title}>Not scored yet</Text><Text style={styles.body}>Clubvel does not currently assign you a numerical Trust Score. We will not show a made-up score when there is no validated scoring model.</Text></View>
+      <View style={styles.hero}><Ionicons name="shield-checkmark-outline" size={54} color={Colors.corporateBlue}/><Text style={styles.title}>Not scored yet</Text><Text style={styles.body}>Clubvel does not currently assign you a numerical Trust Score. We will not show a made-up score when there is no validated scoring model.</Text></View>
       <Text style={styles.sectionTitle}>What a future score could use</Text>
       {signals.map(([icon,title,body]) => <View key={title} style={styles.card}><Ionicons name={icon} size={24} color={Colors.mediumGreen}/><View style={styles.cardText}><Text style={styles.cardTitle}>{title}</Text><Text style={styles.cardBody}>{body}</Text></View></View>)}
       <View style={styles.note}><Ionicons name="information-circle-outline" size={22} color={Colors.mediumGreen}/><Text style={styles.noteText}>Any future score should use verifiable Clubvel participation data and be explained clearly. Clubvel is not presenting this as a credit score or lender assessment.</Text></View>

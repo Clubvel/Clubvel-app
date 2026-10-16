@@ -692,7 +692,7 @@ export default function ClubDetailScreen() {
                           style={[styles.remindButton, { marginBottom: 8 }]}
                           onPress={() => handleViewProof(member.contribution_id!)}
                         >
-                          <Ionicons name="image-outline" size={18} color={Colors.gold} />
+                          <Ionicons name="image-outline" size={18} color={Colors.corporateBlue} />
                           <Text style={styles.remindButtonText}>View Proof</Text>
                         </TouchableOpacity>
                         {member.status === 'proof_uploaded' && member.proof_review_status !== 'declined' && (
@@ -726,7 +726,7 @@ export default function ClubDetailScreen() {
                         style={styles.remindButton}
                         onPress={() => handleRemindMember(member)}
                       >
-                        <Ionicons name="notifications" size={18} color={Colors.gold} />
+                        <Ionicons name="notifications" size={18} color={Colors.corporateBlue} />
                         <Text style={styles.remindButtonText}>Send Reminder</Text>
                       </TouchableOpacity>
                     )}
@@ -1405,13 +1405,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.lightGold,
+    backgroundColor: Colors.iceBlue,
     paddingVertical: 12,
     borderRadius: 8,
     gap: 8,
   },
   remindButtonText: {
-    color: Colors.gold,
+    color: Colors.corporateBlue,
     fontWeight: '600',
     fontSize: 14,
   },
