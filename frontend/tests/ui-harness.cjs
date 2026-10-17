@@ -5,6 +5,8 @@ const ts = require('typescript');
 function load(file, dependencies = {}) {
   dependencies = { "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 24, bottom: 24, left: 0, right: 0 }) }, ...dependencies };
   if (dependencies['expo-router']) dependencies['expo-router'] = { useLocalSearchParams: () => ({}), ...dependencies['expo-router'] };
+  if (['app/(member)/profile.tsx','app/(treasurer)/profile.tsx'].includes(file) && !dependencies['../../components/ContactVisibilityPreference']) dependencies['../../components/ContactVisibilityPreference'] = { default: 'ContactVisibilityPreference' };
+  if (file === 'components/ClubMemberDirectory.tsx' && !dependencies['../services/directoryContact']) dependencies['../services/directoryContact'] = load('services/directoryContact.ts');
   if (file === 'app/(member)/home.tsx' && !dependencies['../../services/clubGreeting']) dependencies['../../services/clubGreeting'] = load('services/clubGreeting.ts');
   if (file === 'app/(treasurer)/dashboard.tsx' && !dependencies['../../services/monthlyReport']) dependencies['../../services/monthlyReport'] = load('services/monthlyReport.ts');
   if (file !== 'components/ProfilePhotoFrame.tsx' && dependencies.react && dependencies['react-native']) {

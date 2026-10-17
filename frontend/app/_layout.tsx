@@ -37,13 +37,13 @@ export function StartupSplash() {
   }, [brandReady, loading, pathname]);
   if (finished) return null;
   return <View accessibilityLabel="Clubvel launch screen" style={launchStyles.screen} onLayout={() => setLayoutReady(true)}>
-    <Image source={require('../assets/images/clubvel-corporate-splash.png')} accessibilityLabel="clubvel" onLoad={() => setImageReady(true)} resizeMode="contain" style={launchStyles.logo} />
+    <Image source={require('../assets/images/clubvel-midnight-symbol.png')} accessibilityLabel="clubvel" onLoad={() => setImageReady(true)} resizeMode="contain" style={launchStyles.logo} />
   </View>;
 }
 
 const launchStyles = StyleSheet.create({
-  screen: { ...StyleSheet.absoluteFillObject, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', zIndex: 100 },
-  logo: { width: '82%', maxWidth: 360, aspectRatio: 1 },
+  screen: { ...StyleSheet.absoluteFillObject, backgroundColor: '#06285B', alignItems: 'center', justifyContent: 'center', zIndex: 100 },
+  logo: { width: 200, maxWidth: '80%', aspectRatio: 1 },
 });
 
 export default function RootLayout() {

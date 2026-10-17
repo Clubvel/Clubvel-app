@@ -678,7 +678,7 @@ export default function ProofOfPaymentsScreen() {
               setExpandedClubs(previous => ({ owner: accordionContext, groups: { ...(previous.owner === accordionContext ? previous.groups : {}), [group.id]: !groupExpanded(group.id) } }));
             }}>
               <Text style={styles.clubRibbonTitle}>{group.name}</Text>
-              <Ionicons name={groupExpanded(group.id) ? 'chevron-up' : 'chevron-down'} size={18} color={Colors.white} />
+              <Ionicons name={groupExpanded(group.id) ? 'chevron-up' : 'chevron-down'} size={18} color={Colors.textPrimary} />
             </TouchableOpacity>
             <View style={styles.clubOverview}>
               <Text>{group.records.length} {group.records.length === 1 ? 'contribution' : 'contributions'}</Text>
@@ -1005,8 +1005,8 @@ export default function ProofOfPaymentsScreen() {
 
 const styles = StyleSheet.create({
   clubSection: { borderWidth: 1, borderColor: Colors.cardBorder, borderRadius: 12, overflow: 'hidden', marginBottom: 12 },
-  clubRibbon: { backgroundColor: Colors.primary, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  clubRibbonTitle: { color: Colors.white, fontWeight: '700', fontSize: 16, flex: 1 },
+  clubRibbon: { backgroundColor: Colors.iceBlue, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  clubRibbonTitle: { color: Colors.textPrimary, fontWeight: '400', fontSize: 16, flex: 1 },
   clubOverview: { padding: 12, gap: 4, backgroundColor: Colors.iceBlue },
   proofCategories: { flexDirection: 'row', flexWrap: 'wrap', gap: 20, paddingHorizontal: 20, paddingBottom: 12 },
 
@@ -1227,7 +1227,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   uploadButton: {
-    backgroundColor: Colors.primary,
+    backgroundColor: Colors.royalBlue,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',

@@ -44,7 +44,7 @@ for (const action of ['Accept', 'Decline']) {
       await c.pair(4, action === 'Accept' ? 'admin' : 'member'); await decision;
       if (!olderFirst) await c.pair(2, 'member', [invitation]);
       assert.equal(button(c.render(), 'Accept'), undefined);
-      button(c.render(), 'Test Club').props.onPress();
+      const toggle=nodes(c.render()).find(n=>n.props?.accessibilityLabel==='My Clubs & Stokvels');if(!toggle.props.accessibilityState.expanded)toggle.props.onPress();button(c.render(), 'Test Club').props.onPress();
       const expectedRoute = action === 'Accept' ? { pathname: '/(treasurer)/dashboard', params: { groupId: 'group' } } : { pathname: '/club/[id]', params: { id: 'group', from: 'member' } };
       assert.deepEqual(c.routes.at(-1), expectedRoute);
       assert.equal(c.posts[0].options.headers.Authorization, 'Bearer session');
@@ -60,7 +60,7 @@ test('repeated refresh after promotion never permits an older response to restor
   await c.pair(6, 'admin'); await c.pair(4, 'member', [invitation]);
   await c.pair(2, 'member', [invitation]); await accepting;
   assert.equal(button(c.render(), 'Accept'), undefined);
-  button(c.render(), 'Test Club').props.onPress();
+  const toggle=nodes(c.render()).find(n=>n.props?.accessibilityLabel==='My Clubs & Stokvels');if(!toggle.props.accessibilityState.expanded)toggle.props.onPress();button(c.render(), 'Test Club').props.onPress();
   assert.equal(c.routes.at(-1).pathname, '/(treasurer)/dashboard');
   assert.equal(c.routes.at(-1).params.groupId, 'group');
 });

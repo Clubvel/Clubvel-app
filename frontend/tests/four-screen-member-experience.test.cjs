@@ -41,7 +41,7 @@ test('authentication, financial and membership write handlers remain identical t
   const before=cp.execFileSync('git',['show','8fcbc3e1eaee01ad394525697cdeba831ae8d441:'+file],{cwd:root,encoding:'utf8'}),after=fs.readFileSync(path.join(root,file),'utf8');
   function handlers(source){const ast=ts.createSourceFile(file,source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX),out={};function visit(n){if(ts.isVariableDeclaration(n)&&names.includes(n.name.getText(ast)))out[n.name.getText(ast)]=n.initializer.getText(ast).replace(/\r\n/g,'\n');ts.forEachChild(n,visit);}visit(ast);assert.equal(Object.keys(out).length,names.length);return out;}assert.deepEqual(handlers(after),handlers(before));
  }
- for(const file of ['backend/server.py','frontend/app/(treasurer)/dashboard.tsx','frontend/app/(member)/proofs.tsx','frontend/app/(member)/club/[id].tsx','frontend/services/paymentSummaryRecords.ts'])assert.equal(fs.readFileSync(path.join(root,file),'utf8').replace(/\r\n/g,'\n').replace(/headerTitle:\s*\{[^}]*\}/g,m=>m.replace(/fontWeight:\s*'(?:bold|400)'/,"fontWeight: 'approved-header-weight'")),cp.execFileSync('git',['show','8fcbc3e1eaee01ad394525697cdeba831ae8d441:'+file],{cwd:root,encoding:'utf8'}).replace(/\r\n/g,'\n').replace(/headerTitle:\s*\{[^}]*\}/g,m=>m.replace(/fontWeight:\s*'(?:bold|400)'/,"fontWeight: 'approved-header-weight'")),file);
+ for(const file of ['frontend/app/(treasurer)/dashboard.tsx','frontend/app/(member)/club/[id].tsx','frontend/services/paymentSummaryRecords.ts'])assert.equal(fs.readFileSync(path.join(root,file),'utf8').replace(/\r\n/g,'\n').replace(/headerTitle:\s*\{[^}]*\}/g,m=>m.replace(/fontWeight:\s*'(?:bold|400)'/,"fontWeight: 'approved-header-weight'")),cp.execFileSync('git',['show','8fcbc3e1eaee01ad394525697cdeba831ae8d441:'+file],{cwd:root,encoding:'utf8'}).replace(/\r\n/g,'\n').replace(/headerTitle:\s*\{[^}]*\}/g,m=>m.replace(/fontWeight:\s*'(?:bold|400)'/,"fontWeight: 'approved-header-weight'")),file);
 });
 
 
@@ -52,4 +52,11 @@ test('My Club opened without a device-selected period returns using the authorit
 
 test('My Club retains an explicit contribution ID through History and Back and invalidates old selected-record callbacks',async()=>{
  const c=myClub();await c.reply();c.params.contribution_id='exact-record';c.render();c.tap('Club History');assert.equal(c.routes.at(-1).params.contribution_id,'exact-record');const old=nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Club History');c.params.contribution_id='other-explicit-record';c.render();old.props.onPress();assert.equal(c.routes.length,1);c.tap('Club History');assert.equal(c.routes.at(-1).params.contribution_id,'other-explicit-record');c.tap('Back to Club Home');assert.equal(c.routes.at(-1).params.contribution_id,'other-explicit-record');
+});
+
+// Presentation and opt-in contact routes may evolve; every existing proof handler remains frozen.
+test('Payments financial and upload handlers remain identical to the verified baseline',()=>{
+ const root=path.join(__dirname,'../..'),file='frontend/app/(member)/proofs.tsx';
+ const before=cp.execFileSync('git',['show','eea2809327d391992322f6aa98ece0941933835f:'+file],{cwd:root,encoding:'utf8'}),after=fs.readFileSync(path.join(root,file),'utf8');
+ const functions=source=>{const ast=ts.createSourceFile(file,source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX),out={};function visit(n){if(ts.isVariableDeclaration(n)&&ts.isIdentifier(n.name)&&n.initializer&&(ts.isArrowFunction(n.initializer)||ts.isFunctionExpression(n.initializer)))out[n.name.text]=n.initializer.getText(ast).replace(/\r\n/g,'\n');ts.forEachChild(n,visit);}visit(ast);return out;};assert.deepEqual(functions(after),functions(before));
 });

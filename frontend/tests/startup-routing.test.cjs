@@ -6,7 +6,7 @@ test('startup restores authentication then routes all accounts through Member Ho
 });
 function setup(auth,pathname){
  const ui=engine(),state={pathname,hidden:0,options:null};
- const Splash=load('app/_layout.tsx',{react:ui.react,'react-native':native,'../assets/images/clubvel-corporate-splash.png':1,'expo-router':{Stack:'Stack',usePathname:()=>state.pathname},'expo-splash-screen':{setOptions:o=>state.options=o,preventAutoHideAsync:async()=>{},hideAsync:async()=>{state.hidden++;}},'../contexts/AuthContext':{AuthProvider:'AuthProvider',useAuth:()=>auth}}).StartupSplash;
+ const Splash=load('app/_layout.tsx',{react:ui.react,'react-native':native,'../assets/images/clubvel-midnight-symbol.png':1,'expo-router':{Stack:'Stack',usePathname:()=>state.pathname},'expo-splash-screen':{setOptions:o=>state.options=o,preventAutoHideAsync:async()=>{},hideAsync:async()=>{state.hidden++;}},'../contexts/AuthContext':{AuthProvider:'AuthProvider',useAuth:()=>auth}}).StartupSplash;
  return {state,render:()=>ui.render(Splash)};
 }
 for(const destination of ['/home','/auth'])test(`launch handoff waits for loaded full branding and committed ${destination}, with no cross-fade`,async()=>{

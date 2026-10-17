@@ -3,13 +3,13 @@ const assert = require('node:assert/strict');
 const fs = require('node:fs');
 const path = require('node:path');
 const {load,engine,tick,nodes,text,native,colors} = require('./ui-harness.cjs');
-function setup() {
- const ui=engine(), requests=[], auth={user:{id:'jimmy'},token:'session-a'},props={groupId:'travel'};
- const Screen=load('components/ClubMemberDirectory.tsx', {react:ui.react,'react-native':native,'expo-router':{useFocusEffect:ui.useFocusEffect},axios:{get:(url,options)=>new Promise((resolve,reject)=>requests.push({url,options,resolve,reject}))},'../contexts/AuthContext':{useAuth:()=>auth},'../constants/Colors':{Colors:colors},'./ProfilePhotoViewer':{__esModule:true,default:'ProfilePhotoViewer'}}).default;
+function setup(openURL) {
+ const ui=engine(), requests=[], auth={user:{id:'jimmy'},token:'session-a'},props={groupId:'travel'}, links=[], alerts=[];
+ const Screen=load('components/ClubMemberDirectory.tsx', {react:ui.react,'react-native':{...native,Linking:{openURL:async url=>{links.push(url);if(openURL)return openURL(url);}},Alert:{alert:(...args)=>alerts.push(args)}},'expo-router':{useFocusEffect:ui.useFocusEffect},axios:{get:(url,options)=>new Promise((resolve,reject)=>requests.push({url,options,resolve,reject}))},'../contexts/AuthContext':{useAuth:()=>auth},'../constants/Colors':{Colors:colors},'./ProfilePhotoViewer':{__esModule:true,default:'ProfilePhotoViewer'}}).default;
  const render=()=>ui.render(()=>Screen(props));render();
  const reply=async(index,groupId='travel',members=[{id:'jimmy-member',name:'Jimmy Person',profile_photo:'https://example.invalid/member-photo.jpg',role:'member'},{id:'brown-member',name:'Brown Person',profile_photo:null,role:'admin'}])=>{requests[index].resolve({data:{group_id:groupId,members}});await tick();return render();};
- const tap=label=>nodes(render()).find(n=>n.props?.accessibilityLabel===label).props.onPress();
- return {ui,requests,auth,props,render,reply,tap};
+ const tap=label=>{ if(label.startsWith('View photo of ')&&!nodes(render()).some(n=>n.props?.accessibilityLabel===label)) nodes(render()).find(n=>n.props?.accessibilityLabel===label.replace('View photo of ','Open profile photo of ')).props.onPress(); return nodes(render()).find(n=>n.props?.accessibilityLabel===label).props.onPress(); };
+ return {ui,requests,auth,props,render,reply,tap,links,alerts};
 }
 test('directory uses one authenticated request and reuses photos for profile and enlargement',async()=>{
  const c=setup();await c.reply(0);assert.equal(c.requests.length,1);assert.equal(c.requests[0].options.headers.Authorization,'Bearer session-a');
@@ -19,7 +19,7 @@ test('directory uses one authenticated request and reuses photos for profile and
  modal.props.onRequestClose();assert.equal(nodes(c.render()).find(n=>n.type==='Modal').props.visible,false);c.tap('Open profile of Jimmy Person');c.tap('Close member profile');assert.equal(nodes(c.render()).find(n=>n.type==='Modal').props.visible,false);assert.equal(c.requests.length,1);
 });
 test('missing photographs render initials and selected-club role',async()=>{
- const c=setup();await c.reply(0);assert.match(text(c.render()),/BP/);assert.match(text(c.render()),/Admin/);assert.equal(nodes(c.render()).find(n=>n.props?.accessibilityLabel==='View photo of Brown Person').props.disabled,true);
+ const c=setup();await c.reply(0);assert.match(text(c.render()),/BP/);assert.match(text(c.render()),/Admin/);c.tap('Open profile photo of Brown Person');assert.equal(nodes(c.render()).find(n=>n.props?.accessibilityLabel==='View photo of Brown Person').props.disabled,true);
  c.tap('Open profile of Brown Person');assert.match(text(nodes(c.render()).find(n=>n.type==='Modal')),/BPBrown PersonAdmin/);
 });
 test('account/session change immediately masks identities, profiles and expanded photos',async()=>{
@@ -78,11 +78,11 @@ test('legacy encoded JPEG is normalised without changing the stored photograph',
 });
 test('unusable photo falls back to initials and cannot open enlargement',async()=>{
  const c=setup();await c.reply(0,'travel',[{id:'j',name:'Jimmy Person',role:'member',profile_photo:'not-an-image'}]);
- assert.match(text(c.render()),/JP/);assert.equal(nodes(c.render()).find(n=>n.props?.accessibilityLabel==='View photo of Jimmy Person').props.disabled,true);
+ assert.match(text(c.render()),/JP/);c.tap('Open profile photo of Jimmy Person');assert.equal(nodes(c.render()).find(n=>n.props?.accessibilityLabel==='View photo of Jimmy Person').props.disabled,true);
 });
 test('image failure falls back safely and a changed URI can render after refresh',async()=>{
  const c=setup();await c.reply(0);nodes(c.render()).find(n=>n.type==='Image').props.onError();
- assert.match(text(c.render()),/JP/);assert.equal(nodes(c.render()).find(n=>n.props?.accessibilityLabel==='View photo of Jimmy Person').props.disabled,true);
+ assert.match(text(c.render()),/JP/);c.tap('Open profile photo of Jimmy Person');assert.equal(nodes(c.render()).find(n=>n.props?.accessibilityLabel==='View photo of Jimmy Person').props.disabled,true);
  c.ui.focus();await c.reply(1,'travel',[{id:'jimmy-member',name:'Jimmy Person',role:'member',profile_photo:'https://example.invalid/new.jpg'}]);
  assert.equal(nodes(c.render()).find(n=>n.type==='Image').props.source.uri,'https://example.invalid/new.jpg');
 });
@@ -106,4 +106,31 @@ test('logout masks stored directory photos and does not start an unauthenticated
 test('late image error after a refresh cannot hide a newly loaded image',async()=>{
  const c=setup();await c.reply(0);const fail=nodes(c.render()).find(n=>n.type==='Image').props.onError;
  c.ui.focus();await c.reply(1);fail();assert.ok(nodes(c.render()).some(n=>n.type==='Image'));
+});
+
+
+test('photo and name open the same limited contact profile; composers never prefill or send messages',async()=>{
+ const c=setup();await c.reply(0,'travel',[{id:'j',name:'Jimmy Registered',role:'admin',profile_photo:null,phone_visibility:'shared',phone_number:'+27821234567'}]);
+ c.tap('Open profile photo of Jimmy Registered');assert.match(text(nodes(c.render()).find(n=>n.type==='Modal')),/Jimmy RegisteredAdmin/);
+ await c.tap('WhatsApp member');await c.tap('SMS member');assert.deepEqual(c.links,['whatsapp://send?phone=27821234567','sms:+27821234567']);
+ const stale=nodes(c.render()).find(n=>n.props?.accessibilityLabel==='SMS member').props.onPress;c.tap('Close member profile');await stale();assert.equal(c.links.length,2);
+ c.tap('Open profile of Jimmy Registered');assert.match(text(nodes(c.render()).find(n=>n.type==='Modal')),/\+27821234567/);
+});
+test('private, absent and unsuitable mobile numbers never enable contact actions',async()=>{
+ for(const record of [{phone_visibility:'private',phone_number:'+27821234567'},{phone_number:'+27821234567'},{phone_visibility:'shared',phone_number:'+27111234567'},{phone_visibility:'unavailable'}]){
+  const c=setup();await c.reply(0,'travel',[{id:'j',name:'Jimmy',role:'member',profile_photo:null,...record}]);c.tap('Open profile of Jimmy');
+  assert.doesNotMatch(text(nodes(c.render()).find(n=>n.type==='Modal')),/27821234567|27111234567/);
+  for(const label of ['WhatsApp member','SMS member']){const action=nodes(c.render()).find(n=>n.props?.accessibilityLabel===label);assert.equal(action.props.disabled,true);await action.props.onPress();}assert.deepEqual(c.links,[]);
+ }
+});
+test('old contact actions cannot open a composer after a session or club switch',async()=>{
+ for(const change of ['club','session']){const c=setup();await c.reply(0,'travel',[{id:'j',name:'Jimmy',role:'member',profile_photo:null,phone_visibility:'shared',phone_number:'+27821234567'}]);c.tap('Open profile of Jimmy');const stale=nodes(c.render()).find(n=>n.props?.accessibilityLabel==='SMS member').props.onPress;
+ if(change==='club')c.props.groupId='other';else c.auth.token='new-session';c.render();await stale();assert.deepEqual(c.links,[]);}
+});
+
+test('unavailable messaging apps show a safe error without browser fallbacks or automatic sends',async()=>{
+ const c=setup(async()=>{throw new Error('not installed');});await c.reply(0,'travel',[{id:'j',name:'Jimmy',role:'member',profile_photo:null,phone_visibility:'shared',phone_number:'+27821234567'}]);c.tap('Open profile of Jimmy');await c.tap('WhatsApp member');await tick();assert.equal(c.links.length,1);assert.equal(c.alerts[0][0],'Unable to open app');assert.doesNotMatch(c.links[0],/https:|body=|text=/);
+});
+test('delayed composer errors cannot alert a different profile or context',async()=>{
+ let reject;const c=setup(()=>new Promise((_,r)=>{reject=r;}));await c.reply(0,'travel',[{id:'j',name:'Jimmy',role:'member',profile_photo:null,phone_visibility:'shared',phone_number:'+27821234567'}]);c.tap('Open profile of Jimmy');c.tap('SMS member');c.tap('Close member profile');reject(new Error('late'));await tick();assert.deepEqual(c.alerts,[]);
 });

@@ -41,6 +41,7 @@ function setup(screen = 'member', holdInvitations = false, params = {}, initialU
       summary: { total_saved: 0, confirmed_collected_current_period: 0, confirmed_collected: 0, confirmed_collected_availability: "AVAILABLE", active_clubs: 1, overdue_contributions: 0, upcoming_payments: 0, claims_count: 0 },
       clubs: [{ id: 'group-a', name, role, member_count: 2, collected: 0, expected: 200, due_date: 25, late_count: 0, monthly_contribution: 100, contribution_mode: 'fixed_monthly', status: 'pending' }] } });
     await tick();
+    if(screen === 'member') { const toggle=nodes(render()).find(n=>n.props?.accessibilityLabel==='My Clubs & Stokvels'); if(toggle && !toggle.props.accessibilityState?.expanded) toggle.props.onPress(); }
   };
   const refresh = () => nodes(render()).find(n => n.type === 'ScrollView').props.refreshControl.props.onRefresh();
   render();
@@ -274,9 +275,9 @@ for (const [mode,type,monthly,target,label] of [
  ['fixed_monthly','savings',100,null,'R100.00/month'],
  ['fixed_monthly','savings',0,null,'No fixed monthly amount'],
  [undefined,'savings',0,null,'Contribution details could not be verified'],
-]) test(`Club caption reflects ${mode}/${type} without inventing monthly obligations`, async () => {
+]) test(`Compact club list omits ${mode}/${type} financial clutter without inventing monthly obligations`, async () => {
  const c=setup(); c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:0,confirmed_collected:0,confirmed_collected_availability:'AVAILABLE',active_clubs:1,upcoming_payments:0,claims_count:0},clubs:[{id:'travel',name:'WeTravel',member_count:2,role:'member',monthly_contribution:monthly,contribution_mode:mode,group_type:type,target_amount_per_member:target,status:'pending'}]}}); await tick();
- assert.match(text(c.render()),new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
+ nodes(c.render()).find(n=>n.props?.accessibilityLabel==='My Clubs & Stokvels').props.onPress();assert.match(text(c.render()),/WeTravel/);assert.doesNotMatch(text(c.render()),new RegExp(label.replace(/[.*+?^${}()|[\]\\]/g,'\\$&')));
  assert.doesNotMatch(text(c.render()),/R0\/month/);
 });
 
@@ -295,7 +296,7 @@ test('mixed club roles route Members, Admins and Treasurers using each selected 
   {id:'third',name:'Third Club',role:'treasurer',member_count:2}
  ]}});await tick();
  for(const [name,id,pathname] of [['WeTravel','travel','/(treasurer)/dashboard'],['Eighty8','eight','/club/[id]'],['Third Club','third','/(treasurer)/dashboard']]){
-  button(c.render(),name).props.onPress();assert.equal(c.routes.at(-1).pathname,pathname);assert.equal(c.routes.at(-1).params[ pathname === '/club/[id]' ? 'id' : 'groupId'],id);
+  const toggle=nodes(c.render()).find(n=>n.props?.accessibilityLabel==='My Clubs & Stokvels');if(!toggle.props.accessibilityState.expanded)toggle.props.onPress();button(c.render(),name).props.onPress();assert.equal(c.routes.at(-1).pathname,pathname);assert.equal(c.routes.at(-1).params[ pathname === '/club/[id]' ? 'id' : 'groupId'],id);
  }
 });
 
@@ -467,7 +468,7 @@ test('Jimmy and Treasurer fixtures enter their selected Admin dashboard directly
   const c=setup();await c.respond(0,'WeTravel',role);
   nodes(c.render()).find(n=>n.props.accessibilityLabel==='Open WeTravel administration').props.onPress();
   assert.deepEqual(c.routes.at(-1),{pathname:'/(treasurer)/dashboard',params:{groupId:'group-a'}});assert.equal(c.routes.length,1);
-  nodes(c.render()).find(n=>n.props.accessibilityLabel==='View WeTravel as member').props.onPress();assert.deepEqual(c.routes.at(-1),{pathname:'/club/[id]',params:{id:'group-a',from:'member'}});
+  nodes(c.render()).find(n=>n.props?.accessibilityLabel==='My Clubs & Stokvels').props.onPress();nodes(c.render()).find(n=>n.props.accessibilityLabel==='View WeTravel as member').props.onPress();assert.deepEqual(c.routes.at(-1),{pathname:'/club/[id]',params:{id:'group-a',from:'member'}});
  }
 });
 test('Brown Member fixture has no card Admin action; a stale shortcut cannot survive role revocation or account switching',async()=>{
@@ -506,4 +507,10 @@ for(const count of [undefined,null,0,-1,'2',1.5,1,2])test('My Clubs presents tru
  const c=setup();await c.respond(0,'WeTravel');c.refresh();
  c.requests[1].resolve({data:{user:c.auth.user,summary:{total_saved:0,confirmed_collected:0,confirmed_collected_availability:'AVAILABLE',active_clubs:1,upcoming_payments:0,claims_count:0},clubs:[{id:'group-a',name:'WeTravel',role:'member',member_count:count,contribution_mode:'flexible_goal'}]}});await tick();
  const content=text(c.render());if(count===1||count===2)assert.ok(content.includes(count===1?'1 member':'2 members'));else {assert.match(content,/Member count unavailable/);assert.doesNotMatch(content,/0 members|-1 members|1.5 members|2 members/);}
+});
+
+
+test('My Clubs is collapsed by default, scrolls many memberships and collapses after selection',async()=>{
+ const c=setup();c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:0,confirmed_collected:0,confirmed_collected_availability:'AVAILABLE',active_clubs:20},clubs:Array.from({length:20},(_,i)=>({id:'club-'+i,name:'Stokvel '+i,role:'member',member_count:2}))}});await tick();
+ const toggle=()=>nodes(c.render()).find(n=>n.props?.accessibilityLabel==='My Clubs & Stokvels');assert.equal(toggle().props.accessibilityState.expanded,false);assert.doesNotMatch(text(c.render()),/Stokvel 19/);toggle().props.onPress();assert.match(text(c.render()),/Stokvel 19/);assert.ok(nodes(c.render()).some(n=>n.type==='ScrollView'&&n.props.nestedScrollEnabled));nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Open Stokvel 19').props.onPress();assert.equal(toggle().props.accessibilityState.expanded,false);assert.equal(c.routes.at(-1).params.id,'club-19');
 });

@@ -12,6 +12,8 @@ def directory_environment():
     ns = environment()
     node = next(n for n in ast.parse((Path(__file__).resolve().parents[1]/'backend/server.py').read_text()).body if isinstance(n, ast.AsyncFunctionDef) and n.name == 'get_club_directory')
     node.decorator_list = []
+    from services.phone_numbers import normalize_phone
+    ns['normalize_phone'] = normalize_phone
     ns['Optional'] = Optional
     ns['Header'] = lambda default: default
     exec(compile(ast.Module(body=[node], type_ignores=[]), 'directory-route', 'exec'), ns)
@@ -31,7 +33,7 @@ class DirectoryTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(result['group_id'],'group-a')
             self.assertTrue(result['members'])
             for row in result['members']:
-                self.assertEqual(set(row),{'id','name','profile_photo','role'})
+                self.assertEqual(set(row),{'id','name','profile_photo','role','phone_visibility'})
                 self.assertTrue(row['profile_photo'].startswith('data:image/jpeg;base64,'))
             self.assertEqual(before,snapshot(ns))
             self.assertEqual(len([read for read in ns['db'].users.reads if read[0]=='find']),1)
@@ -73,7 +75,7 @@ class DirectoryTests(unittest.IsolatedAsyncioTestCase):
         root=Path(__file__).resolve().parents[1]
         functions=lambda source:{n.name:ast.dump(legacy_admin_dashboard(n)) for n in ast.parse(source).body if isinstance(n,(ast.FunctionDef,ast.AsyncFunctionDef))}
         old=functions(subprocess.check_output(['git','show','d632d6b62f52911a5bb7218ef826ef385464bf97:backend/server.py'],cwd=root,text=True));new=functions((root/'backend/server.py').read_text())
-        self.assertEqual(set(new)-set(old),{'get_club_directory', 'get_club_home_context'})
+        self.assertEqual(set(new)-set(old),{'get_club_directory', 'get_club_home_context', 'get_contact_visibility', 'update_contact_visibility'})
         for name,body in old.items():self.assertEqual(new[name],body,name)
 
     async def test_inactive_or_missing_user_records_are_not_exposed(self):
@@ -93,3 +95,18 @@ class DirectoryTests(unittest.IsolatedAsyncioTestCase):
             else:person['status']='inactive'
             with self.assertRaises(ns['HTTPException']) as caught:await ns['get_club_directory']('group-a',bearer('member-user'))
             self.assertEqual(caught.exception.status_code,403)
+
+
+    async def test_contact_numbers_require_explicit_boolean_opt_in_and_valid_mobile(self):
+        for setting,number,visibility in [(None,'0821234567','private'),(False,'0821234567','private'),('true','0821234567','private'),(True,'0821234567','shared'),(True,None,'unavailable'),(True,'0111234567','unavailable')]:
+            ns=directory_environment()
+            person=next(p for p in ns['db'].users.records if p['id']=='member-user')
+            person['share_mobile_with_clubs']=setting;person['phone_number']=number
+            before=snapshot(ns)
+            result=await ns['get_club_directory']('group-a',bearer('admin-user'))
+            own_id=next(m['id'] for m in ns['db'].members.records if m['user_id']=='member-user' and m['group_id']=='group-a')
+            row=next(r for r in result['members'] if r['id']==own_id)
+            self.assertEqual(row['phone_visibility'],visibility)
+            if visibility=='shared':self.assertEqual(row['phone_number'],'+27821234567')
+            else:self.assertNotIn('phone_number',row)
+            self.assertEqual(before,snapshot(ns))

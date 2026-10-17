@@ -9,6 +9,7 @@ import axios from 'axios';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
 import EditProfile from '../../components/EditProfile';
+import ContactVisibilityPreference from '../../components/ContactVisibilityPreference';
 
 interface UserStats {
   clubs_count: number;
@@ -189,6 +190,7 @@ export default function ProfileScreen() {
       </View>
 
       <ScrollView style={styles.content}>
+        <ContactVisibilityPreference />
         {/* Stats - Dynamically loaded */}
         {loading ? (
           <View style={styles.statsLoading}>

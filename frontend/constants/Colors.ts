@@ -2,11 +2,11 @@ export const Colors = {
   // Interface surfaces are independent of the approved icon/splash artwork.
   midnightNavy: '#06285B',
   headerBackground: '#06285B',
-  avatarRing: '#FFD700',
+  avatarRing: '#E5B83F',
   secondaryHighlight: '#397F78',
   corporateBlue: '#0756C9',
   royalBlue: '#2677E8',
-  iceBlue: '#E8F2FF',
+  iceBlue: '#DCEEFF',
   lightGrey: '#F7F8F4',
   primary: '#06285B',
   primaryDark: '#06285B',
@@ -19,13 +19,13 @@ export const Colors = {
   softSage: '#E5EFE9',
   
   // Background Colors
-  background: '#F7F8F4',
-  lightBackground: '#F7F8F4',
+  background: '#FFFFFF',
+  lightBackground: '#FFFFFF',
   cardBackground: '#FFFFFF',   // White card backgrounds
   cardBorder: '#E5E7EB',       // Light gray borders
   
   // Typography Colors
-  textPrimary: '#243348',
+  textPrimary: '#12234A',
   textSecondary: '#6B7280',    // Medium gray for secondary text
   textMuted: '#6B7280',        // Light gray for muted text
   

@@ -13,7 +13,7 @@ import math
 import unicodedata
 from decimal import Decimal
 from pathlib import Path
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, StrictBool
 from typing import Literal, List, Optional
 import uuid
 from datetime import UTC, date, datetime, timedelta
@@ -2083,6 +2083,32 @@ async def update_personal_profile(data: PersonalProfileUpdate, authorization: Op
     return {"full_name": name}
 
 
+class ContactVisibilityUpdate(BaseModel):
+    share_mobile_with_clubs: StrictBool
+
+
+@api_router.get("/user/contact-visibility/{user_id}")
+async def get_contact_visibility(user_id: str, authorization: Optional[str] = Header(None)):
+    require_account_owner(user_id, authorization)
+    user = await db.users.find_one({"id": user_id}, {"_id": 0, "status": 1, "share_mobile_with_clubs": 1})
+    if not user or user.get("status", "active") != "active":
+        raise HTTPException(status_code=403, detail="Active account required")
+    return {"share_mobile_with_clubs": user.get("share_mobile_with_clubs") is True}
+
+
+@api_router.put("/user/contact-visibility/{user_id}")
+async def update_contact_visibility(user_id: str, data: ContactVisibilityUpdate, authorization: Optional[str] = Header(None)):
+    require_account_owner(user_id, authorization)
+    user = await db.users.find_one({"id": user_id})
+    if not user or user.get("status", "active") != "active":
+        raise HTTPException(status_code=403, detail="Active account required")
+    result = await db.users.update_one({"id": user_id, "status": user.get("status")},
+                                       {"$set": {"share_mobile_with_clubs": data.share_mobile_with_clubs}})
+    if not result.matched_count:
+        raise HTTPException(status_code=409, detail="Account changed; refresh your preference")
+    return {"share_mobile_with_clubs": data.share_mobile_with_clubs}
+
+
 class ProfilePhotoUpdate(BaseModel):
     user_id: str
     profile_photo: str  # base64 encoded image
@@ -2484,7 +2510,7 @@ async def get_club_home_context(group_id: str, authorization: Optional[str] = He
 
 @api_router.get("/groups/{group_id}/directory")
 async def get_club_directory(group_id: str, authorization: Optional[str] = Header(None)):
-    """Public-to-active-club-members identity fields only; no financial or account data."""
+    """Public-to-active-club-members identity and explicitly shared contact fields; no financial data."""
     actor = authenticated_user_id(authorization)
     group = await db.groups.find_one({"id": group_id, "status": "active"})
     if not group:
@@ -2495,7 +2521,7 @@ async def get_club_directory(group_id: str, authorization: Optional[str] = Heade
     memberships = await db.members.find({"group_id": group_id, "status": "active"},
                                        {"_id": 0, "id": 1, "user_id": 1, "role_in_group": 1}).to_list(None)
     identities = await db.users.find({"id": {"$in": [row["user_id"] for row in memberships]}},
-                                     {"_id": 0, "id": 1, "full_name": 1, "profile_photo": 1, "status": 1}).to_list(None)
+                                     {"_id": 0, "id": 1, "full_name": 1, "profile_photo": 1, "status": 1, "phone_number": 1, "share_mobile_with_clubs": 1}).to_list(None)
     users = {row["id"]: row for row in identities if row.get("status", "active") == "active"}
     if actor not in users:
         raise HTTPException(status_code=403, detail="Active account required")
@@ -2503,9 +2529,20 @@ async def get_club_directory(group_id: str, authorization: Optional[str] = Heade
     for row in memberships:
         person = users.get(row["user_id"])
         if person:
-            members.append({"id": row["id"], "name": person.get("full_name") or "Member",
-                            "profile_photo": person.get("profile_photo"),
-                            "role": row.get("role_in_group", "member")})
+            entry = {"id": row["id"], "name": person.get("full_name") or "Member",
+                     "profile_photo": person.get("profile_photo"),
+                     "role": row.get("role_in_group", "member"), "phone_visibility": "private"}
+            # Missing/legacy preferences are private, including for Admin viewers.
+            if person.get("share_mobile_with_clubs") is True:
+                entry["phone_visibility"] = "unavailable"
+                try:
+                    phone = normalize_phone(person.get("phone_number"))
+                    # South African landlines are not registered mobile contacts.
+                    if not phone.startswith("+27") or phone[3:4] in "678":
+                        entry.update(phone_visibility="shared", phone_number=phone)
+                except (TypeError, ValueError):
+                    pass
+            members.append(entry)
     return {"group_id": group_id, "members": members}
 
 

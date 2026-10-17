@@ -66,14 +66,14 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/clubvel-corporate-splash.png",
-          "imageWidth": 300,
+          "image": "./assets/images/clubvel-midnight-symbol.png",
+          "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#FFFFFF",
+          "backgroundColor": "#06285B",
           "android": {
-            "image": "./assets/images/clubvel-corporate-adaptive-icon.png",
+            "image": "./assets/images/clubvel-midnight-symbol.png",
             "imageWidth": 200,
-            "backgroundColor": "#FFFFFF",
+            "backgroundColor": "#06285B",
             "resizeMode": "contain"
           }
         }

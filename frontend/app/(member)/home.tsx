@@ -7,7 +7,6 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
 import { clubGreeting } from '../../services/clubGreeting';
-import { StatusPill } from '../../components/StatusPill';
 import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
@@ -89,6 +88,9 @@ export default function MemberHomeScreen() {
   const sessionKey = JSON.stringify([API_URL, user?.id, token]);
   const latestSession = useRef(sessionKey);
   latestSession.current = sessionKey;
+  const [clubList, setClubList] = useState({ owner: sessionKey, expanded: false });
+  const clubsExpanded = clubList.owner === sessionKey && clubList.expanded;
+  const showClubList = () => { if (latestSession.current !== sessionKey) return; setClubList({ owner: sessionKey, expanded: true }); dashboardScroll.current?.scrollTo({ y: clubsOffset.current, animated: true }); };
   const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
   const [errorOwner, setErrorOwner] = useState<string | null>(null);
   const dashboardData = dashboardOwner === sessionKey ? storedDashboardData : null;
@@ -99,19 +101,6 @@ export default function MemberHomeScreen() {
   const confirmedAmountAvailable = dashboardData?.summary.confirmed_collected_availability === 'AVAILABLE'
     && typeof confirmedAmount === 'number' && Number.isFinite(confirmedAmount) && confirmedAmount >= 0;
   const verifiedCount = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : '—';
-  const contributionDescription = (club: Club) => {
-    if (club.contribution_mode === 'flexible_goal' || club.group_type === 'travel') {
-      const target = club.target_amount_per_member;
-      return typeof target === 'number' && Number.isFinite(target) && target > 0
-        ? `${paymentMoney(target)} goal per member` : 'Flexible contributions';
-    }
-    if (club.contribution_mode === 'fixed_monthly') {
-      const amount = club.monthly_contribution;
-      return typeof amount === 'number' && Number.isFinite(amount) && amount > 0
-        ? `${paymentMoney(amount)}/month` : 'No fixed monthly amount';
-    }
-    return 'Contribution details could not be verified';
-  };
   const [invitationOwner, setInvitationOwner] = useState<string | null>(null);
   const pendingInvitations = invitationOwner === sessionKey ? storedInvitations : [];
   const setPendingInvitations = useCallback((invitations: PendingInvitation[]) => {
@@ -456,7 +445,9 @@ export default function MemberHomeScreen() {
         <View style={styles.loadingContainer}><Text>{dashboardError}</Text><TouchableOpacity onPress={() => { setLoading(true); void fetchDashboard(); }}><Text>Retry</Text></TouchableOpacity></View> : (<>
       {/* My Clubs Section */}
       <View style={styles.section} onLayout={event => { clubsOffset.current = event.nativeEvent.layout.y; }}>
-        <Text style={styles.sectionTitle}>My Clubs</Text>
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel="My Clubs & Stokvels" accessibilityState={{ expanded: clubsExpanded }} style={styles.clubListHeader} onPress={() => { if (latestSession.current === sessionKey) setClubList({ owner: sessionKey, expanded: !clubsExpanded }); }}>
+          <Text style={styles.clubListTitle}>My Clubs &amp; Stokvels</Text><Ionicons name={clubsExpanded ? 'chevron-up' : 'chevron-down'} size={20} color={Colors.textPrimary} />
+        </TouchableOpacity>
 
         {pendingInvitations.length > 0 && (
           <View style={styles.invitationsSection}>
@@ -494,54 +485,19 @@ export default function MemberHomeScreen() {
           </View>
         )}
 
-        {dashboardData?.clubs && dashboardData.clubs.length > 0 ? (
-          dashboardData.clubs.map((club) => (
-            <View
-              key={club.id}
-              style={styles.clubCard}
-            >
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityLabel={`Open ${club.name}`}
-              onPress={() => ['admin', 'treasurer'].includes(club.role) ? openAdministration(club) : openClub(club)}
-            >
-              <View style={styles.clubCardHeader}>
-                <View style={styles.clubImage}>{club.group_photo ? <Image source={{ uri: club.group_photo }} resizeMode="cover" style={styles.clubImage} /> : <Text style={{ color: Colors.primary, fontSize: 26 }}>{club.name.trim().charAt(0).toUpperCase()}</Text>}</View>
-                <View style={styles.clubInfo}>
-                  <View style={styles.clubNameRow}>
-                    <Text style={styles.clubName}>{club.name}</Text>
-                    {(club.role === 'admin' || club.role === 'treasurer') && (
-                      <View style={styles.adminBadge}>
-                        <Ionicons name="shield-checkmark" size={12} color={Colors.white} />
-                        <Text style={styles.adminBadgeText}>{club.role === 'treasurer' ? 'Treasurer' : 'Admin'}</Text>
-                      </View>
-                    )}
-                  </View>
-                  <View style={styles.clubMeta}>
-                    <Ionicons name="people" size={14} color={Colors.textSecondary} />
-                    <Text style={styles.clubMetaText}>{typeof club.member_count === 'number' && Number.isInteger(club.member_count) && club.member_count > 0 ? `${club.member_count} ${club.member_count === 1 ? 'member' : 'members'}` : 'Member count unavailable'}</Text>
-                    <Text style={[styles.clubMetaText, { flexBasis: '100%' }]}>{contributionDescription(club)}</Text>
-                  </View>
-                  <View style={{ alignSelf: 'flex-start', marginTop: 6 }}><StatusPill status={club.status} label={club.status_label === 'No contribution recorded' ? 'No contributions yet' : club.status_label}
-                  subtleAccent={club.status_label === 'Goal based' || club.status_label === 'No contribution recorded' || club.status_label === 'No contributions yet'} /></View>
-                </View>
-                <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
-
-              </View>
+        {clubsExpanded && <ScrollView nestedScrollEnabled style={styles.clubList} accessibilityLabel="Your clubs and stokvels">
+          {dashboardData?.clubs?.length ? dashboardData.clubs.map(club => <View key={club.id} style={styles.clubListItem}>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${club.name}`} style={styles.clubListEntry} onPress={() => { if (latestSession.current !== sessionKey) return; setClubList({ owner: sessionKey, expanded: false }); if (['admin', 'treasurer'].includes(club.role)) openAdministration(club); else openClub(club); }}>
+              <View style={styles.clubListImage}>{club.group_photo ? <Image source={{ uri: club.group_photo }} resizeMode="cover" style={styles.clubListImage} /> : <Text style={{ color: Colors.primary }}>{club.name.trim().charAt(0).toUpperCase()}</Text>}</View>
+              <View style={{ flex: 1, minWidth: 0 }}><Text style={styles.clubListName}>{club.name}</Text><Text style={styles.clubMetaText}>{club.role === 'admin' ? 'Admin' : club.role === 'treasurer' ? 'Treasurer' : 'Member'}</Text><Text style={styles.clubMetaText}>{typeof club.member_count === 'number' && Number.isInteger(club.member_count) && club.member_count > 0 ? `${club.member_count} ${club.member_count === 1 ? 'member' : 'members'}` : 'Member count unavailable'}</Text></View>
+              <Ionicons name="chevron-forward" size={18} color={Colors.primary} />
             </TouchableOpacity>
             {(club.role === 'admin' || club.role === 'treasurer') && <View style={styles.clubActions}>
-              <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${club.name} administration`} style={styles.clubAdministration} onPress={() => openAdministration(club)}><Text style={styles.clubAdministrationText}>Admin dashboard</Text><Ionicons name="chevron-forward" size={18} color={Colors.white} /></TouchableOpacity>
-              <TouchableOpacity accessibilityRole="button" accessibilityLabel={`View ${club.name} as member`} style={styles.clubMemberAction} onPress={() => openClub(club)}><Text style={styles.clubMemberText}>View as member</Text></TouchableOpacity>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${club.name} administration`} style={styles.clubAdministration} onPress={() => { if (latestSession.current !== sessionKey) return; setClubList({ owner: sessionKey, expanded: false }); openAdministration(club); }}><Text style={styles.clubAdministrationText}>Admin dashboard</Text></TouchableOpacity>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel={`View ${club.name} as member`} style={styles.clubMemberAction} onPress={() => { if (latestSession.current !== sessionKey) return; setClubList({ owner: sessionKey, expanded: false }); openClub(club); }}><Text style={styles.clubMemberText}>View as member</Text></TouchableOpacity>
             </View>}
-            </View>
-          ))
-        ) : (
-          <View style={styles.emptyState}>
-            <Ionicons name="people-outline" size={48} color={Colors.textMuted} />
-            <Text style={styles.emptyStateText}>No clubs yet</Text>
-            <Text style={styles.emptyStateSubtext}>Create a Stokvel, Social Club or Society Group, or join one through an invitation.</Text>
-          </View>
-        )}
+          </View>) : <View style={styles.emptyState}><Text style={styles.emptyStateText}>No clubs yet</Text><Text style={styles.emptyStateSubtext}>Create a Stokvel, Social Club or Society Group, or join one through an invitation.</Text></View>}
+        </ScrollView>}
         <View style={styles.primaryActions}>
           <TouchableOpacity accessibilityRole="button" accessibilityLabel="Create a Club" style={styles.createButton} onPress={() => setShowCreateGroup(true)}>
             <Ionicons name="add-circle" size={32} color={Colors.primary} />
@@ -569,7 +525,7 @@ export default function MemberHomeScreen() {
             </TouchableOpacity>}
         </View>
 
-        <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Show My Clubs" activeOpacity={0.75} onPress={() => dashboardScroll.current?.scrollTo({ y: clubsOffset.current, animated: true })}>
+        <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Show My Clubs" activeOpacity={0.75} onPress={showClubList}>
           <Text style={styles.summaryLabel}>Groups &amp; Clubs</Text>
           <View>
             <Text style={styles.summaryValue}>{verifiedCount(dashboardData?.summary.active_clubs)}</Text>
@@ -999,6 +955,12 @@ const styles = StyleSheet.create({
     borderColor: Colors.cardBorder,
     marginBottom: 12,
   },
+  clubListHeader: { backgroundColor: Colors.iceBlue, borderRadius: 14, padding: 16, minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  clubListTitle: { color: Colors.textPrimary, fontSize: 18, fontWeight: '400', flex: 1 },
+  clubList: { maxHeight: 360, marginTop: 8 }, clubListItem: { borderBottomWidth: 1, borderBottomColor: Colors.cardBorder, paddingVertical: 8 },
+  clubListEntry: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 64, paddingVertical: 8 },
+  clubListImage: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.iceBlue, alignItems: 'center', justifyContent: 'center' },
+  clubListName: { color: Colors.textPrimary, fontSize: 16, fontWeight: '400', flexShrink: 1 },
   clubCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',

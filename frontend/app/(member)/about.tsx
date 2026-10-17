@@ -26,7 +26,7 @@ export default function AboutScreen() {
         {/* Logo and App Info */}
         <View style={styles.logoSection}>
           <Image 
-            source={require('../../assets/images/clubvel-launcher-icon.png')}
+            source={require('../../assets/images/clubvel-midnight-icon.png')}
             style={styles.logo}
             resizeMode="contain"
           />

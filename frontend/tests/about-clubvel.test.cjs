@@ -21,7 +21,7 @@ function render(role, height = 84, bottom = 24) {
     '@expo/vector-icons': { Ionicons: 'Ionicons' },
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 30, bottom }) },
     '@react-navigation/bottom-tabs': { useBottomTabBarHeight: () => height },
-    '../../assets/images/clubvel-launcher-icon.png': 'approved-logo',
+    '../../assets/images/clubvel-midnight-icon.png': 'approved-logo',
   }).default;
   return { tree: hooks.render(Screen), routes, links };
 }

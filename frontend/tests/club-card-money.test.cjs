@@ -20,12 +20,12 @@ for (const [collected, expected] of [[200, 0], [0, 100]]) {
     assert.equal(rendered, `R${collected.toFixed(2)} / R${expected.toFixed(2)}`);
   });
 }
-test('Member My Clubs describes its configured contribution model rather than an actual/expected pair', () => {
+test('Member My Clubs keeps compact role navigation without per-club financial clutter', () => {
   const member = fs.readFileSync(path.join(__dirname, '../app/(member)/home.tsx'), 'utf8');
-  assert.ok(member.includes('{contributionDescription(club)}'));
-  assert.ok(member.includes("club.contribution_mode === 'fixed_monthly'"));
-  assert.ok(member.includes('`${paymentMoney(amount)}/month`'));
-  assert.ok(member.includes("club.contribution_mode === 'flexible_goal'"));
-  assert.ok(member.includes('`${paymentMoney(target)} goal per member`'));
+  assert.ok(member.includes('My Clubs &amp; Stokvels'));
+  assert.ok(member.includes('accessibilityState={{ expanded: clubsExpanded }}'));
+  assert.ok(member.includes('club.role'));
+  assert.ok(!member.includes('{contributionDescription(club)}'));
   assert.ok(!member.includes('R{club.monthly_contribution}/month'));
+  for(const label of ['Contributions','Groups &amp; Clubs','Upcoming Payments','Claims','Upcoming Payouts'])assert.ok(member.includes(label),label);
 });
