@@ -491,3 +491,19 @@ test('reference Admin and Treasurer layouts derive tiles from the selected club 
 test('ordinary Member context never receives the Admin or Treasurer layout',async()=>{
  const c=setup('admin',false,{groupId:'group-a'},{id:'brown'},'member');c.requests[0].resolve({data:managedData([{id:'group-a',name:'WeTravel',member_count:2,late_count:0}])});await tick();const t=c.render();assert.equal(nodes(t).some(n=>n.type==='PendingConfirmations'),false);assert.equal(nodes(t).some(n=>n.props?.accessibilityLabel==='Invitations'||n.props?.accessibilityLabel==='Confirm Payments'),false);
 });
+
+
+test('My Clubs header matches selected-club title styling and greets the authenticated first name', async () => {
+ const c=setup();c.auth.user.full_name='Brown Example';await c.respond(0,'WeTravel');
+ const tree=c.render(),style=n=>Object.assign({},...[n.props.style].flat().filter(Boolean));
+ const title=nodes(tree).find(n=>n.props?.accessibilityRole==='header'&&text(n)==='Clubvel');
+ assert.deepEqual([style(title).fontSize,style(title).fontWeight,style(title).textAlign,style(title).color],[26,'400','center','white']);
+ assert.match(text(tree),/Good (morning|afternoon|evening), Brown!/);assert.doesNotMatch(text(tree),/Welcome back|Member!/);
+ c.auth.user.full_name='  ';assert.match(text(c.render()),/Good (morning|afternoon|evening)!/);assert.doesNotMatch(text(c.render()),/Member!/);
+ assert.ok(nodes(tree).some(n=>n.props?.accessibilityLabel==='Open profile menu'));
+});
+for(const count of [undefined,null,0,-1,'2',1.5,1,2])test('My Clubs presents trustworthy active member count '+String(count),async()=>{
+ const c=setup();await c.respond(0,'WeTravel');c.refresh();
+ c.requests[1].resolve({data:{user:c.auth.user,summary:{total_saved:0,confirmed_collected:0,confirmed_collected_availability:'AVAILABLE',active_clubs:1,upcoming_payments:0,claims_count:0},clubs:[{id:'group-a',name:'WeTravel',role:'member',member_count:count,contribution_mode:'flexible_goal'}]}});await tick();
+ const content=text(c.render());if(count===1||count===2)assert.ok(content.includes(count===1?'1 member':'2 members'));else {assert.match(content,/Member count unavailable/);assert.doesNotMatch(content,/0 members|-1 members|1.5 members|2 members/);}
+});

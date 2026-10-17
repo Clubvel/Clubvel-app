@@ -401,7 +401,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 20,
-    fontWeight: 'bold',
+    fontWeight: '400',
     color: Colors.white,
     flex: 1,
     textAlign: 'center',

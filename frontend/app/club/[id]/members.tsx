@@ -70,7 +70,7 @@ export default function ClubMembers() {
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: Colors.background },
   header: { backgroundColor: Colors.primary, paddingHorizontal: 24, paddingBottom: 24 },
-  back: { color: Colors.white, fontSize: 16 }, title: { color: Colors.white, fontSize: 24, fontWeight: '700', marginTop: 12 },
+  back: { color: Colors.white, fontSize: 16 }, title: { color: Colors.white, fontSize: 24, fontWeight: '400', marginTop: 12 },
   content: { padding: 16 }, search: { backgroundColor: Colors.white, borderRadius: 8, padding: 12, color: Colors.textPrimary },
   entry: { backgroundColor: Colors.white, padding: 16, borderRadius: 12, marginBottom: 8 },
 });

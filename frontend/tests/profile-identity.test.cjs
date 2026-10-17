@@ -36,9 +36,11 @@ test('Home fallback matches 112px photo footprint and scales existing person ico
 test('Home header keeps existing menu/profile route and reserves space on a 320px screen',async()=>{
  const c=await setup();let tree=c.render();const avatar=nodes(tree).find(n=>n.props?.accessibilityLabel==='Expand profile photo');
  const header=nodes(tree).find(n=>n.type==='View'&&n.props?.children?.includes(avatar));
- assert.equal(style(header).alignItems,'center');assert.equal(style(header).gap,12);assert.equal(style(avatar).flexShrink,0);
- const logo=nodes(header).find(n=>n.type==='Text');assert.equal(text(logo),'Clubvel');assert.equal(style(logo).flexShrink,1);
- assert.ok(320-2*style(header).paddingHorizontal-112-2*style(avatar).padding-style(header).gap>=100);
+ assert.equal(style(header).alignItems,'center');assert.equal(style(header).gap,16);assert.equal(style(avatar).flexShrink,0);
+ const banner=nodes(tree).find(n=>n.type==='View'&&style(n).backgroundColor==='primary'&&style(n).paddingHorizontal===20);
+ const logo=nodes(banner).find(n=>n.props?.accessibilityRole==='header');assert.equal(text(logo),'Clubvel');assert.equal(style(logo).flex,1);assert.equal(style(logo).textAlign,'center');assert.equal(style(logo).fontWeight,'400');
+ assert.ok(320-2*style(banner).paddingHorizontal-116-style(header).gap>=100);
+ assert.match(text(header),/Good (morning|afternoon|evening), Alexandra!/);
  nodes(tree).find(n=>n.props?.accessibilityLabel==='Open profile menu').props.onPress();tree=c.render();assert.match(text(tree),/Alexandra Very Long Member Name/);
  nodes(tree).find(n=>n.type==='TouchableOpacity' && n.props.accessibilityLabel==='My Profile').props.onPress();
  assert.deepEqual(c.routes,['/(member)/profile']);

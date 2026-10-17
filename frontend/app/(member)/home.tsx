@@ -6,6 +6,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
+import { clubGreeting } from '../../services/clubGreeting';
 import { StatusPill } from '../../components/StatusPill';
 import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
@@ -17,7 +18,7 @@ interface Club {
   id: string;
   name: string;
   group_photo?: string | null;
-  member_count: number;
+  member_count?: number | null;
   monthly_contribution: number;
   group_type?: string;
   contribution_mode?: string;
@@ -423,7 +424,15 @@ export default function MemberHomeScreen() {
         }
       >
         {/* Header */}
-        <View style={[styles.header, { paddingTop: Math.max(accountInsets.top, 16) + 12 }]}>
+        <View style={[styles.header, { paddingTop: Math.max(accountInsets.top, 16) }]}>
+          <View style={styles.headerTitleRow}>
+            <View style={styles.headerSide} />
+            <Text accessibilityRole="header" style={styles.brandName}>Clubvel</Text>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open profile menu" onPress={() => setShowProfileMenu(true)} style={styles.headerSide}>
+              <Ionicons name="menu" size={22} color={Colors.white} />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.welcomeRow}>
           <TouchableOpacity 
             style={styles.avatarButton}
             accessibilityRole="button"
@@ -438,10 +447,8 @@ export default function MemberHomeScreen() {
               </View>
             )}</ProfilePhotoFrame>
           </TouchableOpacity>
-          <View style={{ flex: 1, minWidth: 0 }}><Text style={[styles.brandName, { fontSize: 13 }]}>Clubvel</Text><Text style={styles.greeting}>Welcome back,{'\n'}{user?.full_name?.trim().split(/\s+/)[0] || 'Member'}!</Text><Text style={{ color: '#D5E1F2', fontSize: 12, marginTop: 6 }}>Save, plan, grow together</Text></View>
-          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open profile menu" onPress={() => setShowProfileMenu(true)} style={{ padding: 8, minWidth: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center', flexShrink: 0 }}>
-            <Ionicons name="menu" size={24} color={Colors.white} />
-          </TouchableOpacity>
+            <Text style={styles.greeting}>{clubGreeting(user?.full_name)}</Text>
+          </View>
         </View>
 
         {!!dashboardError && !!dashboardData && <Text accessibilityRole="alert">{dashboardError} Pull down to refresh.</Text>}
@@ -512,7 +519,7 @@ export default function MemberHomeScreen() {
                   </View>
                   <View style={styles.clubMeta}>
                     <Ionicons name="people" size={14} color={Colors.textSecondary} />
-                    <Text style={styles.clubMetaText}>{club.member_count} members</Text>
+                    <Text style={styles.clubMetaText}>{typeof club.member_count === 'number' && Number.isInteger(club.member_count) && club.member_count > 0 ? `${club.member_count} ${club.member_count === 1 ? 'member' : 'members'}` : 'Member count unavailable'}</Text>
                     <Text style={[styles.clubMetaText, { flexBasis: '100%' }]}>{contributionDescription(club)}</Text>
                   </View>
                   <View style={{ alignSelf: 'flex-start', marginTop: 6 }}><StatusPill status={club.status} label={club.status_label === 'No contribution recorded' ? 'No contributions yet' : club.status_label}
@@ -922,26 +929,16 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: Colors.primary,
-    paddingTop: 52,
-    paddingBottom: 16,
-    paddingHorizontal: 24,
-    flexDirection: 'row',
-    justifyContent: 'flex-start',
-    alignItems: 'center',
-    gap: 12,
+    paddingBottom: 22,
+    paddingHorizontal: 20,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
   },
-  brandName: {
-    flexShrink: 1,
-    fontSize: 24,
-    fontWeight: '400',
-    color: Colors.white,
-    letterSpacing: 0.2,
-  },
-  greeting: {
-    fontSize: 23,
-    fontWeight: '400',
-    color: Colors.white,
-  },
+  headerTitleRow: { flexDirection: 'row', alignItems: 'center', minHeight: 44 },
+  headerSide: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  welcomeRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 16 },
+  brandName: { flex: 1, minWidth: 0, fontSize: 26, fontWeight: '400', color: Colors.white, textAlign: 'center' },
+  greeting: { flex: 1, minWidth: 0, flexShrink: 1, fontSize: 21, lineHeight: 29, fontWeight: '400', color: Colors.white },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',

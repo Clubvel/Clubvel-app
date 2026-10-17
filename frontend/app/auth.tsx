@@ -479,7 +479,7 @@ export default function AuthScreen() {
 
           {isLogin && (
             <>
-              <Text style={[styles.sectionTitle, styles.authTitle]}>Welcome back</Text>
+              <Text style={[styles.sectionTitle, styles.authTitle]}>Save, Plan, Grow Together</Text>
               <Text style={styles.authSubtitle}>Sign in to continue</Text>
               
               <TextInput

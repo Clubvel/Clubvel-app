@@ -2,7 +2,7 @@ export const Colors = {
   // Interface surfaces are independent of the approved icon/splash artwork.
   midnightNavy: '#06285B',
   headerBackground: '#06285B',
-  avatarRing: '#FFD600',
+  avatarRing: '#FFD700',
   secondaryHighlight: '#397F78',
   corporateBlue: '#0756C9',
   royalBlue: '#2677E8',

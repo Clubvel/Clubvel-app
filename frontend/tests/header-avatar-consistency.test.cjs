@@ -21,7 +21,7 @@ function header(screen,photo,name="Alexandra Very Long Name"){
  const ProfilePhotoFrame=load('components/ProfilePhotoFrame.tsx',{react:ui.react,'react-native':native,'../constants/Colors':{Colors:colors}}).default;
  const user={profile_photo:photo,full_name:name},router={push:r=>routes.push(r)};
  const code=ts.transpileModule(`const styles=${styles}; return (${jsx});`,{compilerOptions:{jsx:ts.JsxEmit.React}}).outputText;
- const tree=new Function('React','View','Text','Image','TouchableOpacity','Ionicons','StyleSheet','Colors','user','router','setShowProfileMenu','selectedClub','setPhotoExpanded','ProfilePhotoFrame','accountInsets',code)(ui.react,'View','Text','Image','TouchableOpacity','Ionicons',native.StyleSheet,colors,user,router,v=>menus.push(v),{name:'Test club'},v=>expanded.push(v),ProfilePhotoFrame,{top:24,bottom:24});
+ const tree=new Function('React','View','Text','Image','TouchableOpacity','Ionicons','StyleSheet','Colors','user','router','setShowProfileMenu','selectedClub','setPhotoExpanded','ProfilePhotoFrame','accountInsets','clubGreeting',code)(ui.react,'View','Text','Image','TouchableOpacity','Ionicons',native.StyleSheet,colors,user,router,v=>menus.push(v),{name:'Test club'},v=>expanded.push(v),ProfilePhotoFrame,{top:24,bottom:24},load('services/clubGreeting.ts').clubGreeting);
  return {tree,routes,menus,expanded};
 }
 for(const screen of screens){
@@ -41,13 +41,14 @@ for(const screen of screens){
    if(photo)assert.deepEqual(c.expanded,[true]);
    else if(screen.endsWith('/home')||screen.endsWith('/dashboard'))assert.deepEqual(c.menus,[true]);
    else assert.deepEqual(c.routes,[screen.startsWith('(member)')?'/(member)/profile':'/(treasurer)/profile']);
-   assert.equal(style(c.tree).gap,screen.endsWith('/home')||screen.endsWith('/dashboard')?12:16);assert.equal(style(c.tree).alignItems,'center');
+   const row=screen.endsWith('/home')?nodes(c.tree).find(n=>style(n).gap===16&&nodes(n).includes(avatar)):c.tree;
+   assert.equal(style(row).gap,screen.endsWith('/dashboard')?12:16);assert.equal(style(row).alignItems,'center');
    const title=nodes(c.tree).find(n=>n.type==='Text');
    assert.equal(title.props.numberOfLines,undefined);assert.notEqual(title.props.allowFontScaling,false);
    const titleColumn=nodes(c.tree).find(n=>n.type==='View'&&n!==c.tree&&style(n).flex===1);
    assert.ok(style(title).flex===1||style(title).flexShrink===1||titleColumn);
    // 320px screen retains a title column, with no fixed header height to clip enlarged fonts.
-   assert.ok(320-2*style(c.tree).paddingHorizontal-(size+8)-style(c.tree).gap>=100);
+   assert.ok(320-2*style(c.tree).paddingHorizontal-(size+8)-style(row).gap>=100);
    assert.equal(style(c.tree).height,undefined);
   }
  });

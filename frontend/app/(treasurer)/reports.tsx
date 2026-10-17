@@ -468,7 +468,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 24,
-    fontWeight: 'bold',
+    fontWeight: '400',
     color: Colors.white,
   },
   headerSubtitle: {

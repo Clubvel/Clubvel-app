@@ -77,6 +77,7 @@ test('account tabs and existing financial screens are unchanged from Phase 3C', 
       .replace('name="notifications" size={18} color={Colors.gold}', 'name="notifications" size={18} color={Colors.corporateBlue}')
       .replace(/(remindButton: \{[^{}]*?backgroundColor: )Colors.lightGold/, '$1Colors.iceBlue')
       .replace(/(remindButtonText: \{[^{}]*?color: )Colors.gold/, '$1Colors.corporateBlue');
+    if (file.endsWith('club-detail.tsx')) expected = expected.replace(/headerTitle:\s*\{[^}]*\}/,m=>m.replace("fontWeight: 'bold'","fontWeight: '400'"));
     assert.equal(fs.readFileSync(path.join(root,file), 'utf8').replace(/\r\n/g, '\n'),expected);
   }
   // claims.tsx has intentional status color and rejection panel changes
@@ -84,6 +85,7 @@ test('account tabs and existing financial screens are unchanged from Phase 3C', 
   let claimsExpected = cp.execFileSync('git', ['show', '077f3ad379b33d92eb86f01ac80e2000c0b4472c:' + claimsFile], { cwd: root, encoding: 'utf8' });
   claimsExpected = claimsExpected.replace(/(profilePlaceholder: \{[^{}]*)(\})/, '$1 borderWidth: 2, borderColor: Colors.accent, $2');
   claimsExpected = claimsExpected.replace(/(confirmButton: \{[^{}]*?backgroundColor: )Colors.accent/, '$1Colors.primary');
+  claimsExpected = claimsExpected.replace(/headerTitle:\s*\{[^}]*\}/,m=>m.replace("fontWeight: 'bold'","fontWeight: '400'"));
   const claimsActual = fs.readFileSync(path.join(root, claimsFile), 'utf8').replace(/\r\n/g, '\n');
   // Permit only the explicitly reviewed status-colour and rejection-panel edits.
   const presentationOnly = claimsActual

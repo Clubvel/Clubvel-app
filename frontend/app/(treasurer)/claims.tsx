@@ -542,7 +542,7 @@ const styles = StyleSheet.create({
   headerTitle: {
     flex: 1,
     fontSize: 24,
-    fontWeight: 'bold',
+    fontWeight: '400',
     color: Colors.white,
   },
   profileButton: {
