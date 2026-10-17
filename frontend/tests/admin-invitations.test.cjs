@@ -86,8 +86,11 @@ test('Member Home clearly identifies Admin privilege, retains Member wording and
     'react-native': { ...native, RefreshControl: 'RefreshControl', TextInput: 'TextInput', KeyboardAvoidingView: 'KeyboardAvoidingView',
       Platform: { OS: 'android' }, Alert: { alert() {} }, TouchableWithoutFeedback: 'TouchableWithoutFeedback', Keyboard: { dismiss() {} } },
     'expo-router': { useRouter: () => ({ push() {}, replace() {} }), useFocusEffect: fn => ui.useFocusEffect(fn) },
+    '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': { useAuth: () => ({ user: { id: 'recipient' }, token: 'session', logout() {} }) },
     '../../components/AdBanner': { AdBanner: 'AdBanner' }, '../../components/StatusPill': { StatusPill: 'StatusPill' },
+    '../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
+    '../../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     axios: { get: async url => ({ data: url.includes('/invitations/') ? {
       invitations: [{ id: 'admin-invite', group_name: 'WeTraveling', intended_role: 'admin', invited_by_name: 'Kenneth' },
@@ -104,6 +107,7 @@ test('Member Home clearly identifies Admin privilege, retains Member wording and
 test('Home Accept/Decline post selected invitation with bearer token; Admin acceptance success is explicit', async () => {
   const calls = [], alerts = [];
   const bindings = { API_URL: 'https://staging.invalid', token: 'session', user: { id: 'recipient' },
+    sessionKey: 'current-session', latestSession: { current: 'current-session' },
     dashboardRequest: { current: 0 }, dashboardInFlight: { current: null },
     setAcceptingInvitation() {}, fetchDashboard: async () => {},
     axios: { post: async (...args) => { calls.push(args); return { data: { admin_access: true } }; } }, Alert: { alert: (...args) => alerts.push(args) } };

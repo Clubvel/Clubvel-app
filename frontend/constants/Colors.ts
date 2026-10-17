@@ -1,26 +1,37 @@
 export const Colors = {
-  // Approved Clubvel charcoal and clementine identity
-  primary: '#3F4145',
-  primaryDark: '#292B2E',
-  primaryLight: '#F3F4F6',
+  // Interface surfaces are independent of the approved icon/splash artwork.
+  midnightNavy: '#06285B',
+  headerBackground: '#06285B',
+  avatarRing: '#E5B83F',
+  secondaryHighlight: '#397F78',
+  corporateBlue: '#0756C9',
+  royalBlue: '#2677E8',
+  iceBlue: '#DCEEFF',
+  lightGrey: '#F7F8F4',
+  primary: '#06285B',
+  primaryDark: '#06285B',
+  primaryLight: '#E8F2FF',
   
   // Alert/Accent Colors
-  accent: '#F97316',
-  accentLight: '#FFF1E8',
+  accent: '#2677E8',
+  accentLight: '#E8F2FF',
+  sage: '#527866',
+  softSage: '#E5EFE9',
   
   // Background Colors
-  background: '#FFFFFF',       // Crisp white canvas
-  lightBackground: '#F4F7F9',  // Soft neutral gray background
+  background: '#FFFFFF',
+  lightBackground: '#FFFFFF',
   cardBackground: '#FFFFFF',   // White card backgrounds
   cardBorder: '#E5E7EB',       // Light gray borders
   
   // Typography Colors
-  textPrimary: '#333333',      // Dark graphite gray - high contrast readability
+  textPrimary: '#12234A',
   textSecondary: '#6B7280',    // Medium gray for secondary text
-  textMuted: '#9CA3AF',        // Light gray for muted text
+  textMuted: '#6B7280',        // Light gray for muted text
   
   // Status Colors (Corporate Financial Interface)
   statusPaid: '#16A34A',       // Green for success/paid
+  errorSurface: '#FEE2E2',
   statusLate: '#E31B23',       // Red for late/urgent
   statusDue: '#F59E0B',        // Amber for due soon
   statusUpcoming: '#9CA3AF',   // Gray for upcoming
@@ -30,10 +41,10 @@ export const Colors = {
   black: '#000000',
   
   // Legacy color mappings (for backward compatibility)
-  darkGreen: '#3F4145',
-  mediumGreen: '#3F4145',
-  primaryGreen: '#3F4145',
-  lightGreen: '#F3F4F6',
-  gold: '#F97316',
-  lightGold: '#FFF1E8',
+  darkGreen: '#06285B',
+  mediumGreen: '#06285B',
+  primaryGreen: '#06285B',
+  lightGreen: '#E8F2FF',
+  gold: '#F59E0B',
+  lightGold: '#FFF4DB',
 };

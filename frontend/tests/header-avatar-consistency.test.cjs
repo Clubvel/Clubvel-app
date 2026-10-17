@@ -12,46 +12,55 @@ function header(screen,photo,name="Alexandra Very Long Name"){
  const ast=ts.createSourceFile('screen.tsx',source,ts.ScriptTarget.Latest,true,ts.ScriptKind.TSX);
  let jsx,styles;
  function walk(n){
-  if(ts.isJsxElement(n)&&n.openingElement.attributes.properties.some(a=>a.getText(ast)==='style={styles.header}')&&n.getText(ast).includes('user?.profile_photo'))jsx=n.getText(ast);
+  if(ts.isJsxElement(n)&&n.openingElement.attributes.properties.some(a=>ts.isJsxAttribute(a)&&a.name.getText(ast)==='style'&&/\bstyles\.header\b/.test(a.initializer?.getText(ast)||''))&&n.getText(ast).includes('user?.profile_photo'))jsx=n.getText(ast);
   if(ts.isVariableDeclaration(n)&&n.name.getText(ast)==='styles')styles=n.initializer.getText(ast);
   ts.forEachChild(n,walk);
  }
  walk(ast);assert.ok(jsx,screen+' current-user header');
- const ui=engine(),routes=[],menus=[];
+ const ui=engine(),routes=[],menus=[],expanded=[];
+ const ProfilePhotoFrame=load('components/ProfilePhotoFrame.tsx',{react:ui.react,'react-native':native,'../constants/Colors':{Colors:colors}}).default;
  const user={profile_photo:photo,full_name:name},router={push:r=>routes.push(r)};
  const code=ts.transpileModule(`const styles=${styles}; return (${jsx});`,{compilerOptions:{jsx:ts.JsxEmit.React}}).outputText;
- const tree=new Function('React','View','Text','Image','TouchableOpacity','Ionicons','StyleSheet','Colors','user','router','setShowProfileMenu','selectedClub',code)(ui.react,'View','Text','Image','TouchableOpacity','Ionicons',native.StyleSheet,colors,user,router,v=>menus.push(v),{name:'Test club'});
- return {tree,routes,menus};
+ const tree=new Function('React','View','Text','Image','TouchableOpacity','Ionicons','StyleSheet','Colors','user','router','setShowProfileMenu','selectedClub','setPhotoExpanded','ProfilePhotoFrame','accountInsets','clubGreeting',code)(ui.react,'View','Text','Image','TouchableOpacity','Ionicons',native.StyleSheet,colors,user,router,v=>menus.push(v),{name:'Test club'},v=>expanded.push(v),ProfilePhotoFrame,{top:24,bottom:24},load('services/clubGreeting.ts').clubGreeting);
+ return {tree,routes,menus,expanded};
 }
 for(const screen of screens){
- test(screen+': 76px current-user photo/fallback, wrapping header and unchanged profile action',()=>{
+ test(screen+': enlarged current-user photo/fallback, wrapping header and unchanged profile action',()=>{
   for(const photo of ['data:image/jpeg;base64,current',null]){
-   const c=header(screen,photo),avatar=nodes(c.tree).find(n=>n.type===(photo?'Image':'View')&&style(n).width===76);
-   assert.ok(avatar);assert.deepEqual([style(avatar).width,style(avatar).height,style(avatar).borderRadius],[76,76,38]);
-   if(photo){assert.equal(avatar.props.source.uri,photo);assert.equal(avatar.props.resizeMode,'cover');assert.equal(style(avatar).borderWidth,2);assert.ok(['gold','accent'].includes(style(avatar).borderColor));}
-   else {assert.ok(['gold','accent'].includes(style(avatar).backgroundColor));if(screen.endsWith('/reports'))assert.equal(text(avatar),'A');
+   const size=112;
+   const c=header(screen,photo),avatar=nodes(c.tree).find(n=>n.type===(photo?'Image':'View')&&style(n).width===size);
+   assert.ok(avatar);assert.deepEqual([style(avatar).width,style(avatar).height,style(avatar).borderRadius],[size,size,size/2]);
+   assert.equal(style(avatar).borderWidth,1);assert.equal(style(avatar).borderColor,'white');
+   const frame=nodes(c.tree).find(n=>style(n).width===116);assert.ok(frame);assert.equal(style(frame).borderWidth,2);assert.equal(style(frame).borderColor,'avatarRing');assert.equal(style(frame).backgroundColor,'primary');
+   if(photo){assert.equal(avatar.props.source.uri,photo);assert.equal(avatar.props.resizeMode,'cover');assert.equal(style(avatar).borderWidth,1);assert.equal(style(avatar).borderColor,'white');
+   const frame=nodes(c.tree).find(n=>style(n).width===116);assert.ok(frame);assert.equal(style(frame).borderWidth,2);assert.equal(style(frame).borderColor,'avatarRing');assert.equal(style(frame).backgroundColor,'primary');}
+   else {assert.ok(['primary','accent'].includes(style(avatar).backgroundColor));if(screen.endsWith('/reports'))assert.equal(text(avatar),'A');
     else assert.equal(nodes(avatar).find(n=>n.type==='Ionicons').props.size,32);}
    const button=nodes(c.tree).find(n=>n.type==='TouchableOpacity'&&nodes(n).includes(avatar));
    assert.equal(style(button).flexShrink,0);button.props.onPress();
-   if(screen.endsWith('/home')||screen.endsWith('/dashboard'))assert.deepEqual(c.menus,[true]);
+   if(photo)assert.deepEqual(c.expanded,[true]);
+   else if(screen.endsWith('/home')||screen.endsWith('/dashboard'))assert.deepEqual(c.menus,[true]);
    else assert.deepEqual(c.routes,[screen.startsWith('(member)')?'/(member)/profile':'/(treasurer)/profile']);
-   assert.equal(style(c.tree).gap,16);assert.equal(style(c.tree).alignItems,'center');
+   const row=screen.endsWith('/home')?nodes(c.tree).find(n=>style(n).gap===16&&nodes(n).includes(avatar)):c.tree;
+   assert.equal(style(row).gap,screen.endsWith('/dashboard')?12:16);assert.equal(style(row).alignItems,'center');
    const title=nodes(c.tree).find(n=>n.type==='Text');
    assert.equal(title.props.numberOfLines,undefined);assert.notEqual(title.props.allowFontScaling,false);
    const titleColumn=nodes(c.tree).find(n=>n.type==='View'&&n!==c.tree&&style(n).flex===1);
    assert.ok(style(title).flex===1||style(title).flexShrink===1||titleColumn);
    // 320px screen retains a title column, with no fixed header height to clip enlarged fonts.
-   assert.ok(320-2*style(c.tree).paddingHorizontal-84-style(c.tree).gap>=140);
+   assert.ok(320-2*style(c.tree).paddingHorizontal-(size+8)-style(row).gap>=100);
    assert.equal(style(c.tree).height,undefined);
   }
  });
 }
 test('shared AppHeader retains callbacks, back routing and optional profile visibility',()=>{
- const ui=engine(),routes=[];let presses=0;
- const Header=load('components/AppHeader.tsx',{react:ui.react,'react-native':native,'@expo/vector-icons':{Ionicons:'Ionicons'},'../constants/Colors':{Colors:colors},'expo-router':{useRouter:()=>({push:r=>routes.push(r)})},'../contexts/AuthContext':{useAuth:()=>({user:{profile_photo:'current'}})}}).AppHeader;
+ const ui=engine(),routes=[];let presses=0;const auth={user:{profile_photo:"current"}};
+ const Header=load('components/AppHeader.tsx',{react:ui.react,'./ProfilePhotoViewer':{default:'ProfilePhotoViewer'},'react-native':native,'@expo/vector-icons':{Ionicons:'Ionicons'},'../constants/Colors':{Colors:colors},'expo-router':{useRouter:()=>({push:r=>routes.push(r)})},'../contexts/AuthContext':{useAuth:()=>auth}}).AppHeader;
  const tree=Header({title:'Long title that can wrap',subtitle:'Subtitle',showBackButton:true,backRoute:'/previous',onProfilePress:()=>presses++});
- const image=nodes(tree).find(n=>n.type==='Image');assert.deepEqual([style(image).width,style(image).height],[76,76]);assert.equal(image.props.resizeMode,'cover');
- const actions=nodes(tree).filter(n=>n.type==='TouchableOpacity');actions[0].props.onPress();actions[1].props.onPress();assert.deepEqual(routes,['/previous']);assert.equal(presses,1);
+ const image=nodes(tree).find(n=>n.type==='Image');assert.deepEqual([style(image).width,style(image).height],[112,112]);assert.equal(image.props.resizeMode,'cover');
+ const actions=nodes(tree).filter(n=>n.type==='TouchableOpacity');actions[0].props.onPress();actions[1].props.onPress();assert.deepEqual(routes,['/previous']);assert.equal(presses,0);
+ auth.user.profile_photo=null;const fallback=Header({title:'Fallback',onProfilePress:()=>presses++});
+ nodes(fallback).find(n=>n.type==='TouchableOpacity').props.onPress();assert.equal(presses,1);
  assert.equal(nodes(Header({title:'No photo',showProfile:false})).some(n=>n.type==='Image'),false);
 });
 test('club details contain no current-user header avatar; contextual member sizes remain unchanged',()=>{
@@ -72,20 +81,20 @@ test('Reports retains Back and title beside the new identity on a narrow screen'
  assert.equal(style(c.tree).paddingTop,60);assert.equal(style(c.tree).paddingBottom,20);
  const titleColumn=nodes(c.tree).find(n=>n.type==='View'&&style(n).flex===1);
  assert.equal(style(titleColumn).minWidth,0);
- const titleWidth=320-2*style(c.tree).paddingHorizontal-(24+2*style(back).padding)-84-2*style(c.tree).gap;
- assert.ok(titleWidth>=100);
+ const titleWidth=320-2*style(c.tree).paddingHorizontal-(24+2*style(back).padding)-112-2*style(c.tree).gap;
+ assert.ok(titleWidth>=70);
 });
-test('dedicated Member and Treasurer Profile identity stays 80px',()=>{
+test('dedicated Member and Treasurer Profile identity uses 112px',()=>{
  for(const role of ['member','treasurer']){
   const source=fs.readFileSync(path.join(__dirname,`../app/(${role})/profile.tsx`),'utf8');
-  for(const name of ['avatar','avatarImage'])assert.match(source,new RegExp(`${name}: \\{\\s*width: 80,\\s*height: 80,\\s*borderRadius: 40,`));
+  for(const name of ['avatar','avatarImage'])assert.match(source,new RegExp(`${name}: \\{\\s*width: 112,\\s*height: 112,\\s*borderRadius: 56,`));
  }
 });
 
 test('Reports initials use the authenticated full name and remain safe without a name',()=>{
  for(const [name,initial] of [[' Barbara Member','B'],['','?'],['  ','?'],[null,'?']]){
   const c=header('(treasurer)/reports',null,name);
-  const circle=nodes(c.tree).find(n=>n.type==='View'&&style(n).width===76);
-  assert.equal(text(circle),initial);assert.equal(style(circle).borderColor,'gold');
+  const circle=nodes(c.tree).find(n=>n.type==='View'&&style(n).width===112);
+  assert.equal(text(circle),initial);assert.equal(style(circle).borderColor,'white');
  }
 });

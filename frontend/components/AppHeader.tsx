@@ -1,4 +1,6 @@
-import React from 'react';
+import React, { useState } from 'react';
+import ProfilePhotoFrame from './ProfilePhotoFrame';
+import ProfilePhotoViewer from './ProfilePhotoViewer';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/Colors';
@@ -28,6 +30,7 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
 }) => {
   const router = useRouter();
   const { user } = useAuth();
+  const [photoExpanded, setPhotoExpanded] = useState(false);
 
   const handleBackPress = () => {
     if (backRoute) {
@@ -51,6 +54,17 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
             <Ionicons name="arrow-back" size={24} color={titleColor} />
           </TouchableOpacity>
         )}
+      {showProfile && (
+        <TouchableOpacity onPress={() => user?.profile_photo ? setPhotoExpanded(true) : handleProfilePress()} style={styles.profileButton} accessibilityLabel="Expand profile photo">
+          <ProfilePhotoFrame tone={[Colors.white, Colors.background, Colors.lightBackground, Colors.iceBlue, Colors.softSage].includes(backgroundColor) ? "light" : "dark"}>{user?.profile_photo ? (
+            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
+          ) : (
+            <View style={styles.profilePlaceholder}>
+              <Ionicons name="person" size={32} color={Colors.white} />
+            </View>
+          )}</ProfilePhotoFrame>
+        </TouchableOpacity>
+      )}
         <View style={styles.titleContainer}>
           <Text style={[styles.title, { color: titleColor }]}>{title}</Text>
           {subtitle && (
@@ -61,17 +75,8 @@ export const AppHeader: React.FC<AppHeaderProps> = ({
         </View>
       </View>
 
-      {showProfile && (
-        <TouchableOpacity onPress={handleProfilePress} style={styles.profileButton}>
-          {user?.profile_photo ? (
-            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
-          ) : (
-            <View style={styles.profilePlaceholder}>
-              <Ionicons name="person" size={32} color={Colors.white} />
-            </View>
-          )}
-        </TouchableOpacity>
-      )}
+
+      <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
     </View>
   );
 };
@@ -102,7 +107,7 @@ const styles = StyleSheet.create({
   },
   title: {
     fontSize: 24,
-    fontWeight: 'bold',
+    fontWeight: '400',
   },
   subtitle: {
     fontSize: 14,
@@ -113,17 +118,19 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   profileImage: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    borderWidth: 2,
-    borderColor: Colors.gold,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    borderWidth: 1,
+    borderColor: Colors.white,
   },
   profilePlaceholder: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    backgroundColor: Colors.gold,
+    borderWidth: 1,
+    borderColor: Colors.white,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },

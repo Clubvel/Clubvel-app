@@ -6,6 +6,10 @@ import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
+import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
+import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
+import EditProfile from '../../components/EditProfile';
+import ContactVisibilityPreference from '../../components/ContactVisibilityPreference';
 
 interface AdminStats {
   clubs_managed: number;
@@ -31,6 +35,7 @@ export default function ProfileScreen() {
   const { user, token, logout, updateProfilePhoto } = useAuth();
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
+  const [photoExpanded, setPhotoExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<AdminStats>({ clubs_managed: 0, total_members: 0, total_collected: 0 });
   const [clubs, setClubs] = useState<Club[]>([]);
@@ -46,23 +51,17 @@ export default function ProfileScreen() {
 
   const fetchProfileData = async () => {
     try {
-      // Fetch admin stats
-      const statsResponse = await axios.get(`${API_URL}/api/admin/stats/${user?.id}`, { headers: { Authorization: `Bearer ${token}` } });
-      setStats(statsResponse.data);
-
-      // Fetch managed clubs
-      const clubsResponse = await axios.get(`${API_URL}/api/admin/clubs/${user?.id}`, { headers: { Authorization: `Bearer ${token}` } });
-      setClubs(clubsResponse.data.clubs || []);
-
-      // Fetch payout schedules for managed clubs
-      const payoutResponse = await axios.get(`${API_URL}/api/admin/payout-schedules/${user?.id}`, { headers: { Authorization: `Bearer ${token}` } });
-      setPayoutSchedules(payoutResponse.data.schedules || []);
-    } catch (error) {
-      console.error('Error fetching profile data:', error);
-      // Set defaults if API fails
-      setStats({ clubs_managed: 0, total_members: 0, total_collected: 0 });
-      setClubs([]);
-      setPayoutSchedules([]);
+      if (!user?.id || !token) return;
+      const headers = { Authorization: `Bearer ${token}` };
+      const results = await Promise.allSettled([
+        axios.get(`${API_URL}/api/admin/stats/${user.id}`, { headers, timeout: 15000 }),
+        axios.get(`${API_URL}/api/admin/clubs/${user.id}`, { headers, timeout: 15000 }),
+        axios.get(`${API_URL}/api/admin/payout-schedules/${user.id}`, { headers, timeout: 15000 }),
+      ]);
+      if (results[0].status === 'fulfilled') setStats(results[0].value.data);
+      if (results[1].status === 'fulfilled') setClubs(results[1].value.data.clubs || []);
+      if (results[2].status === 'fulfilled') setPayoutSchedules(results[2].value.data.schedules || []);
+      if (results.some(result => result.status === 'rejected')) Alert.alert('Profile information', 'Some profile information could not be loaded. Please reopen this page to retry.');
     } finally {
       setLoading(false);
     }
@@ -131,16 +130,17 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.container}>
+      <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.avatarContainer} onPress={handleChangePhoto} disabled={uploading}>
-          {user?.profile_photo ? (
-            <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} />
+        <TouchableOpacity style={styles.avatarContainer} onPress={() => user?.profile_photo ? setPhotoExpanded(true) : handleChangePhoto()} disabled={uploading}>
+          <ProfilePhotoFrame>{user?.profile_photo ? (
+            <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
           ) : (
             <View style={styles.avatar}>
               <Ionicons name="person" size={32} color={Colors.white} />
             </View>
-          )}
+          )}</ProfilePhotoFrame>
           <View style={styles.editBadge}>
             {uploading ? (
               <ActivityIndicator size="small" color={Colors.white} />
@@ -149,13 +149,18 @@ export default function ProfileScreen() {
             )}
           </View>
         </TouchableOpacity>
+        <TouchableOpacity onPress={handleChangePhoto} disabled={uploading} accessibilityRole="button">
+          <Text style={styles.photoActionText}>{uploading ? "Updating photo…" : "Change photo"}</Text>
+        </TouchableOpacity>
         <Text style={styles.name}>{user?.full_name}</Text>
+        <EditProfile />
         <View style={styles.roleBadge}>
           <Text style={styles.roleBadgeText}>ADMIN</Text>
         </View>
       </View>
 
       <ScrollView style={styles.content}>
+        <ContactVisibilityPreference />
         {/* Stats - Dynamically loaded */}
         {loading ? (
           <View style={styles.statsLoading}>
@@ -323,7 +328,7 @@ export default function ProfileScreen() {
                 payoutSchedules.map((schedule, index) => (
                   <View key={index} style={styles.scheduleItem}>
                     <View style={styles.scheduleIcon}>
-                      <Ionicons name="calendar" size={24} color={Colors.gold} />
+                      <Ionicons name="calendar" size={24} color={Colors.corporateBlue} />
                     </View>
                     <View style={styles.scheduleInfo}>
                       <Text style={styles.scheduleName}>{schedule.club_name}</Text>
@@ -353,29 +358,30 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.darkGreen,
+    backgroundColor: Colors.primary,
     paddingTop: 50,
     paddingBottom: 20,
     alignItems: 'center',
   },
+  photoActionText: { color: Colors.white, fontSize: 14, marginTop: 8, marginBottom: 8 },
   avatarContainer: {
     position: 'relative',
     marginBottom: 12,
   },
   avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: Colors.gold,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-  },
+   borderWidth: 1, borderColor: Colors.white, },
   avatarImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 3,
-    borderColor: Colors.gold,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    borderWidth: 1,
+    borderColor: Colors.white,
   },
   editBadge: {
     position: 'absolute',
@@ -397,7 +403,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
   },
   roleBadge: {
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.corporateBlue,
     paddingHorizontal: 12,
     paddingVertical: 4,
     borderRadius: 12,
@@ -575,7 +581,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: Colors.lightGold,
+    backgroundColor: Colors.iceBlue,
     justifyContent: 'center',
     alignItems: 'center',
   },

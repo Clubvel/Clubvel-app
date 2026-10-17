@@ -3,11 +3,31 @@ const path = require('node:path');
 const ts = require('typescript');
 
 function load(file, dependencies = {}) {
+  dependencies = { "react-native-safe-area-context": { useSafeAreaInsets: () => ({ top: 24, bottom: 24, left: 0, right: 0 }) }, ...dependencies };
+  if (dependencies['expo-router']) dependencies['expo-router'] = { useLocalSearchParams: () => ({}), ...dependencies['expo-router'] };
+  if (['app/(member)/profile.tsx','app/(treasurer)/profile.tsx'].includes(file) && !dependencies['../../components/ContactVisibilityPreference']) dependencies['../../components/ContactVisibilityPreference'] = { default: 'ContactVisibilityPreference' };
+  if (file === 'components/ClubMemberDirectory.tsx' && !dependencies['../services/directoryContact']) dependencies['../services/directoryContact'] = load('services/directoryContact.ts');
+  if (file === 'app/(member)/home.tsx' && !dependencies['../../services/clubGreeting']) dependencies['../../services/clubGreeting'] = load('services/clubGreeting.ts');
+  if (file === 'app/(treasurer)/dashboard.tsx' && !dependencies['../../services/monthlyReport']) dependencies['../../services/monthlyReport'] = load('services/monthlyReport.ts');
+  if (file !== 'components/ProfilePhotoFrame.tsx' && dependencies.react && dependencies['react-native']) {
+    const frame = load('components/ProfilePhotoFrame.tsx', { react: dependencies.react, 'react-native': dependencies['react-native'], '../constants/Colors': dependencies['../../constants/Colors'] || dependencies['../../../constants/Colors'] || dependencies['../constants/Colors'] });
+    for (const name of ['./ProfilePhotoFrame', '../../components/ProfilePhotoFrame', '../../../components/ProfilePhotoFrame']) if (!(name in dependencies)) dependencies[name] = frame;
+  }
+  if (dependencies.react && dependencies['react-native'] && ['app/club/[id].tsx','app/(treasurer)/dashboard.tsx','components/MemberRecentActivity.tsx','components/PendingConfirmations.tsx','app/club/[id]/info.tsx'].includes(file)) {
+    const palette=dependencies['../../constants/Colors'] || dependencies['../../../constants/Colors'] || dependencies['../constants/Colors'] || load('constants/Colors.ts');
+    const dashboard=load('components/ClubDashboard.tsx',{react:dependencies.react,'react-native':dependencies['react-native'],'@expo/vector-icons':{Ionicons:'Ionicons'},'../constants/Colors':palette,'../services/clubGreeting':load('services/clubGreeting.ts'),'../services/paymentSummaryRecords':load('services/paymentSummaryRecords.ts')});
+    for(const name of ['../../components/ClubDashboard','../components/ClubDashboard','../../../components/ClubDashboard']) if(!(name in dependencies))dependencies[name]=dashboard;
+    for(const component of ['MemberRecentActivity','PendingConfirmations','ClubMemberDirectory']) {
+      const name='../../components/'+component;
+      if(!(name in dependencies))dependencies[name]={__esModule:true,default:component};
+    }
+  }
   const module = { exports: {} };
   const code = ts.transpileModule(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.React, esModuleInterop: true },
   }).outputText;
   new Function('require', 'module', 'exports', code)(name => {
+    if (!(name in dependencies) && name.endsWith('.png')) return { uri: name };
     if (!(name in dependencies)) throw new Error(`Unexpected dependency: ${name}`);
     return dependencies[name];
   }, module, module.exports);
@@ -19,8 +39,8 @@ function engine() {
   const same = (a, b) => a && a.length === b.length && a.every((v, i) => Object.is(v, b[i]));
   const react = {
     Fragment: 'Fragment',
-    createElement: (type, props, ...children) => ({ type, props: { ...props, children } }),
-    useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = initial; return [slots[i], v => { slots[i] = typeof v === 'function' ? v(slots[i]) : v; }]; },
+    createElement: (type, props, ...children) => ['ProfilePhotoFrame','ClubWelcomeHeader','ClubNavigationTiles','DashboardActivityCard','ClubOverviewCard','ClubBottomNavigation'].includes(type?.name) ? type({ ...props, children }) : ({ type, props: { ...props, children } }),
+    useState(initial) { const i = cursor++; if (!(i in slots)) slots[i] = typeof initial === 'function' ? initial() : initial; return [slots[i], v => { slots[i] = typeof v === 'function' ? v(slots[i]) : v; }]; },
     useRef(initial) { const i = cursor++; return slots[i] ||= { current: initial }; },
     useCallback(fn, deps) { const i = cursor++; if (!slots[i] || !same(slots[i].deps, deps)) slots[i] = { fn, deps }; return slots[i].fn; },
     useEffect(fn, deps) { const i = cursor++; if (!slots[i] || !same(slots[i].deps, deps)) effects.push(() => { slots[i]?.cleanup?.(); slots[i] = { deps, cleanup: fn() }; }); },

@@ -3,11 +3,11 @@ const assert = require('node:assert/strict');
 const { load } = require('./ui-harness.cjs');
 const { paymentRemaining, paymentSummaryRecords } = load('services/paymentSummaryRecords.ts');
 const row = (id, due, paid, status = 'pending', raw = status) => ({ id, amount_due: due, amount_paid: paid, status, contribution_status: raw });
-test('Payments reconciliation includes valid unconfirmed recorded payments and preserves separate contributions', () => {
+test('Payments reconciliation excludes unconfirmed recorded payments from confirmed collection and preserves separate contributions', () => {
   const records = [row('one',100,25),row('two',100,50,'proof_uploaded'),row('settled',100,10,'confirmed'),row('excused',100,90,'excused'),row('unknown',null,10),row('negative',100,-1),row('invalid',NaN,4),row('boolean',true,4)];
-  const result = paymentSummaryRecords(records,{collected:85,outstanding:125});
+  const result = paymentSummaryRecords(records,{collected:10,outstanding:125});
   assert.equal(result.collectedMatches,true);assert.equal(result.outstandingMatches,true);
-  assert.deepEqual(result.collected.map(r=>r.id),['one','two','settled']);assert.deepEqual(result.outstanding.map(r=>r.id),['one','two']);
+  assert.deepEqual(result.collected.map(r=>r.id),['settled']);assert.deepEqual(result.outstanding.map(r=>r.id),['one','two']);
   assert.equal(paymentRemaining(records[2]),0);assert.equal(paymentRemaining(records[4]),null);
 });
 test('Settled/excused/overpaid balances and zero totals do not invent outstanding records', () => {

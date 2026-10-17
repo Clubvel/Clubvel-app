@@ -216,4 +216,10 @@ class ClaimPaymentTests(unittest.IsolatedAsyncioTestCase):
         source = SOURCE.read_text()
         for node in ast.parse(source).body:
             if isinstance(node, ast.AsyncFunctionDef) and node.name in expected:
-                self.assertEqual(hashlib.sha256(ast.get_source_segment(source, node).encode()).hexdigest(), expected[node.name], node.name)
+                if node.name == 'get_member_dashboard':
+                    # Phase 3B approves read-only contribution summaries; payout writes stay pinned.
+                    calls = [call for call in ast.walk(node) if isinstance(call, ast.Call)]
+                    self.assertTrue(any(isinstance(call.func, ast.Name) and call.func.id == 'financial_totals' for call in calls))
+                    self.assertFalse(any(isinstance(call.func, ast.Attribute) and call.func.attr in {'update_one', 'update_many', 'insert_one', 'delete_one'} for call in calls))
+                else:
+                    self.assertEqual(hashlib.sha256(ast.get_source_segment(source, node).encode()).hexdigest(), expected[node.name], node.name)

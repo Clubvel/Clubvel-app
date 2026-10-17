@@ -11,8 +11,10 @@ function setup() {
       KeyboardAvoidingView: 'KeyboardAvoidingView', Platform: { OS: 'android' },
       Alert: { alert: (...args) => alerts.push(args) } },
     'expo-router': { useFocusEffect: ui.useFocusEffect, useRouter: () => ({ push: route => routes.push(route) }) },
+    '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': { useAuth: () => ({ user: { id: 'recipient' }, token: 'session' }) },
     '../../components/StatusPill': { StatusPill: 'StatusPill' }, '../../components/AdBanner': { AdBanner: 'AdBanner' },
+    '../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '@react-native-async-storage/async-storage': {},
     axios: { get: (url, options) => new Promise(resolve => requests.push({ url, options, resolve })),
@@ -42,10 +44,9 @@ for (const action of ['Accept', 'Decline']) {
       await c.pair(4, action === 'Accept' ? 'admin' : 'member'); await decision;
       if (!olderFirst) await c.pair(2, 'member', [invitation]);
       assert.equal(button(c.render(), 'Accept'), undefined);
-      button(c.render(), 'Test Club').props.onPress();
-      assert.deepEqual(c.routes.at(-1), action === 'Accept'
-        ? { pathname: '/(treasurer)/club-detail', params: { id: 'group', name: 'Test Club', from: 'member' } }
-        : '/(member)/club/group');
+      const toggle=nodes(c.render()).find(n=>n.props?.accessibilityLabel==='My Clubs & Stokvels');if(!toggle.props.accessibilityState.expanded)toggle.props.onPress();button(c.render(), 'Test Club').props.onPress();
+      const expectedRoute = action === 'Accept' ? { pathname: '/(treasurer)/dashboard', params: { groupId: 'group' } } : { pathname: '/club/[id]', params: { id: 'group', from: 'member' } };
+      assert.deepEqual(c.routes.at(-1), expectedRoute);
       assert.equal(c.posts[0].options.headers.Authorization, 'Bearer session');
     });
   }
@@ -59,13 +60,14 @@ test('repeated refresh after promotion never permits an older response to restor
   await c.pair(6, 'admin'); await c.pair(4, 'member', [invitation]);
   await c.pair(2, 'member', [invitation]); await accepting;
   assert.equal(button(c.render(), 'Accept'), undefined);
-  button(c.render(), 'Test Club').props.onPress();
-  assert.equal(c.routes.at(-1).pathname, '/(treasurer)/club-detail');
+  const toggle=nodes(c.render()).find(n=>n.props?.accessibilityLabel==='My Clubs & Stokvels');if(!toggle.props.accessibilityState.expanded)toggle.props.onPress();button(c.render(), 'Test Club').props.onPress();
+  assert.equal(c.routes.at(-1).pathname, '/(treasurer)/dashboard');
+  assert.equal(c.routes.at(-1).params.groupId, 'group');
 });
 
 test('an old Join Group fetch cannot put the accepted invitation back', async () => {
   const c = setup(); await c.pair(0, 'member', [invitation]);
-  const opening = button(c.render(), 'Join Group').props.onPress();
+  const opening = button(c.render(), 'Join a Club').props.onPress();
   const accepting = button(c.render(), 'Accept').props.onPress();
   c.posts[0].resolve({ data: { admin_access: true } }); await tick();
   await c.pair(3, 'admin'); await accepting;

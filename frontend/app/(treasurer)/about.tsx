@@ -26,7 +26,7 @@ export default function AboutScreen() {
         {/* Logo and App Info */}
         <View style={styles.logoSection}>
           <Image 
-            source={require('../../assets/images/clubvel-launcher-icon.png')}
+            source={require('../../assets/images/clubvel-midnight-icon.png')}
             style={styles.logo}
             resizeMode="contain"
           />
@@ -69,7 +69,7 @@ export default function AboutScreen() {
             
             <View style={styles.featureItem}>
               <View style={styles.featureIcon}>
-                <Ionicons name="trophy" size={24} color={Colors.gold} />
+                <Ionicons name="trophy" size={24} color={Colors.corporateBlue} />
               </View>
               <View style={styles.featureContent}>
                 <Text style={styles.featureTitle}>See Your Progress</Text>
@@ -144,7 +144,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 18,
-    fontWeight: 'bold',
+    fontWeight: '400',
     color: Colors.white,
   },
   content: {

@@ -7,7 +7,8 @@ function setup(pdf){
  const Screen=load('app/(treasurer)/reports.tsx',{
   react:ui.react,'react-native':{...native,RefreshControl:'RefreshControl',Alert:{alert:(...a)=>alerts.push(a)}},
   'expo-router':{useFocusEffect:ui.useFocusEffect,useLocalSearchParams:()=>({}),useRouter:()=>({push(){}})},
-  '../../contexts/AuthContext':{useAuth:()=>auth},'../../constants/Colors':{Colors:colors},
+  '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
+    '../../contexts/AuthContext':{useAuth:()=>auth},'../../constants/Colors':{Colors:colors},
   '@expo/vector-icons':{Ionicons:'Icon'},'../../components/AdBanner':{AdBanner:'AdBanner'},
   '../../components/MonthlyReport':{default:'MonthlyReport'},
   '../../services/pdfReportService':{generatePDFReport:pdf || (async()=>({success:true,uri:'cache.pdf'})),sharePDFReport:async()=>{},printPDFReport:async()=>({success:true})},

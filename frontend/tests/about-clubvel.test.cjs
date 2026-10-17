@@ -21,7 +21,7 @@ function render(role, height = 84, bottom = 24) {
     '@expo/vector-icons': { Ionicons: 'Ionicons' },
     'react-native-safe-area-context': { useSafeAreaInsets: () => ({ top: 30, bottom }) },
     '@react-navigation/bottom-tabs': { useBottomTabBarHeight: () => height },
-    '../../assets/images/clubvel-launcher-icon.png': 'approved-logo',
+    '../../assets/images/clubvel-midnight-icon.png': 'approved-logo',
   }).default;
   return { tree: hooks.render(Screen), routes, links };
 }
@@ -41,7 +41,7 @@ for (const role of ['member', 'treasurer']) {
     assert.equal(wordmark.props.style.marginTop, 0);
     assert.equal(image.props.style.width, 104); assert.equal(image.props.style.height, 104);
     const config = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'app.json'))).expo;
-    assert.equal(config.icon, './assets/images/clubvel-launcher-icon.png');
+    assert.equal(config.icon, './assets/images/clubvel-midnight-icon.png');
   });
   test(`${role}: scroll content clears tab bar and system inset`, () => {
     for (const [height, bottom] of [[60, 0], [84, 24], [108, 48], [60, 80]]) {

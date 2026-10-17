@@ -128,7 +128,7 @@ export default function OnboardingScreen() {
 
       <View style={styles.content}>
         <View style={styles.iconContainer}>
-          <Ionicons name={slide.icon} size={120} color={Colors.gold} />
+          <Ionicons name={slide.icon} size={120} color={Colors.corporateBlue} />
         </View>
 
         <Text style={styles.title}>{slide.title}</Text>
@@ -215,7 +215,7 @@ const styles = StyleSheet.create({
     width: 24,
   },
   nextButton: {
-    backgroundColor: Colors.accent,
+    backgroundColor: Colors.primary,
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
@@ -266,14 +266,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
-    backgroundColor: Colors.accent,
+    backgroundColor: Colors.primary,
     paddingVertical: 16,
     paddingHorizontal: 32,
     borderRadius: 12,
     width: '100%',
     marginBottom: 12,
     gap: 12,
-    shadowColor: Colors.gold,
+    shadowColor: Colors.corporateBlue,
     shadowOffset: { width: 0, height: 4 },
     shadowOpacity: 0.3,
     shadowRadius: 8,
