@@ -39,19 +39,21 @@ test('duplicate Save taps send once; server rejection keeps date editor retryabl
  assert.equal(button(c.render(),'Save payout date').props.disabled,false);
  assert.equal(c.alerts.at(-1)[1],'Only approved claims awaiting payout can be scheduled');
 });
-test('Member Home renders approved payout monetary total separately from unchanged contributions card',async()=>{
+test('General Member Home excludes payout summaries while retaining club entry actions',async()=>{
  const ui=engine();const summary={upcoming_payments:3,upcoming_payout_amount:70000,total_saved:1200,active_clubs:1,claims_count:4};
  const Home=load('app/(member)/home.tsx',{
   react:ui.react,'react-native':{...native,RefreshControl:'RefreshControl',TextInput:'TextInput',KeyboardAvoidingView:'KeyboardAvoidingView',Platform:{OS:'android'}},
   'expo-router':{useFocusEffect:ui.useFocusEffect,useRouter:()=>({push(){}})},
-  '../../contexts/AuthContext':{useAuth:()=>({user:{id:'member'},token:'session'})},
+  '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
+    '../../contexts/AuthContext':{useAuth:()=>({user:{id:'member'},token:'session'})},
   '../../components/StatusPill':{StatusPill:'StatusPill'},'../../components/AdBanner':{AdBanner:'AdBanner'},
-  '../../constants/Colors':{Colors:colors},'@expo/vector-icons':{Ionicons:'Ionicons'},'@react-native-async-storage/async-storage':{},
+  '../../services/paymentSummaryRecords': load('services/paymentSummaryRecords.ts'),
+    '../../constants/Colors':{Colors:colors},'@expo/vector-icons':{Ionicons:'Ionicons'},'@react-native-async-storage/async-storage':{},
   axios:{get:async()=>({data:{summary,user:{first_name:'Jimmy',full_name:'Jimmy'},clubs:[],invitations:[]}})},
  }).default;
  ui.render(Home);await tick();let tree=ui.render(Home);
- assert.match(text(tree),/Upcoming Payments3/);
- const payout=nodes(tree).find(n=>n.type==='View'&&nodes(n).some(k=>k.type==='Text'&&text(k)==='Upcoming Payouts')&&nodes(n).filter(k=>k.type==='Text').length===2);
- assert.equal(text(payout),`Upcoming PayoutsR${(70000).toLocaleString('en-ZA',{minimumFractionDigits:2,maximumFractionDigits:2})}`);
- summary.upcoming_payout_amount=0;tree=ui.render(Home);assert.match(text(tree),/Upcoming PayoutsR0[.,]00/);
+ assert.doesNotMatch(text(tree),/Upcoming Payments|Upcoming Payouts|R70|Contributions/);
+ assert.ok(nodes(tree).some(n=>n.props?.accessibilityLabel==='My Clubs & Stokvels'));
+ assert.ok(nodes(tree).some(n=>n.props?.accessibilityLabel==='Create a Club'));
+ assert.ok(nodes(tree).some(n=>n.props?.accessibilityLabel==='Join a Club'));
 });

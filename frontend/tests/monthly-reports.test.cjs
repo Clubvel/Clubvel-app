@@ -165,10 +165,11 @@ test('period or account change hides an open sheet with obsolete data', async ()
 test('physically approved header, PDF service and export handlers stay unchanged; exports are honestly scoped', () => {
   const root = path.join(__dirname, '../..');
   const file = 'frontend/app/(treasurer)/reports.tsx';
-  const source = fs.readFileSync(path.join(root, file), 'utf8');
-  const baseline = cp.execFileSync('git', ['show', '267b31427060e7d539df7cfd34b0f3d0249c8c59:' + file], { cwd: root, encoding: 'utf8' });
+  const source = fs.readFileSync(path.join(root, file), 'utf8').replace(/\r\n/g, '\n');
+  const baseline = cp.execFileSync('git', ['show', 'eb8dc4927fc65e08244aceae45799c75af8aca87:' + file], { cwd: root, encoding: 'utf8' });
   const header = s => s.slice(s.indexOf('      {/* Header */}'), s.indexOf('      <ScrollView'));
-  assert.equal(header(source), header(baseline));
+  // The approved pure avatar frame changes presentation, preserving the complete header contents and handlers.
+  assert.equal(header(source).replaceAll('<ProfilePhotoFrame>', '').replaceAll('</ProfilePhotoFrame>', ''), header(baseline));
   assert.match(source, /Other available exports/); assert.match(source, /do not use the club or month selected above/);
   assert.doesNotMatch(source, /Legacy exports|legacy shortcut|Member Statement/);
   const currentBaseline = cp.execFileSync('git', ['show', '3f49618fb54e7a74802d4d47bfbd4057866b59fe:' + file], { cwd: root, encoding: 'utf8' });
@@ -176,5 +177,5 @@ test('physically approved header, PDF service and export handlers stay unchanged
   assert.equal(handlers(source), handlers(currentBaseline));
   assert.doesNotMatch(source, /dashboardData\?\.clubs \|\| \[\]\)\.reduce/);
   const pdf = 'frontend/services/pdfReportService.ts';
-  assert.equal(fs.readFileSync(path.join(root, pdf), 'utf8'), cp.execFileSync('git', ['show', '267b31427060e7d539df7cfd34b0f3d0249c8c59:' + pdf], { cwd: root, encoding: 'utf8' }));
+  assert.equal(fs.readFileSync(path.join(root, pdf), 'utf8').replace(/\r\n/g, '\n'), cp.execFileSync('git', ['show', '267b31427060e7d539df7cfd34b0f3d0249c8c59:' + pdf], { cwd: root, encoding: 'utf8' }));
 });

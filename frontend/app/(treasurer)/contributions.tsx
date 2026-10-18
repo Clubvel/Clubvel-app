@@ -1,15 +1,17 @@
+import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
+import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
 import React, { useCallback, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, ActivityIndicator, Alert, Image, Modal, TextInput, RefreshControl } from 'react-native';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
-import { useRouter, useFocusEffect } from 'expo-router';
+import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { AdBanner } from '../../components/AdBanner';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import axios from 'axios';
-import { paymentRemaining, paymentSummaryRecords } from '../../services/paymentSummaryRecords';
+import { paymentRemaining, paymentSummaryRecords, paymentStateLabel, paymentMoney } from '../../services/paymentSummaryRecords';
 
 interface Contribution {
   id: string | null;
@@ -17,7 +19,13 @@ interface Contribution {
   member_name: string;
   reference_code: string;
   amount_due: number | null;
-  amount_paid: number;
+  amount_paid: number | null;
+  payment_state?: string;
+  financial_warnings?: string[];
+  expected_amount?: number | null;
+  confirmed_amount?: number | null;
+  outstanding_amount?: number | null;
+  recorded_unconfirmed_amount?: number | null;
   status: string;
   contribution_status: string | null;
   proof_uploaded: boolean;
@@ -27,8 +35,10 @@ interface Contribution {
 }
 
 export default function ContributionsScreen() {
+  const [photoExpanded, setPhotoExpanded] = React.useState(false);
   const { user, token } = useAuth();
   const router = useRouter();
+  const params = useLocalSearchParams<{ groupId?: string; group_id?: string; id?: string }>();
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
   const [loading, setLoading] = useState(true);
   const [contributions, setContributions] = useState<Contribution[]>([]);
@@ -57,6 +67,7 @@ export default function ContributionsScreen() {
   const request = useRef<{ key: string; sequence: number } | null>(null);
   const sequence = useRef(0);
   const clubsRequest = useRef<string | null>(null);
+  const lastRequestedClub = useRef<string | undefined>(undefined);
   const clubsContext = `${user?.id}:${token}`;
   const latestClubsContext = useRef(clubsContext);
   latestClubsContext.current = clubsContext;
@@ -71,8 +82,16 @@ export default function ContributionsScreen() {
       if (latestClubsContext.current !== key) return;
       const managed = response.data.clubs;
       setClubs(managed);
-      setGroupId(previous => managed.some((club: { id: string }) => club.id === previous) ? previous : managed[0]?.id ?? null);
+      const requestedId = params.groupId || params.group_id || params.id;
+      const routeChanged = requestedId !== lastRequestedClub.current;
+      lastRequestedClub.current = requestedId;
+      setGroupId(previous => requestedId && routeChanged
+        ? managed.find((club: { id: string }) => club.id === requestedId)?.id ?? null
+        : managed.some((club: { id: string }) => club.id === previous) ? previous : managed[0]?.id ?? null);
       if (!managed.length) setLoading(false);
+      if (requestedId && routeChanged && !managed.some((club: { id: string }) => club.id === requestedId)) {
+        setError('This club is not available. Select an authorized club.'); setLoading(false);
+      }
     } catch (err: any) {
       if (latestClubsContext.current !== key) return;
       setError(err.response?.data?.detail || 'Unable to load clubs. Please try again.');
@@ -80,7 +99,7 @@ export default function ContributionsScreen() {
     } finally {
       if (clubsRequest.current === key) clubsRequest.current = null;
     }
-  }, [API_URL, user?.id, token]);
+  }, [API_URL, user?.id, token, params.groupId, params.group_id, params.id]);
 
   const fetchContributions = useCallback(async (force = false) => {
     if (!groupId || !user?.id) return;
@@ -184,20 +203,22 @@ export default function ContributionsScreen() {
 
   return (
     <View style={styles.container}>
+      <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
       {/* Header with Month Navigation and Profile */}
       <View style={styles.header}>
-        <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle}>Payments</Text>
-        </View>
-        <TouchableOpacity onPress={() => router.push('/(treasurer)/profile')} style={styles.profileButton}>
-          {user?.profile_photo ? (
+        <TouchableOpacity onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(treasurer)/profile')} style={styles.profileButton}>
+          <ProfilePhotoFrame>{user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
             <View style={styles.profilePlaceholder}>
               <Ionicons name="person" size={32} color={Colors.white} />
             </View>
-          )}
+          )}</ProfilePhotoFrame>
         </TouchableOpacity>
+        <View style={styles.headerLeft}>
+          <Text style={styles.headerTitle}>Payments</Text>
+        </View>
+      
       </View>
 
       <View style={styles.monthNav}>
@@ -221,18 +242,18 @@ export default function ContributionsScreen() {
       {/* Summary Totals */}
       <View style={styles.summaryContainer}>
         <TouchableOpacity style={styles.summaryCard} disabled={!breakdown.collectedMatches} accessibilityRole={breakdown.collectedMatches ? 'button' : undefined} accessibilityLabel="Show records contributing to collected" accessibilityState={{ disabled: !breakdown.collectedMatches, selected: effectiveFilter === 'collected' }} activeOpacity={0.75} onPress={() => setPaymentFilter({ key: context, kind: 'collected' })}>
-          <Text style={styles.summaryLabel}>Collected</Text>
-          <Text style={[styles.summaryValue, styles.collectedValue]}>R{summary.collected.toFixed(2)}</Text>
+          <Text style={styles.summaryLabel}>Confirmed Collected</Text>
+          <Text style={[styles.summaryValue, styles.collectedValue]}>{paymentMoney(summary.collected)}</Text>
         {breakdown.collectedMatches && <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} />}
         </TouchableOpacity>
         <TouchableOpacity style={styles.summaryCard} disabled={!breakdown.outstandingMatches} accessibilityRole={breakdown.outstandingMatches ? 'button' : undefined} accessibilityLabel="Show records contributing to outstanding" accessibilityState={{ disabled: !breakdown.outstandingMatches, selected: effectiveFilter === 'outstanding' }} activeOpacity={0.75} onPress={() => setPaymentFilter({ key: context, kind: 'outstanding' })}>
           <Text style={styles.summaryLabel}>Outstanding</Text>
-          <Text style={[styles.summaryValue, styles.outstandingValue]}>R{summary.outstanding.toFixed(2)}</Text>
+          <Text style={[styles.summaryValue, styles.outstandingValue]}>{paymentMoney(summary.outstanding)}</Text>
         {breakdown.outstandingMatches && <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} />}
         </TouchableOpacity>
-        <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Explain collection rate" activeOpacity={0.75} onPress={() => Alert.alert('Collection Rate', `Expected: R${summary.total_expected.toFixed(2)}\nCollected: R${summary.collected.toFixed(2)}\nCollection Rate: ${summary.collection_rate}%\n\nCollected ÷ Expected × 100. When Expected is zero, the displayed rate is zero. Collected includes valid recorded payments, even when not yet confirmed.`)}>
+        <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Explain collection rate" activeOpacity={0.75} onPress={() => Alert.alert('Collection Rate', `Expected: ${paymentMoney(summary.total_expected)}\nConfirmed Collected: ${paymentMoney(summary.collected)}\nCollection Rate: ${summary.collection_rate == null ? 'Not available' : summary.collection_rate + '%'}\n\nCollected ÷ Expected × 100. When Expected is zero, the displayed rate is zero. Collected includes only confirmed or paid contribution amounts.`)}>
           <Text style={styles.summaryLabel}>Collection Rate</Text>
-          <Text style={styles.summaryValue}>{summary.collection_rate}%</Text>
+          <Text style={styles.summaryValue}>{summary.collection_rate == null ? 'Not available' : `${summary.collection_rate}%`}</Text>
         <Ionicons name="information-circle-outline" size={14} color={Colors.textSecondary} />
         </TouchableOpacity>
       </View>
@@ -243,8 +264,8 @@ export default function ContributionsScreen() {
         {loading && loadedKey !== context && <ActivityIndicator size="large" color={Colors.mediumGreen} />}
         {!loading && !groupId && !error && <Text>No managed clubs yet.</Text>}
         {loadedKey === context && effectiveFilter && <View style={styles.contributionCard}>
-          <Text accessibilityLiveRegion="polite">Showing {effectiveFilter === 'collected' ? 'recorded payments contributing to Collected' : 'remaining balances contributing to Outstanding'} — R{summary[effectiveFilter].toFixed(2)}</Text>
-          <Text>{effectiveFilter === 'collected' ? 'Recorded amounts may still await confirmation.' : 'Settled and excused records do not add an outstanding balance.'}</Text>
+          <Text accessibilityLiveRegion="polite">Showing {effectiveFilter === 'collected' ? 'confirmed payments contributing to Confirmed Collected' : 'remaining balances contributing to Outstanding'} — {paymentMoney(summary[effectiveFilter])}</Text>
+          <Text>{effectiveFilter === 'collected' ? 'Only confirmed or paid contribution amounts are included.' : 'Settled and excused records do not add an outstanding balance.'}</Text>
           <TouchableOpacity accessibilityRole="button" accessibilityLabel="Show all payment records" onPress={() => setPaymentFilter(null)}><Text style={styles.viewProofText}>Show all</Text></TouchableOpacity>
           {visibleContributions.length === 0 && <Text>No records contribute to this amount.</Text>}
         </View>}
@@ -255,20 +276,23 @@ export default function ContributionsScreen() {
                 <Text style={styles.memberName}>{contribution.member_name}</Text>
                 <Text style={styles.memberReference}>{contribution.reference_code}</Text>
               </View>
-              <StatusPill status={contribution.proof_review_status === 'declined' ? 'proof_declined' : contribution.status} />
+              <StatusPill label={paymentStateLabel(contribution.payment_state)} status={contribution.proof_review_status === 'declined' ? 'proof_declined' : contribution.status} />
             </View>
 
             <View style={styles.contributionAmount}>
-              <Text style={styles.amountLabel}>Amount</Text>
-              <Text style={styles.amountValue}>{contribution.amount_due == null ? 'Not recorded' : `R${contribution.amount_due.toFixed(2)}`}</Text>
+              <Text style={styles.amountLabel}>Expected</Text>
+              <Text style={styles.amountValue}>{contribution.payment_state === 'missing_record' ? 'Not recorded' : paymentMoney(contribution.expected_amount === undefined ? contribution.amount_due : contribution.expected_amount)}</Text>
             </View>
 
+            {contribution.confirmed_amount !== undefined && <Text>Confirmed Collected: {paymentMoney(contribution.confirmed_amount)} · Outstanding: {paymentMoney(contribution.outstanding_amount)}</Text>}
+            {!!contribution.recorded_unconfirmed_amount && <Text>Recorded, unconfirmed: {paymentMoney(contribution.recorded_unconfirmed_amount)}</Text>}
             {effectiveFilter && <View style={styles.contributionAmount}>
               <Text style={styles.amountLabel}>{effectiveFilter === 'collected' ? 'Recorded payment' : 'Remaining balance'}</Text>
-              <Text style={styles.amountValue}>R{(effectiveFilter === 'collected' ? contribution.amount_paid : paymentRemaining(contribution) || 0).toFixed(2)}</Text>
+              <Text style={styles.amountValue}>{paymentMoney(effectiveFilter === 'collected' ? contribution.amount_paid : paymentRemaining(contribution))}</Text>
             </View>}
 
-            {contribution.proof_uploaded && contribution.id && (
+            {!!contribution.financial_warnings?.length && <Text>Recorded payment needs checking: {contribution.financial_warnings.join(", ")}</Text>}
+            {contribution.proof_uploaded && contribution.id && contribution.payment_state !== 'invalid_amount' && (
               <View style={styles.contributionActions}>
                 <TouchableOpacity
                   style={styles.viewProofButton}
@@ -372,7 +396,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.darkGreen,
+    backgroundColor: Colors.primary,
     paddingTop: 60,
     paddingBottom: 20,
     paddingHorizontal: 24,
@@ -386,7 +410,7 @@ const styles = StyleSheet.create({
   },
   headerTitle: {
     fontSize: 24,
-    fontWeight: 'bold',
+    fontWeight: '400',
     color: Colors.white,
   },
   profileButton: {
@@ -394,20 +418,20 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   profileImage: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    borderWidth: 2,
-    borderColor: Colors.gold,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    borderWidth: 1,
+    borderColor: Colors.white,
   },
   profilePlaceholder: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    backgroundColor: Colors.gold,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-  },
+   borderWidth: 1, borderColor: Colors.white, },
   monthNav: {
     backgroundColor: Colors.darkGreen,
     paddingHorizontal: 24,

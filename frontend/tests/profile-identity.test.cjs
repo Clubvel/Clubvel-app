@@ -10,7 +10,10 @@ async function setup(screen='home',photo='data:image/jpeg;base64,existing',clubC
  const Screen=load(`app/(member)/${screen}.tsx`,{
   react:ui.react,'react-native':{...native,RefreshControl:'RefreshControl',TextInput:'TextInput',KeyboardAvoidingView:'KeyboardAvoidingView',Platform:{OS:'android'} ,Alert:{alert:(...a)=>alerts.push(a)}},
   'expo-router':{useFocusEffect:ui.useFocusEffect,useRouter:()=>({push:r=>routes.push(r),replace:r=>routes.push(r)})},
-  '../../contexts/AuthContext':{useAuth:()=>auth},'../../components/StatusPill':{StatusPill:'StatusPill'},'../../components/AdBanner':{AdBanner:'AdBanner'},
+  '../../components/EditProfile': { default: 'EditProfile' },
+  '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
+    '../../contexts/AuthContext':{useAuth:()=>auth},'../../components/StatusPill':{StatusPill:'StatusPill'},'../../components/AdBanner':{AdBanner:'AdBanner'},
+  '../../services/paymentSummaryRecords':load('services/paymentSummaryRecords.ts'),
   '../../constants/Colors':{Colors:colors},'@expo/vector-icons':{Ionicons:'Ionicons'},
   '@react-native-async-storage/async-storage':{},'expo-image-picker':picker,
   axios:{get:async()=>({data:response})},
@@ -19,33 +22,35 @@ async function setup(screen='home',photo='data:image/jpeg;base64,existing',clubC
 }
 const style=n=>Object.assign({},...([n.props.style].flat().filter(Boolean)));
 
-test('Home photo is 76px, circular, covered and retains its clementine ring',async()=>{
+test('Home photo is 112px, circular, covered and retains its bright yellow frame and white inner border',async()=>{
  const c=await setup();const image=nodes(c.render()).find(n=>n.type==='Image');
- assert.deepEqual([style(image).width,style(image).height,style(image).borderRadius],[76,76,38]);
- assert.equal(style(image).borderWidth,2);assert.equal(style(image).borderColor,'gold');assert.equal(image.props.resizeMode,'cover');
+ assert.deepEqual([style(image).width,style(image).height,style(image).borderRadius],[112,112,56]);
+ assert.equal(style(image).borderWidth,1);assert.equal(style(image).borderColor,'white');assert.equal(image.props.resizeMode,'cover');
  assert.equal(image.props.source.uri,'data:image/jpeg;base64,existing');
 });
-test('Home fallback matches 76px photo footprint and scales existing person icon',async()=>{
- const c=await setup('home',null);const tree=c.render();const avatar=nodes(tree).find(n=>n.props?.accessibilityLabel==='Open profile menu');
- const circle=nodes(avatar).find(n=>n.type==='View');assert.deepEqual([style(circle).width,style(circle).height,style(circle).borderRadius],[76,76,38]);
+test('Home fallback matches 112px photo footprint and scales existing person icon',async()=>{
+ const c=await setup('home',null);const tree=c.render();const avatar=nodes(tree).find(n=>n.props?.accessibilityLabel==='Expand profile photo');
+ const circle=nodes(avatar).find(n=>n.type==='View'&&style(n).width===112);assert.deepEqual([style(circle).width,style(circle).height,style(circle).borderRadius],[112,112,56]);
  assert.equal(nodes(avatar).find(n=>n.type==='Ionicons').props.size,32);
 });
 test('Home header keeps existing menu/profile route and reserves space on a 320px screen',async()=>{
- const c=await setup();let tree=c.render();const avatar=nodes(tree).find(n=>n.props?.accessibilityLabel==='Open profile menu');
+ const c=await setup();let tree=c.render();const avatar=nodes(tree).find(n=>n.props?.accessibilityLabel==='Expand profile photo');
  const header=nodes(tree).find(n=>n.type==='View'&&n.props?.children?.includes(avatar));
  assert.equal(style(header).alignItems,'center');assert.equal(style(header).gap,16);assert.equal(style(avatar).flexShrink,0);
- const logo=nodes(header).find(n=>n.type==='Text');assert.equal(text(logo),'Clubvel');assert.equal(style(logo).flexShrink,1);
- assert.ok(320-2*style(header).paddingHorizontal-76-2*style(avatar).padding-style(header).gap>=100);
- avatar.props.onPress();tree=c.render();assert.match(text(tree),/Alexandra Very Long Member Name/);
+ const banner=nodes(tree).find(n=>n.type==='View'&&style(n).backgroundColor==='primary'&&style(n).paddingHorizontal===20);
+ const logo=nodes(banner).find(n=>n.props?.accessibilityRole==='header');assert.equal(text(logo),'Clubvel');assert.equal(style(logo).flex,1);assert.equal(style(logo).textAlign,'center');assert.equal(style(logo).fontWeight,'400');
+ assert.ok(320-2*style(banner).paddingHorizontal-116-style(header).gap>=100);
+ assert.match(text(header),/Good (morning|afternoon|evening), Alexandra!/);
+ nodes(tree).find(n=>n.props?.accessibilityLabel==='Open profile menu').props.onPress();tree=c.render();assert.match(text(tree),/Alexandra Very Long Member Name/);
  nodes(tree).find(n=>n.type==='TouchableOpacity' && n.props.accessibilityLabel==='My Profile').props.onPress();
  assert.deepEqual(c.routes,['/(member)/profile']);
 });
-test('Profile keeps 80px identity, safe fallback and wraps long names',async()=>{
+test('Profile keeps 112px identity, safe fallback and wraps long names',async()=>{
  for(const photo of ['data:image/jpeg;base64,existing',null]){
   const c=await setup('profile',photo),tree=c.render();
-  const avatar=nodes(tree).find(n=>n.props?.accessibilityLabel==='Change profile photo');
-  const imageOrCircle=nodes(avatar).find(n=>n.type===(photo?'Image':'View'));
-  assert.deepEqual([style(imageOrCircle).width,style(imageOrCircle).height,style(imageOrCircle).borderRadius],[80,80,40]);
+  const avatar=nodes(tree).find(n=>n.props?.accessibilityLabel===(photo?'View full-size profile photo':'Add profile photo'));
+  const imageOrCircle=nodes(avatar).find(n=>n.type===(photo?'Image':'View')&&style(n).width===112);
+  assert.deepEqual([style(imageOrCircle).width,style(imageOrCircle).height,style(imageOrCircle).borderRadius],[112,112,56]);
   const name=nodes(tree).find(n=>n.type==='Text'&&text(n)===c.auth.user.full_name);assert.equal(style(name).textAlign,'center');assert.equal(style(name).alignSelf,'stretch');
   assert.ok(button(tree,'Change photo'));
  }
@@ -61,20 +66,20 @@ test('photo-picker cancellation and permission refusal do not update photo',asyn
  c.picker.requestMediaLibraryPermissionsAsync=async()=>({granted:false});await button(c.render(),'Change photo').props.onPress();assert.equal(c.updates.length,0);assert.equal(c.alerts.at(-1)[0],'Permission Required');
 });
 
-test('account panel displays the current photo or initials at 80px with accurate loaded club count',async()=>{
+test('account panel displays the current photo or initials at 112px with accurate loaded club count',async()=>{
  for(const [photo,count] of [['data:image/jpeg;base64,existing',2],[null,1],[null,0]]){
   const c=await setup('home',photo,count);
   nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Open profile menu').props.onPress();
   const tree=c.render(),panel=nodes(tree).find(n=>n.props?.accessibilityViewIsModal);
-  const avatar=nodes(panel).find(n=>style(n).width===80);
-  assert.deepEqual([style(avatar).width,style(avatar).height,style(avatar).borderRadius],[80,80,40]);
-  assert.equal(style(avatar).borderColor,'gold');
+  const avatar=nodes(panel).find(n=>style(n).width===112);
+  assert.deepEqual([style(avatar).width,style(avatar).height,style(avatar).borderRadius],[112,112,56]);
+  assert.equal(style(avatar).borderColor,'white');
   if(photo){assert.equal(avatar.props.source.uri,photo);assert.equal(avatar.props.resizeMode,'cover');}
   else assert.equal(text(avatar),'A');
-  assert.match(text(panel),new RegExp(`Member of ${count} ${count===1?'Clubvel':'Clubvels'}`));
+  assert.match(text(panel),new RegExp(`Member of ${count} ${count===1?'Group':'Groups'}`));
   const name=nodes(panel).find(n=>n.type==='Text'&&text(n)===c.auth.user.full_name);
-  assert.equal(style(name).fontSize,26);assert.equal(name.props.numberOfLines,undefined);
-  assert.equal(style(panel).width,'92%');assert.equal(style(panel).flex,1);
+  assert.equal(style(name).fontSize,20);assert.equal(name.props.numberOfLines,undefined);
+  assert.equal(style(panel).width,'100%');assert.equal(style(panel).flex,1);
   assert.ok(nodes(panel).some(n=>n.type==='ScrollView'&&style(n).flex===1));
  }
 });
@@ -84,7 +89,7 @@ test('account destinations remain reachable and normal rows precede sign out and
   const c=await setup();nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Open profile menu').props.onPress();
   const panel=nodes(c.render()).find(n=>n.props?.accessibilityViewIsModal);
   const actions=nodes(panel).filter(n=>n.type==='TouchableOpacity');
-  assert.deepEqual(actions.slice(-2).map(n=>n.props.accessibilityLabel),['Sign Out','Delete My Account']);
+  assert.deepEqual(actions.slice(-2).map(n=>n.props.accessibilityLabel),['Delete My Account','Sign Out']);
   for(const row of actions.slice(1)){
    assert.ok(style(row).minHeight>=48);assert.equal(style(row).height,undefined);
    for(const label of nodes(row).filter(n=>n.type==='Text')){

@@ -20,8 +20,9 @@ async function setup(wait = false) {
     'react-native': { ...native, TextInput: 'TextInput', RefreshControl: 'RefreshControl', Alert: { alert: (...args) => alerts.push(args) } },
     '../../constants/Colors': { Colors: colors }, '@expo/vector-icons': { Ionicons: 'Ionicons' },
     '../../components/StatusPill': { StatusPill: 'StatusPill' }, '../../components/AdBanner': { AdBanner: 'AdBanner' },
+    '../../components/ProfilePhotoViewer': { default: 'ProfilePhotoViewer' },
     '../../contexts/AuthContext': { useAuth: () => ({ user: { id: 'admin' }, token: 'session' }) },
-    'expo-router': { useFocusEffect: ui.useFocusEffect, useRouter: () => ({ push: path => routes.push(path) }) },
+    'expo-router': { useLocalSearchParams: () => ({}), useFocusEffect: ui.useFocusEffect, useRouter: () => ({ push: path => routes.push(path) }) },
     'expo-file-system/legacy': { documentDirectory: 'files/', EncodingType: { Base64: 'base64' }, writeAsStringAsync: async (...args) => files.push(args) },
     'expo-sharing': { isAvailableAsync: async () => true, shareAsync: async (...args) => opened.push(args) },
     axios: {
@@ -149,5 +150,5 @@ test('Payments summary mismatch leaves the affected card passive; percentage exp
  nodes(c.render()).find(n=>n.type==='ScrollView').props.refreshControl.props.onRefresh();await tick();c.render();
  assert.equal(labelled(c,'Show records contributing to collected').props.disabled,true);
  assert.equal(labelled(c,'Show records contributing to collected').props.accessibilityRole,undefined);
- labelled(c,'Explain collection rate').props.onPress();assert.match(c.alerts.at(-1)[1],/Expected: R6700.00/);assert.match(c.alerts.at(-1)[1],/Collected: R999.00/);assert.match(c.alerts.at(-1)[1],/not yet confirmed/);
+ labelled(c,'Explain collection rate').props.onPress();assert.match(c.alerts.at(-1)[1],/Expected: R6700.00/);assert.match(c.alerts.at(-1)[1],/Collected: R999.00/);assert.match(c.alerts.at(-1)[1],/Collected includes only confirmed or paid contribution amounts\./);
 });

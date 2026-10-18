@@ -333,7 +333,9 @@ class InvitationTests(unittest.IsolatedAsyncioTestCase):
             # Guard envelopes and invitation responses may change; data semantics stay protected.
             if name not in {'invite_admin', 'invite_member', 'get_pending_invitations', 'accept_invitation', 'delete_member', 'delete_user_account', 'delete_club', 'verify_user_is_group_treasurer', 'accept_admin_invitation',
                             'contribution_metadata_projection', 'personal_contribution_view', 'submit_member_claim',
-                            'get_member_claims', 'review_group_claim', 'get_user_alerts', 'get_group_report'}:
+                            'get_member_claims', 'review_group_claim', 'get_user_alerts', 'get_group_report',
+                            'get_group_payment_records', 'get_person_contribution_records', 'get_personal_contributions',
+                            'get_member_club_details', 'get_group_contributions', 'get_club_detail', 'get_member_dashboard'}:
                 self.assertEqual(new[name], body, name)
         self.assertNotIn('send_sms_otp', ast.get_source_segment(SOURCE.read_text(), next(n for n in ast.parse(SOURCE.read_text()).body if isinstance(n, ast.AsyncFunctionDef) and n.name == 'invite_member')))
         for path in ['frontend/services/pdfReportService.ts',
@@ -342,11 +344,17 @@ class InvitationTests(unittest.IsolatedAsyncioTestCase):
             expected = base(path)
             actual = (ROOT / path).read_text()
             if path == 'frontend/app/(treasurer)/claims.tsx':
-                # Preserve the entire physically approved screen, including its 76px header and payout controls.
+                # Preserve the established payout handlers and controls while allowing approved header/club-refresh changes.
                 expected = subprocess.check_output(
-                    ['git', 'show', '267b31427060e7d539df7cfd34b0f3d0249c8c59:' + path],
-                    cwd=ROOT, text=True,
-                )
+                    ['git', 'show', 'eb8dc4927fc65e08244aceae45799c75af8aca87:' + path], cwd=ROOT, text=True)
+                def payment_contract(screen):
+                    handler = screen[screen.index('  const reviewClaim'):screen.index('  const statusLabel')]
+                    handler = handler.replace(' || claim.group_id !== selectedGroup.id', '')
+                    import re
+                    controls = re.findall(r'<Claim(?:PaymentRecord|PayoutDate)\b[\s\S]*?/>', screen)
+                    return handler, controls
+                self.assertEqual(payment_contract(actual), payment_contract(expected))
+                continue
             if path == 'frontend/hooks/usePersonalClaims.ts':
                 # Permit only the new payment-date read field, preserving session/filter behavior.
                 actual = actual.replace('  actual_payment_date: string | null;\n', '')

@@ -135,9 +135,9 @@ const styles = StyleSheet.create({
   adLabel: {
     fontSize: 9,
     fontWeight: '600',
-    color: Colors.gold,
+    color: Colors.corporateBlue,
     textTransform: 'uppercase',
-    backgroundColor: Colors.lightGold,
+    backgroundColor: Colors.iceBlue,
     paddingHorizontal: 4,
     paddingVertical: 1,
     borderRadius: 2,
@@ -162,7 +162,7 @@ const styles = StyleSheet.create({
     lineHeight: 16,
   },
   ctaContainer: {
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.corporateBlue,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 4,

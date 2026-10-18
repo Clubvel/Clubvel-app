@@ -1,12 +1,14 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, Modal, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, Modal, ActivityIndicator, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import { Colors } from '../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { authentication, AuthenticationError, normalizePhone, otpMessage } from '../services/authentication';
 
 export default function AuthScreen() {
+  const insets = useSafeAreaInsets();
   const [isLogin, setIsLogin] = useState(true);
   const [isOTPScreen, setIsOTPScreen] = useState(false);
   const [isConsentScreen, setIsConsentScreen] = useState(false);
@@ -134,7 +136,7 @@ export default function AuthScreen() {
     try {
       // Send only phone_number and password - no role
       await login(phoneNumber, password);
-      router.replace('/');
+      router.replace('/(member)/home');
       
     } catch (error: any) {
       if (error instanceof AuthenticationError && error.code === 'verification_required') {
@@ -407,30 +409,30 @@ export default function AuthScreen() {
 
   return (
     <KeyboardAvoidingView
-      style={styles.container}
+      style={[styles.container, styles.authPage]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <ScrollView contentContainerStyle={styles.scrollContent}>
+      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.scrollContent, { paddingTop: Math.max(insets.top, 16), paddingBottom: Math.max(insets.bottom, 16) + 24 }]}>
         <View style={styles.header}>
-          <Text style={styles.logo}>Clubvel</Text>
-          <Text style={styles.headerSubtitle}>Your club. Your money. Your rules.</Text>
+          <Image source={require('../assets/images/clubvel-midnight-symbol.png')} accessibilityLabel="Clubvel community logo" resizeMode="contain" style={styles.authLogo} />
+          <Text style={[styles.logo, { fontWeight: '400', fontSize: 26 }]}>clubvel</Text>
         </View>
 
         <View style={styles.form}>
           {!isLogin && (
             <>
-              <Text style={styles.sectionTitle}>Sign Up</Text>
+              <Text style={[styles.sectionTitle, styles.authTitle]}>Create your account</Text>
               
               <TextInput
-                style={styles.input}
-                placeholder="Full Name"
+                style={[styles.input, styles.authInput]}
+                accessibilityLabel="Full name" placeholder="Full name" placeholderTextColor="#D5E1F2"
                 value={fullName}
                 onChangeText={setFullName}
               />
 
               <TextInput
-                style={styles.input}
-                placeholder="Phone Number"
+                style={[styles.input, styles.authInput]}
+                accessibilityLabel="Phone number" placeholder="Phone number" placeholderTextColor="#D5E1F2"
                 value={phoneNumber}
                 onChangeText={setPhoneNumber}
                 keyboardType="phone-pad"
@@ -438,37 +440,38 @@ export default function AuthScreen() {
 
               <View style={{ position: 'relative' }}>
                 <TextInput
-                  style={styles.input}
-                  placeholder="Password"
+                  style={[styles.input, styles.authInput]}
+                  accessibilityLabel="Password" placeholder="Password" placeholderTextColor="#D5E1F2"
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
                 />
                 <TouchableOpacity
                   onPress={() => setShowPassword(!showPassword)}
-                  style={{ position: 'absolute', right: 18, top: 18 }}
+                  accessibilityRole="button" accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                  style={{ position: 'absolute', right: 8, top: 5, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
                 >
                   <Ionicons
                     name={showPassword ? 'eye-off-outline' : 'eye-outline'}
                     size={24}
-                    color="gray"
+                    color="#FFFFFF"
                   />
                 </TouchableOpacity>
               </View>
 
               <TouchableOpacity
-                style={[styles.button, loading && styles.buttonDisabled]}
+                style={[styles.button, styles.authSignIn, loading && styles.buttonDisabled]}
                 onPress={handleProceedToConsent}
                 disabled={loading}
               >
-                <Text style={styles.buttonText}>
+                <Text style={[styles.buttonText, { color: Colors.primary, fontWeight: '500' }]}>
                   {loading ? 'Creating Account...' : 'Sign Up'}
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity onPress={() => setIsLogin(true)}>
-                <Text style={styles.switchText}>
-                  Already a member? <Text style={{ color: Colors.gold }}>Sign In</Text>
+                <Text style={[styles.switchText, styles.authLink]}>
+                  Already a member? <Text style={{ color: Colors.corporateBlue }}>Sign In</Text>
                 </Text>
               </TouchableOpacity>
             </>
@@ -476,11 +479,12 @@ export default function AuthScreen() {
 
           {isLogin && (
             <>
-              <Text style={styles.sectionTitle}>Sign In</Text>
+              <Text style={[styles.sectionTitle, styles.authTitle]}>Save, Plan, Grow Together</Text>
+              <Text style={styles.authSubtitle}>Sign in to continue</Text>
               
               <TextInput
-                style={styles.input}
-                placeholder="Phone Number"
+                style={[styles.input, styles.authInput]}
+                accessibilityLabel="Phone number" placeholder="Phone number" placeholderTextColor="#D5E1F2"
                 value={phoneNumber}
                 onChangeText={setPhoneNumber}
                 keyboardType="phone-pad"
@@ -488,35 +492,36 @@ export default function AuthScreen() {
 
               <View style={{ position: 'relative' }}>
                 <TextInput
-                style={styles.input}
-                placeholder="Password"
+                style={[styles.input, styles.authInput]}
+                accessibilityLabel="Password" placeholder="Password" placeholderTextColor="#D5E1F2"
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
               />
               <TouchableOpacity
               onPress={() => setShowPassword(!showPassword)}
-              style={{ position: 'absolute', right: 18, top: 18 }}
+              accessibilityRole="button" accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                  style={{ position: 'absolute', right: 8, top: 5, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
               >
-              <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={24} color="gray" />
+              <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={24} color="#FFFFFF" />
               </TouchableOpacity>
             </View>
               <TouchableOpacity
-                style={[styles.button, loading && styles.buttonDisabled]}
-                onPress={handleLogin}
+                style={[styles.button, styles.authSignIn, loading && styles.buttonDisabled]}
+                accessibilityRole="button" accessibilityLabel="Sign In" onPress={handleLogin}
                 disabled={loading}
               >
-                <Text style={styles.buttonText}>
+                <Text style={[styles.buttonText, { color: Colors.primary, fontWeight: '500' }]}>
                   {loading ? 'Signing In...' : 'Sign In'}
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity onPress={() => setShowForgotPassword(true)}>
-                <Text style={styles.forgotPasswordText}>Forgot Password?</Text>
+                <Text style={[styles.forgotPasswordText, styles.authLink]}>Forgot Password?</Text>
               </TouchableOpacity>
 
               <TouchableOpacity onPress={() => setIsLogin(false)}>
-                <Text style={styles.switchText}>New to Clubvel? Sign Up</Text>
+                <Text style={[styles.switchText, styles.authLink]}>New to Clubvel? Sign Up</Text>
               </TouchableOpacity>
             </>
           )}
@@ -621,7 +626,8 @@ export default function AuthScreen() {
                     />
                     <TouchableOpacity
                       onPress={() => setShowNewPassword(!showNewPassword)}
-                      style={{ position: 'absolute', right: 18, top: 18 }}
+                      accessibilityRole="button" accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                  style={{ position: 'absolute', right: 8, top: 5, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
                     >
                       <Ionicons
                         name={showNewPassword ? 'eye-off-outline' : 'eye-outline'}
@@ -641,7 +647,8 @@ export default function AuthScreen() {
                     />
                     <TouchableOpacity
                       onPress={() => setShowConfirmPassword(!showConfirmPassword)}
-                      style={{ position: 'absolute', right: 18, top: 18 }}
+                      accessibilityRole="button" accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
+                  style={{ position: 'absolute', right: 8, top: 5, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
                     >
                       <Ionicons
                         name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
@@ -674,6 +681,13 @@ export default function AuthScreen() {
 }
 
 const styles = StyleSheet.create({
+  authPage: { backgroundColor: Colors.primary },
+  authLogo: { width: 108, height: 108, marginBottom: 8 },
+  authTitle: { color: Colors.white, fontWeight: '400', fontSize: 27, marginBottom: 8 },
+  authSubtitle: { color: '#D5E1F2', fontSize: 16, marginBottom: 24 },
+  authInput: { backgroundColor: '#123C70', borderColor: '#7F9BBD', color: Colors.white, minHeight: 54, borderRadius: 18, paddingRight: 52 },
+  authSignIn: { backgroundColor: Colors.signInAction, minHeight: 54, borderRadius: 18 },
+  authLink: { color: '#C3E3FF', fontWeight: '400', minHeight: 44, paddingVertical: 10 },
   container: {
     flex: 1,
     backgroundColor: Colors.lightBackground,
@@ -773,7 +787,7 @@ const styles = StyleSheet.create({
     fontWeight: '600',
   },
   forgotPasswordText: {
-    color: Colors.gold,
+    color: Colors.corporateBlue,
     fontSize: 16,
     textAlign: 'center',
     fontWeight: '600',

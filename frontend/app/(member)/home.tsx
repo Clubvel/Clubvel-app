@@ -1,8 +1,11 @@
-import React, { useCallback, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image, TextInput, Platform, KeyboardAvoidingView } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
-import { StatusPill } from '../../components/StatusPill';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
+import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
+import { clubGreeting } from '../../services/clubGreeting';
 import { AdBanner } from '../../components/AdBanner';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
@@ -12,8 +15,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 interface Club {
   id: string;
   name: string;
-  member_count: number;
+  group_photo?: string | null;
+  member_count?: number | null;
   monthly_contribution: number;
+  group_type?: string;
+  contribution_mode?: string;
+  target_amount_per_member?: number | null;
   status: string;
   status_label: string;
   role: 'member' | 'admin' | 'treasurer';
@@ -27,6 +34,8 @@ interface DashboardData {
   };
   summary: {
     total_saved: number;
+    confirmed_collected?: number | null;
+    confirmed_collected_availability?: "AVAILABLE" | "UNAVAILABLE";
     active_clubs: number;
     days_until_next_claim: number | null;
     overdue_contributions: number;
@@ -49,11 +58,13 @@ interface PendingInvitation {
 
 export default function MemberHomeScreen() {
   const { user, token, logout } = useAuth();
+  const accountInsets = useSafeAreaInsets();
+  const [administrationExpanded, setAdministrationExpanded] = useState(false);
   const router = useRouter();
-  const dashboardScroll = useRef<ScrollView>(null);
-  const clubsOffset = useRef(0);
-  const [dashboardData, setDashboardData] = useState<DashboardData | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [photoExpanded, setPhotoExpanded] = useState(false);
+  const [storedDashboardData, setDashboardData] = useState<DashboardData | null>(null);
+  const [storedLoading, setLoading] = useState(true);
+  const [storedDashboardError, setDashboardError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
   const [showProfileMenu, setShowProfileMenu] = useState(false);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
@@ -64,13 +75,49 @@ export default function MemberHomeScreen() {
   const [groupType, setGroupType] = useState('savings');
   const [monthlyContribution, setMonthlyContribution] = useState('');
   const [paymentDueDate, setPaymentDueDate] = useState('25');
-  const [pendingInvitations, setPendingInvitations] = useState<PendingInvitation[]>([]);
+  const [storedInvitations, setStoredInvitations] = useState<PendingInvitation[]>([]);
   const [acceptingInvitation, setAcceptingInvitation] = useState<string | null>(null);
   const [showInvitations, setShowInvitations] = useState(false);
   const [invitationsLoading, setInvitationsLoading] = useState(false);
   const [invitationsError, setInvitationsError] = useState<string | null>(null);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+  const sessionKey = JSON.stringify([API_URL, user?.id, token]);
+  const latestSession = useRef(sessionKey);
+  latestSession.current = sessionKey;
+  const [clubList, setClubList] = useState({ owner: sessionKey, expanded: false });
+  const clubsExpanded = clubList.owner === sessionKey && clubList.expanded;
+  const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
+  const [errorOwner, setErrorOwner] = useState<string | null>(null);
+  const dashboardData = dashboardOwner === sessionKey ? storedDashboardData : null;
+  const dashboardError = errorOwner === sessionKey ? storedDashboardError : null;
+  const latestDashboard = useRef(dashboardData); latestDashboard.current = dashboardData;
+  const loading = storedLoading || (!dashboardData && !dashboardError);
+  const [invitationOwner, setInvitationOwner] = useState<string | null>(null);
+  const pendingInvitations = invitationOwner === sessionKey ? storedInvitations : [];
+  const setPendingInvitations = useCallback((invitations: PendingInvitation[]) => {
+    setStoredInvitations(invitations);
+    setInvitationOwner(sessionKey);
+  }, [sessionKey]);
+  useEffect(() => {
+    setDashboardData(null);
+    setDashboardOwner(null);
+    setDashboardError(null);
+    setErrorOwner(null);
+    setLoading(true);
+    setRefreshing(false);
+    setStoredInvitations([]);
+    setInvitationOwner(null);
+    setShowInvitations(false);
+    setInvitationsError(null);
+    setInvitationsLoading(false);
+    setAcceptingInvitation(null);
+    setShowProfileMenu(false);
+    setAdministrationExpanded(false);
+    setShowDeleteModal(false);
+    setShowCreateGroup(false);
+    setPhotoExpanded(false);
+  }, [sessionKey]);
   const dashboardRequest = useRef(0);
   const dashboardInFlight = useRef<{ key: string; promise: Promise<void> } | null>(null);
 
@@ -146,43 +193,49 @@ export default function MemberHomeScreen() {
   const fetchDashboard = useCallback((force = false) => {
     if (!user?.id || !token) return Promise.resolve();
     const key = JSON.stringify([API_URL, user.id, token]);
+    if (latestSession.current !== key) return Promise.resolve();
     if (!force && dashboardInFlight.current?.key === key) {
       return dashboardInFlight.current.promise;
     }
     const request = ++dashboardRequest.current;
     const promise = (async () => {
       try {
-        const [dashboardResponse, invitationsResponse] = await Promise.all([
-          axios.get(`${API_URL}/api/member/dashboard/${user.id}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-          axios.get(`${API_URL}/api/invitations/pending/${user.id}`, {
-            headers: { Authorization: `Bearer ${token}` },
-          }),
-        ]);
-        if (request === dashboardRequest.current) {
-          setDashboardData(dashboardResponse.data);
-          setPendingInvitations(invitationsResponse.data.invitations || []);
+        setDashboardError(null);
+        const dashboardPromise = axios.get(`${API_URL}/api/member/dashboard/${user.id}`, {
+          headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+        });
+        // Invitations must not block an otherwise ready dashboard.
+        const invitationsPromise = axios.get(`${API_URL}/api/invitations/pending/${user.id}`, {
+          headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+        }).then(response => {
+          if (request === dashboardRequest.current && latestSession.current === key) setPendingInvitations(response.data.invitations || []);
+        }).catch(() => {
+          if (request === dashboardRequest.current && latestSession.current === key) setInvitationsError('Could not refresh invitations. Open invitations to retry.');
+        });
+        try {
+          const response = await dashboardPromise;
+          if (request === dashboardRequest.current && latestSession.current === key) { setDashboardData(response.data); setDashboardOwner(key); }
+        } catch (error: any) {
+          if (request === dashboardRequest.current && latestSession.current === key) { setDashboardError(error.response?.status === 409 ? 'Your contribution totals are unavailable because payment records need checking. Please contact your group administrator.' : 'Could not refresh your dashboard.'); setErrorOwner(key); }
+          console.error('Error fetching dashboard:', error);
+        } finally {
+          if (request === dashboardRequest.current && latestSession.current === key) { setLoading(false); setRefreshing(false); }
         }
-      } catch (error) {
-        console.error('Error fetching dashboard:', error);
+        await invitationsPromise;
       } finally {
-        if (request === dashboardRequest.current) {
-          setLoading(false);
-          setRefreshing(false);
-          dashboardInFlight.current = null;
-        }
+        if (request === dashboardRequest.current && latestSession.current === key) dashboardInFlight.current = null;
       }
     })();
     dashboardInFlight.current = { key, promise };
     return promise;
-  }, [API_URL, user?.id, token]);
+  }, [API_URL, user?.id, token, setPendingInvitations]);
 
   useFocusEffect(useCallback(() => {
     void fetchDashboard();
   }, [fetchDashboard]));
 
   const onRefresh = () => {
+    if (latestSession.current !== sessionKey) return;
     setRefreshing(true);
     void fetchDashboard(true);
   };
@@ -208,14 +261,12 @@ export default function MemberHomeScreen() {
   };
 
   const openClub = (club: Club) => {
-    if (club.role === 'admin' || club.role === 'treasurer') {
-      router.push({
-        pathname: '/(treasurer)/club-detail',
-        params: { id: club.id, name: club.name, from: 'member' }
-      });
-      return;
-    }
-    router.push(`/(member)/club/${club.id}`);
+    if (latestSession.current !== sessionKey || !latestDashboard.current?.clubs.some(current => current.id === club.id)) return;
+    router.push({ pathname: '/club/[id]', params: { id: club.id, from: 'member' } });
+  };
+  const openAdministration = (club: Club) => {
+    if (latestSession.current !== sessionKey || !latestDashboard.current?.clubs.some(current => current.id === club.id && ['admin', 'treasurer'].includes(current.role))) return;
+    router.push({ pathname: '/(treasurer)/dashboard', params: { groupId: club.id } });
   };
 
   const createGroup = async () => {
@@ -270,6 +321,9 @@ export default function MemberHomeScreen() {
   };
 
   const openInvitations = async () => {
+    if (!user?.id || !token) return;
+    const key = sessionKey;
+    if (latestSession.current !== key) return;
     const request = dashboardRequest.current;
     setShowInvitations(true);
     setInvitationsLoading(true);
@@ -278,15 +332,17 @@ export default function MemberHomeScreen() {
       const response = await axios.get(`${API_URL}/api/invitations/pending/${user?.id}`, {
         headers: { Authorization: `Bearer ${token}` },
       });
-      if (request === dashboardRequest.current) setPendingInvitations(response.data.invitations || []);
+      if (request === dashboardRequest.current && latestSession.current === key) setPendingInvitations(response.data.invitations || []);
     } catch (error: any) {
-      setInvitationsError(error.response?.data?.detail || 'Could not load invitations. Please try again.');
+      if (latestSession.current === key && request === dashboardRequest.current) setInvitationsError(error.response?.data?.detail || 'Could not load invitations. Please try again.');
     } finally {
-      setInvitationsLoading(false);
+      if (latestSession.current === key && request === dashboardRequest.current) setInvitationsLoading(false);
     }
   };
 
   const acceptInvitation = async (invitation: PendingInvitation) => {
+    const key = sessionKey;
+    if (latestSession.current !== key) return;
     ++dashboardRequest.current;
     dashboardInFlight.current = null;
     setAcceptingInvitation(invitation.id);
@@ -297,7 +353,9 @@ export default function MemberHomeScreen() {
       }, {
         headers: { Authorization: `Bearer ${token}` },
       });
+      if (latestSession.current !== key) return;
       await fetchDashboard(true);
+      if (latestSession.current !== key) return;
       if (invitation.intended_role === 'admin') {
         const active = response.data.admin_access === true;
         Alert.alert(active ? 'Admin invitation accepted' : 'Invitation processed',
@@ -307,14 +365,17 @@ export default function MemberHomeScreen() {
         Alert.alert('Group joined', `You are now a member of ${invitation.group_name}.`);
       }
     } catch (error: any) {
+      if (latestSession.current !== key) return;
       void fetchDashboard(true);
       Alert.alert('Could not accept invitation', error.response?.data?.detail || 'Please try again.');
     } finally {
-      setAcceptingInvitation(null);
+      if (latestSession.current === key) setAcceptingInvitation(null);
     }
   };
 
   const declineInvitation = async (invitation: PendingInvitation) => {
+    const key = sessionKey;
+    if (latestSession.current !== key) return;
     ++dashboardRequest.current;
     dashboardInFlight.current = null;
     setAcceptingInvitation(invitation.id);
@@ -322,101 +383,65 @@ export default function MemberHomeScreen() {
       await axios.post(`${API_URL}/api/invitations/decline`, {
         invitation_id: invitation.id, user_id: user?.id,
       }, { headers: { Authorization: `Bearer ${token}` } });
+      if (latestSession.current !== key) return;
       await fetchDashboard(true);
+      if (latestSession.current !== key) return;
       Alert.alert('Invitation declined', 'No membership or Admin access was granted.');
     } catch (error: any) {
+      if (latestSession.current !== key) return;
       void fetchDashboard(true);
       Alert.alert('Could not decline invitation', error.response?.data?.detail || 'Please try again.');
-    } finally { setAcceptingInvitation(null); }
+    } finally { if (latestSession.current === key) setAcceptingInvitation(null); }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.container}>
-        <View style={styles.header}>
-          <Text style={styles.brandName}>Clubvel</Text>
-        </View>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.mediumGreen} />
-        </View>
-      </View>
-    );
-  }
 
   return (
     <View style={{ flex: 1 }}>
-      <ScrollView ref={dashboardScroll}
+      <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
+      <ScrollView
         style={styles.container}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
         {/* Header */}
-        <View style={styles.header}>
-          <Text style={styles.brandName}>Clubvel</Text>
+        <View style={[styles.header, { paddingTop: Math.max(accountInsets.top, 16) }]}>
+          <View style={styles.headerTitleRow}>
+            <View style={styles.headerSide} />
+            <Text accessibilityRole="header" style={styles.brandName}>Clubvel</Text>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open profile menu" onPress={() => setShowProfileMenu(true)} style={styles.headerSide}>
+              <Ionicons name="menu" size={22} color={Colors.white} />
+            </TouchableOpacity>
+          </View>
+          <View style={styles.welcomeRow}>
           <TouchableOpacity 
             style={styles.avatarButton}
             accessibilityRole="button"
-            accessibilityLabel="Open profile menu"
-            onPress={() => setShowProfileMenu(true)}
+            accessibilityLabel="Expand profile photo"
+            onPress={() => user?.profile_photo ? setPhotoExpanded(true) : setShowProfileMenu(true)}
           >
-            {user?.profile_photo ? (
+            <ProfilePhotoFrame>{user?.profile_photo ? (
               <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
             ) : (
               <View style={styles.avatar}>
                 <Ionicons name="person" size={32} color={Colors.white} />
               </View>
-            )}
+            )}</ProfilePhotoFrame>
           </TouchableOpacity>
-        </View>
-
-        {/* Summary Cards */}
-        <View style={styles.summaryContainer}>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Contributions</Text>
-          <Text style={[styles.summaryValue, { color: Colors.statusPaid }]}>
-            R{dashboardData?.summary.total_saved.toFixed(2) || '0.00'}
-          </Text>
-        </View>
-
-        <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Show My Clubs" activeOpacity={0.75} onPress={() => dashboardScroll.current?.scrollTo({ y: clubsOffset.current, animated: true })}>
-          <Text style={styles.summaryLabel}>Groups &amp; Clubs</Text>
-          <View>
-            <Text style={styles.summaryValue}>{dashboardData?.summary.active_clubs || 0}</Text>
-            <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} style={{ position: 'absolute', top: '100%', left: 0 }} />
+            <Text style={styles.greeting}>{clubGreeting(user?.full_name)}</Text>
           </View>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.summaryContainer}>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Upcoming Payments</Text>
-          <Text style={[styles.summaryValue, { color: Colors.statusLate }]}>{dashboardData?.summary.upcoming_payments || 0}</Text>
         </View>
 
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Claims</Text>
-          <Text style={styles.summaryValue}>{dashboardData?.summary.claims_count || 0}</Text>
-        </View>
-      </View>
-
-      <View style={styles.summaryContainer}>
-        <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Show approved claims awaiting payout" activeOpacity={0.75} onPress={() => router.push({ pathname: "/(member)/claims", params: { view: "payouts", claim_id: "" } })}>
-          <Text style={styles.summaryLabel}>Upcoming Payouts</Text>
-          <View>
-            <Text style={[styles.summaryValue, { color: Colors.accent }]}>
-              R{(dashboardData?.summary.upcoming_payout_amount ?? 0).toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
-            </Text>
-            <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} style={{ position: 'absolute', top: '100%', left: 0 }} />
-          </View>
-        </TouchableOpacity>
-      </View>
-
+        {!!dashboardError && !!dashboardData && <Text accessibilityRole="alert">{dashboardError} Pull down to refresh.</Text>}
+      {loading ? <View style={styles.loadingContainer}><ActivityIndicator size="large" color={Colors.primary} /><Text>Loading clubs…</Text></View> : dashboardError && !dashboardData ?
+        <View style={styles.loadingContainer}><Text>{dashboardError}</Text><TouchableOpacity onPress={() => { setLoading(true); void fetchDashboard(); }}><Text>Retry</Text></TouchableOpacity></View> : (<>
       {/* My Clubs Section */}
-      <View style={styles.section} onLayout={event => { clubsOffset.current = event.nativeEvent.layout.y; }}>
-        <Text style={styles.sectionTitle}>My Clubs</Text>
+      <View style={styles.section}>
+        <TouchableOpacity accessibilityRole="button" accessibilityLabel="My Clubs & Stokvels" accessibilityState={{ expanded: clubsExpanded }} style={styles.clubListHeader} onPress={() => { if (latestSession.current === sessionKey) setClubList({ owner: sessionKey, expanded: !clubsExpanded }); }}>
+          <Text style={styles.clubListTitle}>My Clubs &amp; Stokvels</Text><Ionicons name={clubsExpanded ? 'chevron-up' : 'chevron-down'} size={20} color={Colors.white} />
+        </TouchableOpacity>
 
-        {pendingInvitations.length > 0 && (
+        {clubsExpanded && pendingInvitations.length > 0 && (
           <View style={styles.invitationsSection}>
             <Text style={styles.invitationsTitle}>Pending Invitations</Text>
             {pendingInvitations.map((invitation) => (
@@ -452,49 +477,34 @@ export default function MemberHomeScreen() {
           </View>
         )}
 
-        {dashboardData?.clubs && dashboardData.clubs.length > 0 ? (
-          dashboardData.clubs.map((club) => (
-            <TouchableOpacity
-              key={club.id}
-              style={styles.clubCard}
-              onPress={() => openClub(club)}
-            >
-              <View style={styles.clubCardHeader}>
-                <View style={styles.clubInfo}>
-                  <Text style={styles.clubName}>{club.name}</Text>
-                  <View style={styles.clubMeta}>
-                    <Ionicons name="people" size={14} color={Colors.textSecondary} />
-                    <Text style={styles.clubMetaText}>{club.member_count} members</Text>
-                    <Text style={styles.clubMetaText}> • </Text>
-                    <Text style={styles.clubMetaText}>R{club.monthly_contribution}/month</Text>
-                  </View>
-                </View>
-                <StatusPill status={club.status} label={club.status_label === 'No contribution recorded' ? 'No contributions yet' : club.status_label}
-                  subtleAccent={club.status_label === 'Goal based' || club.status_label === 'No contribution recorded' || club.status_label === 'No contributions yet'} />
-              </View>
+        {clubsExpanded && <ScrollView nestedScrollEnabled style={styles.clubList} accessibilityLabel="Your clubs and stokvels">
+          {dashboardData?.clubs?.length ? dashboardData.clubs.map(club => <View key={club.id} style={styles.clubListItem}>
+            <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${club.name}`} style={styles.clubListEntry} onPress={() => { if (latestSession.current !== sessionKey) return; setClubList({ owner: sessionKey, expanded: false }); if (['admin', 'treasurer'].includes(club.role)) openAdministration(club); else openClub(club); }}>
+              <View style={styles.clubListImage}>{club.group_photo ? <Image source={{ uri: club.group_photo }} resizeMode="cover" style={styles.clubListImage} /> : <Text style={{ color: Colors.primary }}>{club.name.trim().charAt(0).toUpperCase()}</Text>}</View>
+              <View style={{ flex: 1, minWidth: 0 }}><Text style={styles.clubListName}>{club.name}</Text><Text style={styles.clubMetaText}>{club.role === 'admin' ? 'Admin' : club.role === 'treasurer' ? 'Treasurer' : 'Member'}</Text><Text style={styles.clubMetaText}>{typeof club.member_count === 'number' && Number.isInteger(club.member_count) && club.member_count > 0 ? `${club.member_count} ${club.member_count === 1 ? 'member' : 'members'}` : 'Member count unavailable'}</Text></View>
+              <Ionicons name="chevron-forward" size={18} color={Colors.primary} />
             </TouchableOpacity>
-          ))
-        ) : (
-          <View style={styles.emptyState}>
-            <Ionicons name="people-outline" size={48} color={Colors.textMuted} />
-            <Text style={styles.emptyStateText}>No clubs yet</Text>
-            <Text style={styles.emptyStateSubtext}>Create a Stokvel, Social Club or Society Group, or join one through an invitation.</Text>
-          </View>
-        )}
+            {(club.role === 'admin' || club.role === 'treasurer') && <View style={styles.clubActions}>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${club.name} administration`} style={styles.clubAdministration} onPress={() => { if (latestSession.current !== sessionKey) return; setClubList({ owner: sessionKey, expanded: false }); openAdministration(club); }}><Text style={styles.clubAdministrationText}>Admin dashboard</Text></TouchableOpacity>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel={`View ${club.name} as member`} style={styles.clubMemberAction} onPress={() => { if (latestSession.current !== sessionKey) return; setClubList({ owner: sessionKey, expanded: false }); openClub(club); }}><Text style={styles.clubMemberText}>View as member</Text></TouchableOpacity>
+            </View>}
+          </View>) : <View style={styles.emptyState}><Text style={styles.emptyStateText}>No clubs yet</Text><Text style={styles.emptyStateSubtext}>Create a Stokvel, Social Club or Society Group, or join one through an invitation.</Text></View>}
+        </ScrollView>}
         <View style={styles.primaryActions}>
-          <TouchableOpacity style={styles.createButton} onPress={() => setShowCreateGroup(true)}>
-            <Ionicons name="add" size={20} color={Colors.white} />
-            <Text style={styles.createButtonText}>Create Group</Text>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Create a Club" style={styles.createButton} onPress={() => setShowCreateGroup(true)}>
+            <Ionicons name="add-circle" size={32} color={Colors.primary} />
+            <Text style={styles.createButtonText}>Create a Club</Text>
           </TouchableOpacity>
-          <TouchableOpacity style={styles.inviteButton} onPress={openInvitations}>
-            <Ionicons name="mail-outline" size={20} color={Colors.accent} />
-            <Text style={styles.inviteButtonText}>Join Group</Text>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Join a Club" style={styles.inviteButton} onPress={openInvitations}>
+            <Ionicons name="people-circle" size={32} color={Colors.primary} />
+            <Text style={styles.inviteButtonText}>Join a Club</Text>
           </TouchableOpacity>
         </View>
       </View>
 
       {/* Advertisement Banner */}
       <AdBanner size="banner" />
+     </>)}
     </ScrollView>
 
     {/* Member Account Panel */}
@@ -513,28 +523,48 @@ export default function MemberHomeScreen() {
           accessibilityLabel="Close account panel backdrop"
         />
         <View style={styles.dropdownMenu} accessibilityViewIsModal>
-          <View style={styles.accountToolbar}>
-            <Text style={styles.accountTitle}>My Clubvel</Text>
+          <View style={[styles.accountToolbar, { paddingTop: Math.max(accountInsets.top, 8) }]}>
+            <Text style={styles.accountTitle}>Clubvel</Text>
             <TouchableOpacity style={styles.accountClose} onPress={() => setShowProfileMenu(false)} accessibilityRole="button" accessibilityLabel="Close account panel">
-              <Ionicons name="close" size={26} color={Colors.textPrimary} />
+              <Ionicons name="close" size={26} color={Colors.white} />
             </TouchableOpacity>
           </View>
-          <ScrollView style={styles.accountScroll} contentContainerStyle={styles.accountContent}>
+          <ScrollView key={administrationExpanded ? "administration" : "account"} style={styles.accountScroll} contentContainerStyle={styles.accountContent}>
             <View style={styles.dropdownHeader}>
-              {user?.profile_photo ? (
+              <TouchableOpacity style={{ minWidth: 112, minHeight: 112 }} onPress={() => { if (user?.profile_photo) { setShowProfileMenu(false); setPhotoExpanded(true); } }} accessibilityRole="button" accessibilityLabel="View full-size profile photo">
+              <ProfilePhotoFrame>{user?.profile_photo ? (
                 <Image source={{ uri: user.profile_photo }} style={styles.dropdownAvatar} resizeMode="cover" />
               ) : (
                 <View style={styles.dropdownAvatar}>
-                  <Text style={styles.dropdownAvatarText}>{dashboardData?.user.first_name.charAt(0)}</Text>
+                  <Text style={styles.dropdownAvatarText}>{(user?.full_name || '').trim().charAt(0).toUpperCase() || '?'}</Text>
                 </View>
-              )}
+              )}</ProfilePhotoFrame>
+              </TouchableOpacity>
               <View style={styles.dropdownUserInfo}>
-                <Text style={styles.dropdownUserName}>{dashboardData?.user.full_name}</Text>
+                <Text style={styles.dropdownUserName}>{user?.full_name}</Text>
                 <Text style={styles.dropdownUserRole}>
-                  {dashboardData ? `Member of ${dashboardData.summary.active_clubs} ${dashboardData.summary.active_clubs === 1 ? 'Clubvel' : 'Clubvels'}` : 'Member'}
+                  {dashboardData ? `Member of ${dashboardData.summary.active_clubs} ${dashboardData.summary.active_clubs === 1 ? 'Group' : 'Groups'}` : 'Member'}
                 </Text>
               </View>
             </View>
+            {administrationExpanded ? <>
+              <TouchableOpacity style={styles.dropdownItem} accessibilityRole="button" accessibilityLabel="Back to account menu" onPress={() => setAdministrationExpanded(false)}>
+                <Ionicons name="arrow-back" size={24} color={Colors.primary} /><Text style={styles.dropdownItemText}>Back to account menu</Text>
+              </TouchableOpacity>
+              <Text style={[styles.dropdownItemText, { paddingHorizontal: 24, paddingVertical: 12 }]}>Choose a club to administer</Text>
+            {dashboardData?.clubs.filter(club => club.role === 'admin' || club.role === 'treasurer').map(club => (
+              <TouchableOpacity key={club.id} style={styles.dropdownItem} accessibilityRole="button" accessibilityLabel={`Administer ${club.name}`} onPress={() => {
+                if (latestSession.current !== sessionKey || !latestDashboard.current?.clubs.some(current => current.id === club.id && (current.role === 'admin' || current.role === 'treasurer'))) return;
+                setShowProfileMenu(false);
+                setAdministrationExpanded(false);
+                router.push({ pathname: '/(treasurer)/dashboard', params: { groupId: club.id } });
+              }}>
+                <Ionicons name="people-outline" size={24} color={Colors.accent} />
+                <Text style={styles.dropdownItemText}>{club.name}</Text>
+                <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+              </TouchableOpacity>
+            ))}
+            </> : <>
             <View style={styles.dropdownDivider} />
             <TouchableOpacity style={styles.dropdownItem} onPress={navigateToProfile} accessibilityRole="button" accessibilityLabel="My Profile">
               <Ionicons name="person-outline" size={24} color={Colors.textPrimary} />
@@ -576,11 +606,15 @@ export default function MemberHomeScreen() {
               </View>
               <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
             </TouchableOpacity>
+            {dashboardData?.clubs.some(club => club.role === 'admin' || club.role === 'treasurer') && <TouchableOpacity style={styles.dropdownItem} accessibilityRole="button" accessibilityLabel="Club administration" onPress={() => {
+              if (latestSession.current !== sessionKey) return;
+              setAdministrationExpanded(true);
+            }}>
+              <Ionicons name="settings-outline" size={24} color={Colors.textPrimary} />
+              <View style={styles.dropdownItemCopy}><Text style={styles.dropdownItemText}>Club administration</Text><Text style={styles.dropdownDescription}>Open your authorised club dashboard</Text></View>
+              <Ionicons name="chevron-forward" size={18} color={Colors.textSecondary} />
+            </TouchableOpacity>}
             <View style={styles.dropdownDivider} />
-            <TouchableOpacity style={styles.dropdownItemLogout} onPress={handleLogout} accessibilityRole="button" accessibilityLabel="Sign Out">
-              <Ionicons name="log-out-outline" size={24} color={Colors.textPrimary} />
-              <Text style={styles.dropdownItemTextLogout}>Sign Out</Text>
-            </TouchableOpacity>
             <TouchableOpacity
               style={styles.dropdownItem}
               onPress={() => { setShowProfileMenu(false); setShowDeleteModal(true); }}
@@ -590,7 +624,13 @@ export default function MemberHomeScreen() {
               <Ionicons name="trash-outline" size={24} color={Colors.statusLate} />
               <Text style={[styles.dropdownItemText, styles.accountDeleteText]}>Delete My Account</Text>
             </TouchableOpacity>
+            </>}
           </ScrollView>
+          <View style={[styles.accountFooter, { paddingBottom: Math.max(accountInsets.bottom, 12) }]}>            <TouchableOpacity style={styles.dropdownItemLogout} onPress={handleLogout} accessibilityRole="button" accessibilityLabel="Sign Out">
+              <Ionicons name="log-out-outline" size={24} color={Colors.statusLate} />
+              <Text style={styles.dropdownItemTextLogout}>Sign Out</Text>
+            </TouchableOpacity>
+          </View>
         </View>
       </View>
     </Modal>
@@ -789,27 +829,17 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.darkGreen,
-    paddingTop: 52,
-    paddingBottom: 16,
-    paddingHorizontal: 24,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 16,
+    backgroundColor: Colors.primary,
+    paddingBottom: 22,
+    paddingHorizontal: 20,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
   },
-  brandName: {
-    flexShrink: 1,
-    fontSize: 24,
-    fontWeight: '700',
-    color: Colors.white,
-    letterSpacing: 0.2,
-  },
-  greeting: {
-    fontSize: 28,
-    fontWeight: 'bold',
-    color: Colors.white,
-  },
+  headerTitleRow: { flexDirection: 'row', alignItems: 'center', minHeight: 44 },
+  headerSide: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
+  welcomeRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 16 },
+  brandName: { flex: 1, minWidth: 0, fontSize: 26, fontWeight: '400', color: Colors.white, textAlign: 'center' },
+  greeting: { flex: 1, minWidth: 0, flexShrink: 1, fontSize: 21, lineHeight: 29, fontWeight: '400', color: Colors.white },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -860,31 +890,67 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     marginBottom: 16,
   },
+  clubImage: { width: 56, height: 56, borderRadius: 28, backgroundColor: Colors.iceBlue, alignItems: 'center', justifyContent: 'center', marginRight: 12 },
   clubCard: {
     backgroundColor: Colors.white,
-    padding: 16,
-    borderRadius: 12,
+    padding: 14,
+    borderRadius: 18,
+    elevation: 1,
     borderWidth: 1,
     borderColor: Colors.cardBorder,
     marginBottom: 12,
   },
+  clubListHeader: { backgroundColor: Colors.coralAction, borderColor: Colors.coralRed, borderWidth: 1, borderRadius: 14, padding: 16, minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  clubListTitle: { color: Colors.white, fontSize: 18, fontWeight: '400', flex: 1, minWidth: 0 },
+  clubList: { maxHeight: 360, marginTop: 8 }, clubListItem: { borderBottomWidth: 1, borderBottomColor: Colors.cardBorder, paddingVertical: 8 },
+  clubListEntry: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 64, paddingVertical: 8 },
+  clubListImage: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.iceBlue, alignItems: 'center', justifyContent: 'center' },
+  clubListName: { color: Colors.textPrimary, fontSize: 16, fontWeight: '400', flexShrink: 1 },
   clubCardHeader: {
     flexDirection: 'row',
     justifyContent: 'space-between',
-    alignItems: 'flex-start',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    rowGap: 8,
   },
+  clubActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
+  clubAdministration: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: 12, minHeight: 48, borderRadius: 8, backgroundColor: Colors.corporateBlue, flexGrow: 1 },
+  clubAdministrationText: { color: Colors.white, fontWeight: '600', flexShrink: 1 },
+  clubMemberAction: { minHeight: 48, padding: 12, justifyContent: 'center' },
+  clubMemberText: { color: Colors.primary, fontWeight: '600' },
   clubInfo: {
     flex: 1,
     marginRight: 12,
+  },
+  clubNameRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    marginBottom: 8,
   },
   clubName: {
     fontSize: 18,
     fontWeight: 'bold',
     color: Colors.textPrimary,
-    marginBottom: 8,
+  },
+  adminBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    backgroundColor: Colors.corporateBlue,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    borderRadius: 12,
+    gap: 4,
+  },
+  adminBadgeText: {
+    fontSize: 11,
+    fontWeight: '600',
+    color: Colors.white,
   },
   clubMeta: {
     flexDirection: 'row',
+    flexWrap: 'wrap',
     alignItems: 'center',
     gap: 4,
   },
@@ -919,11 +985,11 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   adCard: {
-    backgroundColor: Colors.lightGold,
+    backgroundColor: Colors.iceBlue,
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.gold,
+    borderColor: Colors.cardBorder,
   },
   adTitle: {
     fontSize: 16,
@@ -940,8 +1006,8 @@ const styles = StyleSheet.create({
     height: 36,
   },
   logoText: {
-    fontSize: 28,
-    fontWeight: 'bold',
+    fontSize: 23,
+    fontWeight: '400',
     color: Colors.white,
     letterSpacing: 1,
   },
@@ -950,75 +1016,74 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   avatar: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    backgroundColor: Colors.gold,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-  },
+   borderWidth: 1, borderColor: Colors.white, },
   avatarImage: {
-    width: 76,
-    height: 76,
-    borderRadius: 38,
-    borderWidth: 2,
-    borderColor: Colors.gold,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    borderWidth: 1,
+    borderColor: Colors.white,
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    alignItems: 'flex-end',
-    paddingVertical: 12,
+    backgroundColor: Colors.white,
+    alignItems: 'stretch',
   },
   dropdownMenu: {
     backgroundColor: Colors.white,
-    borderTopLeftRadius: 24,
-    borderBottomLeftRadius: 24,
-    width: '92%',
-    maxWidth: 420,
+    width: '100%',
     flex: 1,
     overflow: 'hidden',
   },
   accountToolbar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingLeft: 24, paddingRight: 12, paddingVertical: 8, gap: 12,
+    backgroundColor: Colors.primary,
   },
-  accountTitle: { color: Colors.textPrimary, fontSize: 18, fontWeight: '700', flexShrink: 1 },
+  accountTitle: { color: Colors.white, fontSize: 24, fontWeight: '700', flexShrink: 1 },
   accountClose: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
-  accountScroll: { flex: 1 },
+  accountScroll: { flex: 1, minHeight: 0 },
+  accountFooter: { backgroundColor: Colors.white, borderTopWidth: 1, borderTopColor: Colors.cardBorder },
   accountContent: { paddingBottom: 24 },
   dropdownHeader: {
-    padding: 24,
-    paddingTop: 12,
-    backgroundColor: Colors.lightBackground,
+    padding: 16,
+    paddingTop: 0,
+    backgroundColor: Colors.primary,
+    alignItems: 'center',
   },
   dropdownAvatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 2,
-    borderColor: Colors.gold,
-    backgroundColor: Colors.gold,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    borderWidth: 1,
+    borderColor: Colors.white,
+    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
   dropdownAvatarText: { fontSize: 30, fontWeight: 'bold', color: Colors.white },
-  dropdownUserInfo: { marginTop: 16, alignSelf: 'stretch' },
-  dropdownUserName: { fontSize: 26, fontWeight: 'bold', color: Colors.textPrimary },
-  dropdownUserRole: { fontSize: 15, color: Colors.textSecondary, marginTop: 6 },
+  dropdownUserInfo: { marginTop: 12, alignSelf: 'stretch' },
+  dropdownUserName: { fontSize: 20, fontWeight: 'bold', color: Colors.white, textAlign: 'center' },
+  dropdownUserRole: { fontSize: 15, color: Colors.white, marginTop: 6, textAlign: 'center' },
   dropdownDivider: { height: 1, backgroundColor: Colors.cardBorder, marginHorizontal: 24 },
   dropdownItem: {
-    flexDirection: 'row', alignItems: 'center', minHeight: 64,
-    paddingVertical: 18, paddingHorizontal: 24, gap: 12,
+    flexDirection: 'row', alignItems: 'center', minHeight: 52,
+    paddingVertical: 12, paddingHorizontal: 24, gap: 12,
   },
   dropdownItemCopy: { flex: 1, minWidth: 0 },
   dropdownItemText: { fontSize: 17, fontWeight: '600', color: Colors.textPrimary, flexShrink: 1 },
   dropdownDescription: { fontSize: 13, color: Colors.textSecondary, marginTop: 4 },
   dropdownItemLogout: {
-    flexDirection: 'row', alignItems: 'center', minHeight: 64,
-    paddingVertical: 18, paddingHorizontal: 24, gap: 12,
+    flexDirection: 'row', alignItems: 'center', minHeight: 52,
+    paddingVertical: 12, paddingHorizontal: 24, gap: 12,
   },
-  dropdownItemTextLogout: { fontSize: 17, color: Colors.textPrimary, fontWeight: '600', flexShrink: 1 },
+  dropdownItemTextLogout: { fontSize: 17, color: Colors.statusLate, fontWeight: '600', flexShrink: 1 },
   accountDeleteText: { color: Colors.statusLate, fontSize: 15 },
   // Delete Account Modal Styles
   deleteModalOverlay: {
@@ -1110,22 +1175,22 @@ const styles = StyleSheet.create({
   retryButton: { borderColor: Colors.accent, borderRadius: 9, borderWidth: 1, marginTop: 18, paddingHorizontal: 18, paddingVertical: 10 },
   retryButtonText: { color: Colors.accent, fontSize: 14, fontWeight: '700' },
   acceptButton: {
-    alignItems: 'center', backgroundColor: Colors.accent, borderRadius: 9,
+    alignItems: 'center', backgroundColor: Colors.primary, borderRadius: 9,
     justifyContent: 'center', minHeight: 38, minWidth: 76, paddingHorizontal: 14,
   },
   acceptButtonText: { color: Colors.white, fontSize: 14, fontWeight: '700' },
-  primaryActions: { gap: 12, marginTop: 16 },
+  primaryActions: { flexDirection: 'row', gap: 12, marginTop: 16 },
   createButton: {
-    alignItems: 'center', backgroundColor: Colors.primary, borderRadius: 12,
-    flexDirection: 'row', gap: 8, justifyContent: 'center', paddingVertical: 14,
+    flex: 1, minWidth: 0, minHeight: 104, borderWidth: 1, borderColor: Colors.cardBorder, alignItems: 'center', backgroundColor: Colors.white, borderRadius: 18,
+    flexDirection: 'column', gap: 8, justifyContent: 'center', paddingVertical: 14,
   },
-  createButtonText: { color: Colors.white, fontSize: 16, fontWeight: '700' },
+  createButtonText: { color: Colors.primary, fontSize: 15, fontWeight: '400' },
   inviteButton: {
-    alignItems: 'center', backgroundColor: Colors.white, borderColor: Colors.accent,
-    borderRadius: 12, borderWidth: 1, flexDirection: 'row', gap: 8,
+    flex: 1, minWidth: 0, minHeight: 104, alignItems: 'center', backgroundColor: Colors.white, borderColor: Colors.cardBorder,
+    borderRadius: 18, borderWidth: 1, flexDirection: 'column', gap: 8,
     justifyContent: 'center', paddingVertical: 14,
   },
-  inviteButtonText: { color: Colors.accent, fontSize: 16, fontWeight: '700' },
+  inviteButtonText: { color: Colors.primary, fontSize: 15, fontWeight: '400' },
   formOverlay: {
     backgroundColor: 'rgba(0, 0, 0, 0.55)', flex: 1, justifyContent: 'flex-end',
   },
@@ -1147,7 +1212,7 @@ const styles = StyleSheet.create({
     borderColor: Colors.cardBorder, borderRadius: 18, borderWidth: 1,
     paddingHorizontal: 12, paddingVertical: 8,
   },
-  typeButtonActive: { backgroundColor: Colors.accent, borderColor: Colors.accent },
+  typeButtonActive: { backgroundColor: Colors.primary, borderColor: Colors.accent },
   typeButtonText: { color: Colors.textSecondary, fontSize: 13, fontWeight: '600' },
   typeButtonTextActive: { color: Colors.white },
   formActions: { flexDirection: 'row', gap: 12, marginTop: 8 },
@@ -1157,7 +1222,7 @@ const styles = StyleSheet.create({
   },
   cancelButtonText: { color: Colors.textPrimary, fontSize: 16, fontWeight: '600' },
   submitButton: {
-    alignItems: 'center', backgroundColor: Colors.accent, borderRadius: 10,
+    alignItems: 'center', backgroundColor: Colors.primary, borderRadius: 10,
     flex: 1, paddingVertical: 14,
   },
   submitButtonText: { color: Colors.white, fontSize: 16, fontWeight: '700' },

@@ -6,6 +6,10 @@ import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import axios from 'axios';
+import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
+import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
+import EditProfile from '../../components/EditProfile';
+import ContactVisibilityPreference from '../../components/ContactVisibilityPreference';
 
 interface UserStats {
   clubs_count: number;
@@ -32,6 +36,7 @@ export default function ProfileScreen() {
   const { user, token, logout, updateProfilePhoto } = useAuth();
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
+  const [photoExpanded, setPhotoExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
   const [stats, setStats] = useState<UserStats>({ clubs_count: 0, total_saved: 0, on_time_percentage: 0, trust_score: null, date_joined: null });
   const [clubs, setClubs] = useState<Club[]>([]);
@@ -154,17 +159,18 @@ export default function ProfileScreen() {
 
   return (
     <View style={styles.container}>
+      <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.avatarContainer} onPress={handleChangePhoto} disabled={uploading}
-          accessibilityRole="button" accessibilityLabel="Change profile photo">
-          {user?.profile_photo ? (
+        <TouchableOpacity style={styles.avatarContainer} onPress={() => user?.profile_photo ? setPhotoExpanded(true) : handleChangePhoto()} disabled={uploading}
+          accessibilityRole="button" accessibilityLabel={user?.profile_photo ? "View full-size profile photo" : "Add profile photo"}>
+          <ProfilePhotoFrame>{user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
           ) : (
             <View style={styles.avatar}>
               <Ionicons name="person" size={32} color={Colors.white} />
             </View>
-          )}
+          )}</ProfilePhotoFrame>
           <View style={styles.editBadge}>
             {uploading ? (
               <ActivityIndicator size="small" color={Colors.white} />
@@ -177,12 +183,14 @@ export default function ProfileScreen() {
           <Text style={styles.photoActionText}>{uploading ? 'Updating photo…' : 'Change photo'}</Text>
         </TouchableOpacity>
         <Text style={styles.name}>{user?.full_name}</Text>
+        <EditProfile />
         {stats.date_joined && (
           <Text style={styles.memberSince}>Joined {new Date(stats.date_joined).toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' })}</Text>
         )}
       </View>
 
       <ScrollView style={styles.content}>
+        <ContactVisibilityPreference />
         {/* Stats - Dynamically loaded */}
         {loading ? (
           <View style={styles.statsLoading}>
@@ -338,7 +346,7 @@ export default function ProfileScreen() {
                 payoutSchedules.map((schedule, index) => (
                   <View key={index} style={styles.scheduleItem}>
                     <View style={styles.scheduleIcon}>
-                      <Ionicons name="calendar" size={24} color={Colors.gold} />
+                      <Ionicons name="calendar" size={24} color={Colors.corporateBlue} />
                     </View>
                     <View style={styles.scheduleInfo}>
                       <Text style={styles.scheduleName}>{schedule.club_name}</Text>
@@ -371,36 +379,36 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.darkGreen,
+    backgroundColor: Colors.primary,
     paddingTop: 50,
     paddingBottom: 20,
     paddingHorizontal: 24,
     alignItems: 'center',
   },
   photoActionText: {
-    color: Colors.accent,
+    color: Colors.white,
     fontSize: 14,
     fontWeight: '600',
     paddingVertical: 8,
   },
   avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: Colors.gold,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-  },
+   borderWidth: 1, borderColor: Colors.white, },
   avatarContainer: {
     position: 'relative',
     marginBottom: 12,
   },
   avatarImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    borderWidth: 3,
-    borderColor: Colors.gold,
+    width: 112,
+    height: 112,
+    borderRadius: 56,
+    borderWidth: 1,
+    borderColor: Colors.white,
   },
   editBadge: {
     position: 'absolute',
@@ -529,11 +537,11 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase',
   },
   adCard: {
-    backgroundColor: Colors.lightGold,
+    backgroundColor: Colors.iceBlue,
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.gold,
+    borderColor: Colors.cardBorder,
   },
   adTitle: {
     fontSize: 16,
@@ -629,7 +637,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: Colors.lightGold,
+    backgroundColor: Colors.iceBlue,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -654,7 +662,7 @@ const styles = StyleSheet.create({
     marginTop: 2,
   },
   schedulePosition: {
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.corporateBlue,
     paddingHorizontal: 12,
     paddingVertical: 6,
     borderRadius: 12,
