@@ -89,6 +89,7 @@ test('account tabs and existing financial screens are unchanged from Phase 3C', 
   const claimsActual = fs.readFileSync(path.join(root, claimsFile), 'utf8').replace(/\r\n/g, '\n');
   // Permit only the explicitly reviewed status-colour and rejection-panel edits.
   const presentationOnly = claimsActual
+      .replace(/\b(submitButton|confirmButton):\s*\{[^}]*\}/g,m=>m.replace('backgroundColor: Colors.coralAction, borderColor: Colors.coralRed, borderWidth: 1','backgroundColor: Colors.primary'))
       .replace("import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';\n", '')
       .replaceAll('<ProfilePhotoFrame>', '').replaceAll('</ProfilePhotoFrame>', '')
       .replace(/(profileImage: \{[^{}]*?borderWidth: )1/, '$12')

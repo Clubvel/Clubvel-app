@@ -22,6 +22,7 @@ function load(file, dependencies = {}) {
       if(!(name in dependencies))dependencies[name]={__esModule:true,default:component};
     }
   }
+  if (file === 'app/(member)/proofs.tsx' && !dependencies['../../services/contributionStatusCounts']) dependencies['../../services/contributionStatusCounts'] = load('services/contributionStatusCounts.ts');
   const module = { exports: {} };
   const code = ts.transpileModule(fs.readFileSync(path.join(__dirname, '..', file), 'utf8'), {
     compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.React, esModuleInterop: true },

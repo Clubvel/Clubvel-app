@@ -6,6 +6,8 @@ export const Colors = {
   secondaryHighlight: '#397F78',
   corporateBlue: '#0756C9',
   royalBlue: '#2677E8',
+  coralRed: '#FF403D',
+  coralAction: '#C92F2D', // Accessible coral fill for normal-size white control labels.
   iceBlue: '#DCEEFF',
   lightGrey: '#F7F8F4',
   primary: '#06285B',

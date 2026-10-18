@@ -1,4 +1,3 @@
-import { paymentMoney } from '../../services/paymentSummaryRecords';
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Alert, Modal, Image, TextInput, Platform, KeyboardAvoidingView } from 'react-native';
 import { useFocusEffect, useRouter } from 'expo-router';
@@ -63,8 +62,6 @@ export default function MemberHomeScreen() {
   const [administrationExpanded, setAdministrationExpanded] = useState(false);
   const router = useRouter();
   const [photoExpanded, setPhotoExpanded] = useState(false);
-  const dashboardScroll = useRef<ScrollView>(null);
-  const clubsOffset = useRef(0);
   const [storedDashboardData, setDashboardData] = useState<DashboardData | null>(null);
   const [storedLoading, setLoading] = useState(true);
   const [storedDashboardError, setDashboardError] = useState<string | null>(null);
@@ -90,17 +87,12 @@ export default function MemberHomeScreen() {
   latestSession.current = sessionKey;
   const [clubList, setClubList] = useState({ owner: sessionKey, expanded: false });
   const clubsExpanded = clubList.owner === sessionKey && clubList.expanded;
-  const showClubList = () => { if (latestSession.current !== sessionKey) return; setClubList({ owner: sessionKey, expanded: true }); dashboardScroll.current?.scrollTo({ y: clubsOffset.current, animated: true }); };
   const [dashboardOwner, setDashboardOwner] = useState<string | null>(null);
   const [errorOwner, setErrorOwner] = useState<string | null>(null);
   const dashboardData = dashboardOwner === sessionKey ? storedDashboardData : null;
   const dashboardError = errorOwner === sessionKey ? storedDashboardError : null;
   const latestDashboard = useRef(dashboardData); latestDashboard.current = dashboardData;
   const loading = storedLoading || (!dashboardData && !dashboardError);
-  const confirmedAmount = dashboardData?.summary.confirmed_collected;
-  const confirmedAmountAvailable = dashboardData?.summary.confirmed_collected_availability === 'AVAILABLE'
-    && typeof confirmedAmount === 'number' && Number.isFinite(confirmedAmount) && confirmedAmount >= 0;
-  const verifiedCount = (value: unknown) => typeof value === 'number' && Number.isInteger(value) && value >= 0 ? value : '—';
   const [invitationOwner, setInvitationOwner] = useState<string | null>(null);
   const pendingInvitations = invitationOwner === sessionKey ? storedInvitations : [];
   const setPendingInvitations = useCallback((invitations: PendingInvitation[]) => {
@@ -406,7 +398,7 @@ export default function MemberHomeScreen() {
   return (
     <View style={{ flex: 1 }}>
       <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
-      <ScrollView ref={dashboardScroll}
+      <ScrollView
         style={styles.container}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -444,12 +436,12 @@ export default function MemberHomeScreen() {
       {loading ? <View style={styles.loadingContainer}><ActivityIndicator size="large" color={Colors.primary} /><Text>Loading clubs…</Text></View> : dashboardError && !dashboardData ?
         <View style={styles.loadingContainer}><Text>{dashboardError}</Text><TouchableOpacity onPress={() => { setLoading(true); void fetchDashboard(); }}><Text>Retry</Text></TouchableOpacity></View> : (<>
       {/* My Clubs Section */}
-      <View style={styles.section} onLayout={event => { clubsOffset.current = event.nativeEvent.layout.y; }}>
+      <View style={styles.section}>
         <TouchableOpacity accessibilityRole="button" accessibilityLabel="My Clubs & Stokvels" accessibilityState={{ expanded: clubsExpanded }} style={styles.clubListHeader} onPress={() => { if (latestSession.current === sessionKey) setClubList({ owner: sessionKey, expanded: !clubsExpanded }); }}>
-          <Text style={styles.clubListTitle}>My Clubs &amp; Stokvels</Text><Ionicons name={clubsExpanded ? 'chevron-up' : 'chevron-down'} size={20} color={Colors.textPrimary} />
+          <Text style={styles.clubListTitle}>My Clubs &amp; Stokvels</Text><Ionicons name={clubsExpanded ? 'chevron-up' : 'chevron-down'} size={20} color={Colors.white} />
         </TouchableOpacity>
 
-        {pendingInvitations.length > 0 && (
+        {clubsExpanded && pendingInvitations.length > 0 && (
           <View style={styles.invitationsSection}>
             <Text style={styles.invitationsTitle}>Pending Invitations</Text>
             {pendingInvitations.map((invitation) => (
@@ -513,53 +505,6 @@ export default function MemberHomeScreen() {
       {/* Advertisement Banner */}
       <AdBanner size="banner" />
      </>)}
-      {/* Summary Cards */}
-        <View style={styles.summaryContainer}>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Contributions</Text>
-          {confirmedAmountAvailable ? <Text style={[styles.summaryValue, { color: Colors.statusPaid }]}>
-            {paymentMoney(confirmedAmount)}
-          </Text> : loading ? <ActivityIndicator accessibilityLabel="Loading contribution total" color={Colors.primary} /> :
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel="Retry contribution total" onPress={() => { setLoading(true); void fetchDashboard(); }}>
-              <Text style={{ color: Colors.textSecondary }}>Unable to load · Retry</Text>
-            </TouchableOpacity>}
-        </View>
-
-        <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Show My Clubs" activeOpacity={0.75} onPress={showClubList}>
-          <Text style={styles.summaryLabel}>Groups &amp; Clubs</Text>
-          <View>
-            <Text style={styles.summaryValue}>{verifiedCount(dashboardData?.summary.active_clubs)}</Text>
-            <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} style={{ position: 'absolute', top: '100%', left: 0 }} />
-          </View>
-        </TouchableOpacity>
-      </View>
-
-      <View style={styles.summaryContainer}>
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Upcoming Payments</Text>
-          <Text style={[styles.summaryValue, { color: Colors.statusLate }]}>{verifiedCount(dashboardData?.summary.upcoming_payments)}</Text>
-        </View>
-
-        <View style={styles.summaryCard}>
-          <Text style={styles.summaryLabel}>Claims</Text>
-          <Text style={styles.summaryValue}>{verifiedCount(dashboardData?.summary.claims_count)}</Text>
-        </View>
-      </View>
-
-      <View style={styles.summaryContainer}>
-        <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" accessibilityLabel="Show approved claims awaiting payout" activeOpacity={0.75} onPress={() => router.push({ pathname: "/(member)/claims", params: { view: "payouts", claim_id: "" } })}>
-          <Text style={styles.summaryLabel}>Upcoming Payouts</Text>
-          <View>
-            <Text style={[styles.summaryValue, { color: Colors.accent }]}>
-              {typeof dashboardData?.summary.upcoming_payout_amount === 'number' && Number.isFinite(dashboardData.summary.upcoming_payout_amount) && dashboardData.summary.upcoming_payout_amount >= 0 ? `R${dashboardData.summary.upcoming_payout_amount.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
-            </Text>
-            <Ionicons name="chevron-down" size={14} color={Colors.textSecondary} style={{ position: 'absolute', top: '100%', left: 0 }} />
-          </View>
-        </TouchableOpacity>
-      </View>
-
-
-
     </ScrollView>
 
     {/* Member Account Panel */}
@@ -955,8 +900,8 @@ const styles = StyleSheet.create({
     borderColor: Colors.cardBorder,
     marginBottom: 12,
   },
-  clubListHeader: { backgroundColor: Colors.iceBlue, borderRadius: 14, padding: 16, minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  clubListTitle: { color: Colors.textPrimary, fontSize: 18, fontWeight: '400', flex: 1 },
+  clubListHeader: { backgroundColor: Colors.coralAction, borderColor: Colors.coralRed, borderWidth: 1, borderRadius: 14, padding: 16, minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  clubListTitle: { color: Colors.white, fontSize: 18, fontWeight: '400', flex: 1, minWidth: 0 },
   clubList: { maxHeight: 360, marginTop: 8 }, clubListItem: { borderBottomWidth: 1, borderBottomColor: Colors.cardBorder, paddingVertical: 8 },
   clubListEntry: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 64, paddingVertical: 8 },
   clubListImage: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.iceBlue, alignItems: 'center', justifyContent: 'center' },

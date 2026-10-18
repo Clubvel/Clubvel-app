@@ -74,6 +74,7 @@ async function setup(screen = 'proofs', review = 'declined', approved = false, d
   const Screen = load(screen === 'proofs' ? 'app/(member)/proofs.tsx' : 'app/(member)/club/[id].tsx', dependencies).default;
   const render = () => ui.render(Screen);
   const initial = render(); await tick();
+  if(screen==='proofs')for(const details of nodes(render()).filter(n=>n.props?.accessibilityLabel?.startsWith('View contribution details ')&&!n.props.accessibilityState.expanded))details.props.onPress();
   return { render, requests, alerts, routes, record, ui, statusPill, initial, state, params, authState };
 }
 

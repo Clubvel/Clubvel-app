@@ -118,6 +118,7 @@ test('Admin Home displays its existing header before dashboard data arrives', as
 
 for(const role of ['member','admin'])test(`${role} club count reveals the existing same-snapshot list without another request`,async()=>{
  const c=setup(role);await c.respond(0,'WeTraveling');const tree=c.render();const scroll=nodes(tree).find(n=>n.type==='ScrollView'),calls=[];
+ if(role==='member'){const toggle=nodes(c.render()).find(n=>n.props?.accessibilityLabel==='My Clubs & Stokvels');toggle.props.onPress();toggle.props.onPress();assert.equal(c.requests.length,1);assert.deepEqual(c.routes,[]);return;}
  scroll.props.ref.current={scrollTo:options=>calls.push(options)};
  const title=role==='member'?'My Clubs':'All Clubs';
  nodes(tree).find(n=>n.type==='View'&&n.props.onLayout&&text(n).startsWith(title)).props.onLayout({nativeEvent:{layout:{y:410}}});
@@ -125,10 +126,7 @@ for(const role of ['member','admin'])test(`${role} club count reveals the existi
  assert.deepEqual(calls,[{y:410,animated:true}]);assert.equal(c.requests.length,1);assert.deepEqual(c.routes,[]);
  const labels=role==='member'?['Contributions','Upcoming Payments','Claims']:['Total Members','Collected This Month','Late Members'];
  for(const label of labels)assert.equal(nodes(tree).some(n=>n.type==='TouchableOpacity'&&text(n).startsWith(label)),false,label);
- if(role==='member'){
-  nodes(tree).find(n=>n.type==='TouchableOpacity'&&n.props.accessibilityLabel==='Show approved claims awaiting payout').props.onPress();
-  assert.deepEqual(c.routes.at(-1),{pathname:'/(member)/claims',params:{view:'payouts',claim_id:''}});
- }
+ if(role==='member')assert.equal(nodes(tree).some(n=>n.props?.accessibilityLabel==='Show approved claims awaiting payout'),false);
 });
 
 const flattenedStyle = node => Object.assign({}, ...[node.props.style].flat().filter(Boolean));
@@ -143,7 +141,7 @@ for (const role of ['member', 'admin']) for (const count of [0, 3]) {
     await tick();
     const tree = c.render();
     const expectations = role === 'member'
-      ? [['Contributions', 'statusPaid'], ['Groups & Clubs', 'textPrimary'], ['Upcoming Payments', 'statusLate'], ['Claims', 'textPrimary'], ['Upcoming Payouts', 'accent']]
+      ? []
       : [['Total Clubs', 'textPrimary'], ['Total Members', 'textPrimary'], ['Collected This Month', 'statusPaid'], ['Late Members', 'statusLate']];
     for (const [label, colour] of expectations) {
       const title = nodes(tree).find(n => n.type === 'Text' && text(n) === label);
@@ -239,17 +237,13 @@ for(const action of ['Accept','Decline'])test(`Member old-account invitation ${a
 });
 
 
-test('Member Home uses authoritative confirmed total and never substitutes the legacy number',async()=>{
+test('Member landing does not render authoritative or legacy financial totals',async()=>{
  const c=setup();c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:999,confirmed_collected:25,confirmed_collected_availability:'AVAILABLE',active_clubs:0,upcoming_payments:0,claims_count:0},clubs:[]}});await tick();
- assert.match(text(c.render()),/R25.00/);assert.doesNotMatch(text(c.render()),/R999.00/);
-});
-test('Member Home renders unavailable authoritative amount without invented zero',async()=>{
+ assert.doesNotMatch(text(c.render()),/R25.00|R999.00/);assert.ok(button(c.render(),'My Clubs & Stokvels'));
+});test('Unavailable financial totals do not add summary cards to the general landing',async()=>{
  const c=setup();c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:25,confirmed_collected:null,confirmed_collected_availability:'UNAVAILABLE',active_clubs:0,upcoming_payments:0,claims_count:0},clubs:[]}});await tick();
- assert.match(text(c.render()),/Unable to load · Retry/);
- assert.doesNotMatch(text(c.render()),/Not available|R25.00/);
- assert.ok(nodes(c.render()).some(n=>n.type==='Text'&&text(n)==='Contributions'));
-});
-test('Member Home shows controlled dashboard 409 and keeps its shell',async()=>{
+ assert.doesNotMatch(text(c.render()),/Contributions|Upcoming Payments|Upcoming Payouts|R25.00|Unable to load · Retry/);
+});test('Member Home shows controlled dashboard 409 and keeps its shell',async()=>{
  const c=setup(); // Replace the queued response with a rejecting request on refresh.
  await c.respond(0,'WeTraveling');
  c.refresh();c.requests[1].resolve(Promise.reject({response:{status:409}}));await tick();
@@ -257,16 +251,12 @@ test('Member Home shows controlled dashboard 409 and keeps its shell',async()=>{
 });
 
 
-test('Member Contributions displays genuine zero numerically', async () => {
- const c=setup(); await c.respond(0,'WeTravel');
- const card=nodes(c.render()).find(n=>n.type==='View'&&text(n).includes('Contributions')&&text(n).includes('R0.00'));
- assert.ok(card); assert.doesNotMatch(text(c.render()),/could not be verified|Not available/);
-});
-for (const amount of [undefined, null, NaN, Infinity, -1, '20']) test(`Member Home never turns unreliable amount ${amount} into zero`, async () => {
+test('Genuine zero summaries remain absent from the general landing',async()=>{
+ const c=setup();await c.respond(0,'WeTravel');assert.doesNotMatch(text(c.render()),/R0.00|Upcoming Payments|Upcoming Payouts/);
+});for (const amount of [undefined, null, NaN, Infinity, -1, '20']) test(`Member landing does not expose unreliable amount ${amount}`, async () => {
  const c=setup(); c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:99,confirmed_collected:amount,confirmed_collected_availability:'AVAILABLE',active_clubs:0,upcoming_payments:0,claims_count:0},clubs:[]}}); await tick();
- assert.match(text(c.render()),/Unable to load · Retry/);
- assert.ok(nodes(c.render()).some(n=>n.type==='Text'&&text(n)==='Contributions'));
- assert.doesNotMatch(text(c.render()),/R99.00|Not available/);
+ assert.doesNotMatch(text(c.render()),/Contributions|R99.00|R0.00|Not available/);
+ assert.ok(button(c.render(),'My Clubs & Stokvels'));
 });
 for (const [mode,type,monthly,target,label] of [
  ['flexible_goal','travel',0,1000,'R1000.00 goal per member'],
@@ -301,31 +291,19 @@ test('mixed club roles route Members, Admins and Treasurers using each selected 
 });
 
 
-test('all five summary cards remain visible while the first dashboard request is pending', () => {
- const c=setup();const tree=c.render();for(const label of ['Contributions','Groups & Clubs','Upcoming Payments','Claims','Upcoming Payouts']) assert.ok(nodes(tree).some(n=>n.type==='Text'&&text(n)===label),label);
- assert.ok(nodes(tree).some(n=>n.props?.accessibilityLabel==='Loading contribution total'));
- assert.doesNotMatch(text(tree),/ContributionsR0/);
-});
-test('initial controlled error retains Contributions with retry and no invented money', async () => {
- const c=setup();c.requests[0].resolve(Promise.reject({response:{status:409}}));await tick();
- assert.match(text(c.render()),/ContributionsUnable to load · Retry/);assert.doesNotMatch(text(c.render()),/ContributionsR0/);
- nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Retry contribution total').props.onPress();assert.equal(c.requests.length,2);
- await c.respond(1,'WeTravel');assert.match(text(c.render()),/ContributionsR0.00/);
-});
-test('missing authoritative contract keeps Contributions visible without using total_saved',async()=>{
- const c=setup();c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:999,active_clubs:0,upcoming_payments:0,claims_count:0},clubs:[]}});await tick();
- assert.match(text(c.render()),/ContributionsUnable to load · Retry/);assert.doesNotMatch(text(c.render()),/R999|ContributionsR0/);
+test('General landing has no financial summary cards while clubs are loading',()=>{
+ const c=setup();const tree=c.render();for(const label of ['Contributions','Groups & Clubs','Upcoming Payments','Claims','Upcoming Payouts'])assert.equal(nodes(tree).some(n=>n.type==='Text'&&text(n)===label),false,label);
+ assert.ok(nodes(tree).some(n=>n.type==='ActivityIndicator'));assert.ok(nodes(tree).some(n=>n.props?.accessibilityLabel==='Open profile menu'));
+});test('Initial controlled error retains a safe club retry without financial summaries',async()=>{
+ const c=setup();c.requests[0].resolve(Promise.reject({response:{status:409}}));await tick();assert.match(text(c.render()),/payment records need checking/);assert.doesNotMatch(text(c.render()),/ContributionsR0/);
+ button(c.render(),'Retry').props.onPress();assert.equal(c.requests.length,2);await c.respond(1,'WeTravel');assert.match(text(c.render()),/WeTravel/);
+});test('Missing financial contract cannot reintroduce summaries or legacy amounts on Home',async()=>{
+ const c=setup();c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:999},clubs:[]}});await tick();assert.doesNotMatch(text(c.render()),/Contributions|R999|R0.00/);assert.ok(button(c.render(),'My Clubs & Stokvels'));
 });
 
-
-test('missing or malformed secondary dashboard values never invent numeric zeros', async () => {
- for (const value of [undefined, null, '0', -1, NaN]) {
-  const c=setup(); c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:0,confirmed_collected:0,confirmed_collected_availability:'AVAILABLE',active_clubs:value,upcoming_payments:value,claims_count:value,upcoming_payout_amount:value},clubs:[]}}); await tick();
-  const content=text(c.render()); assert.match(content,/ContributionsR0.00/);
-  for (const label of ['Groups & Clubs','Upcoming Payments','Claims','Upcoming Payouts']) assert.ok(content.includes(label+'—'),label);
- }
+test('Malformed summary values are not rendered on the general landing',async()=>{
+ for(const value of [undefined,null,'0',-1,NaN]){const c=setup();c.requests[0].resolve({data:{user:c.auth.user,summary:{total_saved:0,confirmed_collected:value,active_clubs:value,upcoming_payments:value,claims_count:value,upcoming_payout_amount:value},clubs:[]}});await tick();assert.doesNotMatch(text(c.render()),/Contributions|Upcoming Payments|Upcoming Payouts|Groups & Clubs|R0.00/);}
 });
-
 for(const role of ['admin','treasurer']) test(`Club administration selects the authorised ${role} club and enters its dashboard`,async()=>{
  const c=setup();await c.respond(0,'WeTravel',role);button(c.render(),'Club administration').props.onPress();
  const choose=nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Administer WeTravel');assert.ok(choose);choose.props.onPress();

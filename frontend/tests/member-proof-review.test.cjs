@@ -71,6 +71,7 @@ async function setup(screen = 'proofs', review = 'declined', approved = false, d
   const initial = render(); await tick();
   if (screen === 'proofs' && !collapsed) {
     for (const toggle of nodes(render()).filter(n => n.props?.accessibilityLabel?.startsWith('Toggle contributions ') && !n.props.accessibilityState.expanded)) toggle.props.onPress();
+    for (const details of nodes(render()).filter(n => n.props?.accessibilityLabel?.startsWith('View contribution details ') && !n.props.accessibilityState.expanded)) details.props.onPress();
   }
   return { render, requests, alerts, routes, record, ui, statusPill, initial, state, params, authState };
 }
@@ -310,7 +311,7 @@ test('Payments shows unpaid obligations and isolates selected clubs and periods'
  assert.equal(nodes(c.render()).filter(n=>n.props?.accessibilityLabel==='Open contribution eighty8').length,0);
  assert.match(text(c.render()),/Confirmed Collected: R0.00/);
  nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Previous payment month').props.onPress();
- assert.ok(nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Open contribution september'));
+ nodes(c.render()).find(n=>n.props?.accessibilityLabel==='View contribution details WeTraveling').props.onPress();assert.ok(nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Open contribution september'));
 });
 
 test('Payments exact obligation upload uses no club lookup and cancellation sends no write',async()=>{
@@ -387,10 +388,11 @@ test('Payments groups legitimate same-month records into one collapsed club with
  c.state.records=[{...c.record,payment_state:'proof_declined',outstanding_amount:150},{...c.record,contribution_id:'second',payment_state:'awaiting_payment',proof_uploaded:false,outstanding_amount:200}];
  c.ui.blur();c.ui.focus();await tick();let tree=c.render();
  assert.equal(nodes(tree).filter(n=>n.props?.accessibilityLabel==='Toggle contributions Club A').length,1);
- assert.match(text(tree),/2 contributions/);assert.match(text(tree),/Outstanding: R150.00/);assert.match(text(tree),/Outstanding: R200.00/);
+ assert.doesNotMatch(text(tree),/Outstanding: R150.00|Outstanding: R200.00/);
  assert.ok(!nodes(tree).some(n=>n.props?.accessibilityLabel==='Select contribution second'));
  const before=c.requests.length;nodes(tree).find(n=>n.props?.accessibilityLabel==='Toggle contributions Club A').props.onPress();tree=c.render();
- assert.ok(nodes(tree).some(n=>n.props?.accessibilityLabel==='Select contribution second'));assert.equal(c.requests.length,before);
+ assert.match(text(tree),/Paid: 0Awaiting: 1Declined: 1/);assert.equal(nodes(tree).some(n=>n.props?.accessibilityLabel==='Select contribution second'),false);nodes(tree).find(n=>n.props?.accessibilityLabel==='View contribution details Club A').props.onPress();tree=c.render();
+ assert.ok(nodes(tree).some(n=>n.props?.accessibilityLabel==='Select contribution second'));assert.match(text(tree),/Outstanding: R150.00/);assert.match(text(tree),/Outstanding: R200.00/);assert.equal(c.requests.length,before);
  nodes(tree).find(n=>n.props?.accessibilityLabel==='Toggle contributions Club A').props.onPress();assert.ok(!nodes(c.render()).some(n=>n.props?.accessibilityLabel==='Select contribution second'));
 });
 test('Every proof is classified, including declined and unsupported statuses, without inflating pending',async()=>{
@@ -422,4 +424,20 @@ test('October club-scoped proofs reconcile 4 = 3 confirmed + 0 pending + 1 decli
  assert.match(text(nodes(tree).find(n=>n.props.accessibilityLabel==='Show declined proofs')),/Declined: 1/);
  assert.match(text(nodes(tree).find(n=>n.props.accessibilityLabel==='Show other proofs')),/Other: 0/);
  assert.doesNotMatch(text(tree),/Other club/);
+});
+
+
+test('compact contribution counts remain distinct from uploaded-proof counts and hide old details after period changes',async()=>{
+ const c=await setup('proofs','pending',false,false,true);
+ c.state.records=[{...c.record,contribution_id:'paid',payment_state:'confirmed',proof_uploaded:false},
+ {...c.record,contribution_id:'unpaid',payment_state:'awaiting_payment',proof_uploaded:false},
+ {...c.record,contribution_id:'review',payment_state:'awaiting_confirmation',proof_uploaded:true},
+ {...c.record,contribution_id:'declined',payment_state:'proof_declined',proof_review_status:'declined',proof_uploaded:true},
+ {...c.record,contribution_id:'foreign',group_id:'other',group_name:'Other club',payment_state:'confirmed',proof_uploaded:false},
+ {...c.record,contribution_id:'historic',month:9,payment_state:'confirmed',proof_uploaded:false}];
+ c.ui.blur();c.ui.focus();await tick();nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Toggle contributions Club A').props.onPress();let tree=c.render();
+ const summary=nodes(tree).find(n=>n.props?.accessibilityLabel==='Contribution status counts Club A');assert.equal(text(summary),'Paid: 1Awaiting: 2Declined: 1');assert.match(text(nodes(tree).find(n=>n.props?.accessibilityLabel==='Show total proofs')),/Total Proofs2/);
+ assert.equal(nodes(tree).some(n=>n.props?.accessibilityLabel==='Select contribution unpaid'),false);
+ const details=nodes(tree).find(n=>n.props?.accessibilityLabel==='View contribution details Club A');const before=c.requests.length;details.props.onPress();assert.ok(nodes(c.render()).some(n=>n.props?.accessibilityLabel==='Select contribution unpaid'));assert.equal(c.requests.length,before);
+ nodes(c.render()).find(n=>n.props?.accessibilityLabel==='Previous payment month').props.onPress();details.props.onPress();assert.equal(nodes(c.render()).some(n=>n.props?.accessibilityLabel==='Select contribution unpaid'),false);
 });

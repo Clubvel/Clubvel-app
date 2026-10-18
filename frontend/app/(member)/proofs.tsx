@@ -1,3 +1,4 @@
+import { contributionStatusCounts } from '../../services/contributionStatusCounts';
 import { paymentStateLabel, paymentMoney } from '../../services/paymentSummaryRecords';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
@@ -89,6 +90,7 @@ export default function ProofOfPaymentsScreen() {
   }, new Map<string, { id: string; name: string; records: any[] }>()).values());
   const groupExpanded = (id: string) => expandedClubs.owner === accordionContext && expandedClubs.groups[id] !== undefined
     ? expandedClubs.groups[id] : selectedGroup === id;
+  const [detailClubs, setDetailClubs] = useState<{ owner: string; groups: Record<string, boolean> }>({ owner: accordionContext, groups: {} });
   const [proofsLoading, setProofsLoading] = useState(true);
   const [proofsError, setProofsError] = useState<string | null>(null);
   const [deletingProof, setDeletingProof] = useState<string | null>(null);
@@ -675,16 +677,28 @@ export default function ProofOfPaymentsScreen() {
           {contributionGroups.map(group => <View key={group.id} style={styles.clubSection}>
             <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Toggle contributions ${group.name}`} accessibilityState={{ expanded: groupExpanded(group.id) }} style={styles.clubRibbon} onPress={() => {
               if (latestAction.current !== actionContext || !routeReady) return;
+              if (groupExpanded(group.id)) setDetailClubs(previous => ({ owner: accordionContext, groups: { ...(previous.owner === accordionContext ? previous.groups : {}), [group.id]: false } }));
               setExpandedClubs(previous => ({ owner: accordionContext, groups: { ...(previous.owner === accordionContext ? previous.groups : {}), [group.id]: !groupExpanded(group.id) } }));
             }}>
               <Text style={styles.clubRibbonTitle}>{group.name}</Text>
-              <Ionicons name={groupExpanded(group.id) ? 'chevron-up' : 'chevron-down'} size={18} color={Colors.textPrimary} />
+              <Ionicons name={groupExpanded(group.id) ? 'chevron-up' : 'chevron-down'} size={18} color={Colors.white} />
             </TouchableOpacity>
-            <View style={styles.clubOverview}>
-              <Text>{group.records.length} {group.records.length === 1 ? 'contribution' : 'contributions'}</Text>
-              {group.records.map(record => <Text key={record.contribution_id}>{paymentStateLabel(record.payment_state) || 'Status not recorded'} · Outstanding: {paymentMoney(record.outstanding_amount)}</Text>)}
-            </View>
             {groupExpanded(group.id) && <View>
+              <View style={styles.clubOverview}>
+                <Text>{group.records.length} {group.records.length === 1 ? 'contribution' : 'contributions'}</Text>
+                {(() => {
+                  const counts = contributionStatusCounts(group.records);
+                  return counts ? <View style={styles.contributionCounts} accessibilityLabel={`Contribution status counts ${group.name}`}>
+                    <Text>Paid: {counts.paid}</Text><Text>Awaiting: {counts.awaiting}</Text><Text>Declined: {counts.declined}</Text>
+                    {counts.other > 0 && <Text>Other / unavailable: {counts.other}</Text>}
+                  </View> : <Text>Contribution counts unavailable. View details to check the records.</Text>;
+                })()}
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel={`View contribution details ${group.name}`} accessibilityState={{ expanded: detailClubs.owner === accordionContext && !!detailClubs.groups[group.id] }} style={styles.contributionDetailsAction} onPress={() => {
+                  if (latestAction.current !== actionContext || !routeReady || !screenActive.current) return;
+                  setDetailClubs(previous => ({ owner: accordionContext, groups: { ...(previous.owner === accordionContext ? previous.groups : {}), [group.id]: !(previous.owner === accordionContext && previous.groups[group.id]) } }));
+                }}><Text style={styles.contributionDetailsLabel}>{detailClubs.owner === accordionContext && detailClubs.groups[group.id] ? 'Hide details' : 'View details'}</Text></TouchableOpacity>
+              </View>
+              {detailClubs.owner === accordionContext && detailClubs.groups[group.id] && <View>
               {group.records.map(record => <View key={record.contribution_id} style={styles.proofCard}>
             <TouchableOpacity accessibilityLabel={`Select contribution ${record.contribution_id}`} onPress={() => setSelectedContributionId(record.contribution_id)}><Text style={styles.proofGroupName}>Contribution {record.month}/{record.year}{selectedContributionId === record.contribution_id ? " ✓" : ""}</Text></TouchableOpacity>
             <Text>{record.month}/{record.year} · {paymentStateLabel(record.payment_state)}</Text>
@@ -695,6 +709,7 @@ export default function ProofOfPaymentsScreen() {
             {record.historical_only ? <Text>Historical contribution — read only</Text> : <TouchableOpacity accessibilityLabel={`Open contribution ${record.contribution_id}`} onPress={() => router.push({ pathname: '/(member)/club/[id]', params: { id: record.group_id, month: String(record.month), year: String(record.year), contribution_id: record.contribution_id, scope: params.scope, from: params.from } })}><Text>Contribution details and history</Text></TouchableOpacity>}
             {!record.historical_only && record.proof_eligible && <TouchableOpacity accessibilityLabel={`Upload proof for contribution ${record.contribution_id}`} disabled={uploading} onPress={() => uploadProofForClub({ id: record.group_id, name: record.group_name, amount_due: record.amount_due }, record.contribution_id)}><Text>{record.proof_review_status === 'declined' ? 'Replace Proof' : 'Upload Proof'}</Text></TouchableOpacity>}
           </View>)}
+              </View>}
             </View>}
           </View>)}
         </View>
@@ -1005,9 +1020,12 @@ export default function ProofOfPaymentsScreen() {
 
 const styles = StyleSheet.create({
   clubSection: { borderWidth: 1, borderColor: Colors.cardBorder, borderRadius: 12, overflow: 'hidden', marginBottom: 12 },
-  clubRibbon: { backgroundColor: Colors.iceBlue, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  clubRibbonTitle: { color: Colors.textPrimary, fontWeight: '400', fontSize: 16, flex: 1 },
-  clubOverview: { padding: 12, gap: 4, backgroundColor: Colors.iceBlue },
+  clubRibbon: { backgroundColor: Colors.coralAction, borderColor: Colors.coralRed, borderWidth: 1, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  clubRibbonTitle: { color: Colors.white, fontWeight: '400', fontSize: 16, flex: 1, minWidth: 0 },
+  clubOverview: { padding: 12, gap: 8, backgroundColor: Colors.iceBlue },
+  contributionCounts: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
+  contributionDetailsAction: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
+  contributionDetailsLabel: { color: Colors.primary, fontSize: 15, fontWeight: '500' },
   proofCategories: { flexDirection: 'row', flexWrap: 'wrap', gap: 20, paddingHorizontal: 20, paddingBottom: 12 },
 
   container: {
@@ -1227,7 +1245,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   uploadButton: {
-    backgroundColor: Colors.royalBlue,
+    backgroundColor: Colors.coralAction, borderColor: Colors.coralRed, borderWidth: 1,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -1241,6 +1259,8 @@ const styles = StyleSheet.create({
     color: Colors.white,
     fontSize: 16,
     fontWeight: 'bold',
+    flexShrink: 1,
+    textAlign: 'center',
   },
   modalOverlay: {
     flex: 1,

@@ -27,5 +27,5 @@ test('Member My Clubs keeps compact role navigation without per-club financial c
   assert.ok(member.includes('club.role'));
   assert.ok(!member.includes('{contributionDescription(club)}'));
   assert.ok(!member.includes('R{club.monthly_contribution}/month'));
-  for(const label of ['Contributions','Groups &amp; Clubs','Upcoming Payments','Claims','Upcoming Payouts'])assert.ok(member.includes(label),label);
+  for(const label of ['<Text style={styles.summaryLabel}>Contributions','<Text style={styles.summaryLabel}>Groups &amp; Clubs','<Text style={styles.summaryLabel}>Upcoming Payments','<Text style={styles.summaryLabel}>Claims','<Text style={styles.summaryLabel}>Upcoming Payouts'])assert.ok(!member.includes(label),label);
 });

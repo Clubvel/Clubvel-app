@@ -25,7 +25,7 @@ function setup() {
     clubs: [{ id: 'group', name: 'Test Club', role, member_count: 2, monthly_contribution: 100 }] });
   const pair = async (index, role, invitations = []) => {
     requests[index].resolve({ data: dashboard(role) });
-    requests[index + 1].resolve({ data: { invitations } }); await tick();
+    requests[index + 1].resolve({ data: { invitations } }); await tick(); const toggle=nodes(render()).find(n=>n.props?.accessibilityLabel==='My Clubs & Stokvels');if(toggle&&!toggle.props.accessibilityState.expanded)toggle.props.onPress();
   };
   const refresh = () => nodes(render()).find(n => n.type === 'ScrollView').props.refreshControl.props.onRefresh();
   render();
