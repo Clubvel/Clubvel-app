@@ -5,7 +5,7 @@ const luminance=hex=>hex.slice(1).match(/../g).map(c=>parseInt(c,16)/255).map(c=
 const contrast=(a,b)=>{const x=luminance(a),y=luminance(b);return(Math.max(x,y)+0.05)/(Math.min(x,y)+0.05);};
 test('midnight headers, action surfaces and body text retain readable contrast',()=>{
  for(const [fg,bg] of [[Colors.white,Colors.primary],[Colors.white,Colors.corporateBlue],[Colors.textPrimary,Colors.background],[Colors.textPrimary,Colors.white]])assert.ok(contrast(fg,bg)>=4.5,`${fg} on ${bg}`);
- assert.equal(Colors.avatarRing,'#E5B83F');assert.equal(Colors.headerBackground,'#06285B');assert.equal(Colors.secondaryHighlight,'#397F78');
+ assert.equal(Colors.avatarRing,'#FFD600');assert.equal(Colors.headerBackground,'#06285B');assert.equal(Colors.secondaryHighlight,'#397F78');
 });
 
 test('personal claims deduplicates pending focus reads while explicit refresh remains fresh',async()=>{
@@ -47,7 +47,7 @@ test('secondary screens preserve functionality and layouts apart from approved h
   assert.equal(neutral(fs.readFileSync(path.join(root,file),'utf8')),neutral(baseline),file);
  }
  assert.equal(Colors.primary,'#06285B');assert.equal(Colors.headerBackground,'#06285B');
- assert.equal(Colors.avatarRing,'#E5B83F');
+ assert.equal(Colors.avatarRing,'#FFD600');
  assert.equal(Colors.gold,'#F59E0B');assert.equal(Colors.lightGold,'#FFF4DB');
  assert.equal(Colors.statusPaid,'#16A34A');assert.equal(Colors.statusDue,'#F59E0B');assert.equal(Colors.statusLate,'#E31B23');
 });

@@ -686,7 +686,7 @@ const styles = StyleSheet.create({
   authTitle: { color: Colors.white, fontWeight: '400', fontSize: 27, marginBottom: 8 },
   authSubtitle: { color: '#D5E1F2', fontSize: 16, marginBottom: 24 },
   authInput: { backgroundColor: '#123C70', borderColor: '#7F9BBD', color: Colors.white, minHeight: 54, borderRadius: 18, paddingRight: 52 },
-  authSignIn: { backgroundColor: Colors.avatarRing, minHeight: 54, borderRadius: 18 },
+  authSignIn: { backgroundColor: Colors.signInAction, minHeight: 54, borderRadius: 18 },
   authLink: { color: '#C3E3FF', fontWeight: '400', minHeight: 44, paddingVertical: 10 },
   container: {
     flex: 1,

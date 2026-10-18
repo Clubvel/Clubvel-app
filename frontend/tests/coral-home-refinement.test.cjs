@@ -10,7 +10,7 @@ test('accessible coral controls retain compact white labels and exact Coral Red 
   const sheet=styles(file);assert.equal(sheet[control].backgroundColor,Colors.coralAction);assert.equal(sheet[control].borderColor,Colors.coralRed);assert.equal(sheet[label].color,Colors.white);assert.ok(sheet[label].fontSize>=16&&sheet[label].fontSize<=18,file+': compact accessible label');assert.equal(sheet.header.backgroundColor,Colors.primary);
  }
  assert.match(fs.readFileSync(path.join(__dirname,'../app/(member)/home.tsx'),'utf8'),/name=\{clubsExpanded \? 'chevron-up' : 'chevron-down'\} size=\{20\} color=\{Colors.white\}/);
- assert.equal(Colors.primary,'#06285B');assert.equal(Colors.avatarRing,'#E5B83F');assert.equal(Colors.iceBlue,'#DCEEFF');assert.equal(Colors.statusPaid,'#16A34A');assert.equal(Colors.statusDue,'#F59E0B');assert.equal(Colors.statusLate,'#E31B23');
+ assert.equal(Colors.primary,'#06285B');assert.equal(Colors.avatarRing,'#FFD600');assert.equal(Colors.iceBlue,'#DCEEFF');assert.equal(Colors.statusPaid,'#16A34A');assert.equal(Colors.statusDue,'#F59E0B');assert.equal(Colors.statusLate,'#E31B23');
 });
 test('contribution counts use authoritative financial states, including records with no uploaded proof',()=>{
  const records=['confirmed','awaiting_payment','awaiting_confirmation','proof_declined','excused','invalid_amount'].map((payment_state,i)=>({contribution_id:String(i),payment_state,proof_uploaded:false,status:'confirmed',amount_due:999}));
