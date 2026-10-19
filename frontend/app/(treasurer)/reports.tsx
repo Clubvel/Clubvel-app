@@ -522,6 +522,8 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
+    borderTopWidth: 3,
+    borderTopColor: Colors.gold,
     borderColor: Colors.cardBorder,
     marginBottom: 12,
   },
@@ -554,6 +556,8 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     alignItems: 'center',
     borderWidth: 1,
+    borderTopWidth: 3,
+    borderTopColor: Colors.gold,
     borderColor: Colors.cardBorder,
   },
   shareButtons: {
