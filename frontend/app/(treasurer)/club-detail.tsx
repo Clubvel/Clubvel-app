@@ -1314,6 +1314,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
     borderWidth: 1,
+    borderTopWidth: 3,
+    borderTopColor: Colors.gold,
     borderColor: Colors.cardBorder,
   },
   memberInfo: {
@@ -1363,6 +1365,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
     borderWidth: 1,
+    borderTopWidth: 3,
+    borderTopColor: Colors.gold,
     borderColor: Colors.cardBorder,
   },
   paymentHeader: {
@@ -1473,6 +1477,8 @@ const styles = StyleSheet.create({
     paddingVertical: 12,
     borderRadius: 8,
     borderWidth: 1,
+    borderTopWidth: 3,
+    borderTopColor: Colors.gold,
     borderColor: Colors.cardBorder,
     alignItems: 'center',
     justifyContent: 'center',
@@ -1500,6 +1506,8 @@ const styles = StyleSheet.create({
     borderRadius: 10,
     marginBottom: 8,
     borderWidth: 1,
+    borderTopWidth: 3,
+    borderTopColor: Colors.gold,
     borderColor: Colors.cardBorder,
   },
   rotationNumber: {
