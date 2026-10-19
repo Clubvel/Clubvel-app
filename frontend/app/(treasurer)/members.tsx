@@ -503,6 +503,8 @@ const styles = StyleSheet.create({
     borderRadius: 12,
     marginBottom: 12,
     borderWidth: 1,
+    borderTopWidth: 3,
+    borderTopColor: Colors.gold,
     borderColor: Colors.cardBorder,
   },
   memberAvatar: {
