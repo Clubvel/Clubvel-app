@@ -5,8 +5,8 @@ export const Colors = {
   primaryLight: '#F3F4F6',
   
   // Alert/Accent Colors
-  accent: '#F97316',
-  accentLight: '#FFF1E8',
+  accent: '#F4C84A',
+  accentLight: '#FFF7D6',
   
   // Background Colors
   background: '#FFFFFF',       // Crisp white canvas
@@ -34,6 +34,6 @@ export const Colors = {
   mediumGreen: '#3F4145',
   primaryGreen: '#3F4145',
   lightGreen: '#F3F4F6',
-  gold: '#F97316',
-  lightGold: '#FFF1E8',
+  gold: '#F4C84A',
+  lightGold: '#FFF7D6',
 };
