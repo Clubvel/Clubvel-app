@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, ActivityIndicator, Modal } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, ActivityIndicator, Modal, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { Colors } from '../../constants/Colors';
@@ -28,7 +28,7 @@ interface PayoutSchedule {
 }
 
 export default function ProfileScreen() {
-  const { user, logout, updateProfilePhoto } = useAuth();
+  const { user, token, logout, updateProfilePhoto } = useAuth();
   const router = useRouter();
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -47,15 +47,15 @@ export default function ProfileScreen() {
   const fetchProfileData = async () => {
     try {
       // Fetch admin stats
-      const statsResponse = await axios.get(`${API_URL}/api/admin/stats/${user?.id}`);
+      const statsResponse = await axios.get(`${API_URL}/api/admin/stats/${user?.id}`, { headers: { Authorization: `Bearer ${token}` } });
       setStats(statsResponse.data);
 
       // Fetch managed clubs
-      const clubsResponse = await axios.get(`${API_URL}/api/admin/clubs/${user?.id}`);
+      const clubsResponse = await axios.get(`${API_URL}/api/admin/clubs/${user?.id}`, { headers: { Authorization: `Bearer ${token}` } });
       setClubs(clubsResponse.data.clubs || []);
 
       // Fetch payout schedules for managed clubs
-      const payoutResponse = await axios.get(`${API_URL}/api/admin/payout-schedules/${user?.id}`);
+      const payoutResponse = await axios.get(`${API_URL}/api/admin/payout-schedules/${user?.id}`, { headers: { Authorization: `Bearer ${token}` } });
       setPayoutSchedules(payoutResponse.data.schedules || []);
     } catch (error) {
       console.error('Error fetching profile data:', error);
@@ -68,7 +68,16 @@ export default function ProfileScreen() {
     }
   };
 
-  const handleLogout = () => {
+  const handleLogout = async () => {
+    if (Platform.OS === 'web') {
+      const confirmed = window.confirm('Are you sure you want to sign out?');
+      if (!confirmed) return;
+
+      await logout();
+      router.replace('/auth');
+      return;
+    }
+
     Alert.alert(
       'Sign Out',
       'Are you sure you want to sign out?',

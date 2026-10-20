@@ -1,5 +1,6 @@
 import React from 'react';
-import { Tabs } from 'expo-router';
+import { Tabs, Redirect } from 'expo-router';
+import { useAuth } from '../../contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/Colors';
 import { Platform } from 'react-native';
@@ -7,6 +8,9 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TreasurerLayout() {
   const insets = useSafeAreaInsets();
+  const { user, loading } = useAuth();
+  if (loading) return null;
+  if (!user) return <Redirect href="/auth" />;
   
   return (
     <Tabs
@@ -66,21 +70,15 @@ export default function TreasurerLayout() {
         }}
       />
       <Tabs.Screen
-        name="my-contributions"
+        name="reports"
         options={{
-          title: 'My Payments',
+          title: 'Reports',
           tabBarIcon: ({ color, size }) => (
-            <Ionicons name="wallet" size={size} color={color} />
+            <Ionicons name="document-text" size={size} color={color} />
           ),
         }}
       />
       {/* Hidden screens - not in tab bar */}
-      <Tabs.Screen
-        name="reports"
-        options={{
-          href: null,
-        }}
-      />
       <Tabs.Screen
         name="support"
         options={{

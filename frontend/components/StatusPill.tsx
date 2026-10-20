@@ -5,15 +5,18 @@ import { Colors } from '../constants/Colors';
 interface StatusPillProps {
   status: string;
   label?: string;
+  subtleAccent?: boolean;
 }
 
-export const StatusPill: React.FC<StatusPillProps> = ({ status, label }) => {
+export const StatusPill: React.FC<StatusPillProps> = ({ status, label, subtleAccent = false }) => {
   const getStatusColor = () => {
     switch (status) {
       case 'confirmed':
       case 'paid':
+      case 'active':
         return Colors.statusPaid;
       case 'late':
+      case 'proof_declined':
         return Colors.statusLate;
       case 'due':
         return Colors.statusDue;
@@ -30,6 +33,8 @@ export const StatusPill: React.FC<StatusPillProps> = ({ status, label }) => {
     switch (status) {
       case 'confirmed':
         return 'Paid';
+      case 'active':
+        return 'Active';
       case 'late':
         return 'Late';
       case 'due':
@@ -38,14 +43,17 @@ export const StatusPill: React.FC<StatusPillProps> = ({ status, label }) => {
         return 'Upcoming';
       case 'proof_uploaded':
         return 'Pending Confirmation';
+      case 'proof_declined':
+        return 'Proof Declined';
       default:
         return 'Pending';
     }
   };
 
   return (
-    <View style={[styles.pill, { backgroundColor: getStatusColor() }]}>
-      <Text style={styles.text}>{getStatusLabel()}</Text>
+    <View style={[styles.pill, { backgroundColor: subtleAccent ? Colors.accentLight : getStatusColor(),
+      ...(subtleAccent ? { borderWidth: 1, borderColor: Colors.accentLight } : {}) }]}>
+      <Text style={[styles.text, subtleAccent && { color: Colors.accent }]}>{getStatusLabel()}</Text>
     </View>
   );
 };

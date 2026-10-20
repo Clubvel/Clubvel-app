@@ -4,10 +4,12 @@ import { useRouter } from 'expo-router';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+import { useBottomTabBarHeight } from '@react-navigation/bottom-tabs';
 
 export default function AboutScreen() {
   const router = useRouter();
   const insets = useSafeAreaInsets();
+  const tabBarHeight = useBottomTabBarHeight();
 
   return (
     <View style={styles.container}>
@@ -16,20 +18,20 @@ export default function AboutScreen() {
         <TouchableOpacity onPress={() => router.push('/(member)/profile')} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={Colors.white} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>About Us</Text>
+        <Text style={styles.headerTitle}>About Clubvel</Text>
         <View style={{ width: 40 }} />
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      <ScrollView style={styles.content} contentContainerStyle={{ paddingBottom: Math.max(tabBarHeight, insets.bottom) + 24 }} showsVerticalScrollIndicator={false}>
         {/* Logo and App Info */}
         <View style={styles.logoSection}>
           <Image 
-            source={require('../../assets/images/icon.png')} 
+            source={require('../../assets/images/clubvel-launcher-icon.png')}
             style={styles.logo}
             resizeMode="contain"
           />
           <Text style={styles.appName}>Clubvel</Text>
-          <Text style={styles.tagline}>Smart Stokvel / Social Club / Society Management</Text>
+          <Text style={styles.tagline}>save, plan, grow together</Text>
           <Text style={styles.version}>Version 1.0.0</Text>
         </View>
 
@@ -37,9 +39,7 @@ export default function AboutScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Our Mission</Text>
           <Text style={styles.sectionText}>
-            Clubvel is dedicated to empowering South African communities by modernizing
-            the traditional stokvel experience. We believe in the power of collective
-            savings and aim to make group financial management simple, transparent, and secure.
+            Clubvel helps people achieve more together. From traditional stokvels to new ways of saving towards shared goals, we make it simple to organise, contribute, track progress and manage money together.
           </Text>
         </View>
 
@@ -52,8 +52,8 @@ export default function AboutScreen() {
                 <Ionicons name="people" size={24} color={Colors.mediumGreen} />
               </View>
               <View style={styles.featureContent}>
-                <Text style={styles.featureTitle}>Club Management</Text>
-                <Text style={styles.featureDesc}>Easily manage your stokvel groups, members, and contributions all in one place.</Text>
+                <Text style={styles.featureTitle}>Save Together</Text>
+                <Text style={styles.featureDesc}>Create a Clubvel with people you trust and work towards a shared goal.</Text>
               </View>
             </View>
             
@@ -62,8 +62,8 @@ export default function AboutScreen() {
                 <Ionicons name="cash" size={24} color={Colors.mediumGreen} />
               </View>
               <View style={styles.featureContent}>
-                <Text style={styles.featureTitle}>Payment Tracking</Text>
-                <Text style={styles.featureDesc}>Track contributions with proof of payment uploads and real-time status updates.</Text>
+                <Text style={styles.featureTitle}>Stay Organised</Text>
+                <Text style={styles.featureDesc}>Keep contributions, payments, claims and important records together.</Text>
               </View>
             </View>
             
@@ -72,8 +72,8 @@ export default function AboutScreen() {
                 <Ionicons name="trophy" size={24} color={Colors.gold} />
               </View>
               <View style={styles.featureContent}>
-                <Text style={styles.featureTitle}>Claims Rotation</Text>
-                <Text style={styles.featureDesc}>Fair and transparent rotation system for payouts to all members.</Text>
+                <Text style={styles.featureTitle}>See Your Progress</Text>
+                <Text style={styles.featureDesc}>Know what&apos;s been contributed, what&apos;s outstanding and how your Clubvel is progressing.</Text>
               </View>
             </View>
             
@@ -82,21 +82,11 @@ export default function AboutScreen() {
                 <Ionicons name="shield-checkmark" size={24} color={Colors.mediumGreen} />
               </View>
               <View style={styles.featureContent}>
-                <Text style={styles.featureTitle}>Trust & Security</Text>
-                <Text style={styles.featureDesc}>Build trust with member profiles, contribution history, and secure data storage.</Text>
+                <Text style={styles.featureTitle}>Manage Together</Text>
+                <Text style={styles.featureDesc}>Give members and administrators the information they need to keep the group transparent and organised.</Text>
               </View>
             </View>
           </View>
-        </View>
-
-        {/* South African Pride Section */}
-        <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Proudly South African</Text>
-          <Text style={styles.sectionText}>
-            Built in South Africa, for South Africans. Clubvel understands the unique
-            financial traditions and needs of our communities. We're committed to
-            preserving the spirit of ubuntu while bringing stokvels into the digital age.
-          </Text>
         </View>
 
         {/* Contact Section */}
@@ -163,22 +153,24 @@ const styles = StyleSheet.create({
   logoSection: {
     alignItems: 'center',
     paddingVertical: 32,
+    paddingHorizontal: 20,
     backgroundColor: Colors.white,
     borderBottomWidth: 1,
     borderBottomColor: Colors.cardBorder,
   },
   logo: {
-    width: 80,
-    height: 80,
+    width: 104,
+    height: 104,
     borderRadius: 16,
   },
   appName: {
     fontSize: 28,
     fontWeight: 'bold',
     color: Colors.darkGreen,
-    marginTop: 16,
+    marginTop: 0,
   },
   tagline: {
+    textAlign: 'center',
     fontSize: 16,
     color: Colors.textSecondary,
     marginTop: 4,

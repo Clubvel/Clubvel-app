@@ -1,10 +1,10 @@
 import React, { useState } from 'react';
-import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, Linking, Modal, ActivityIndicator } from 'react-native';
+import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, Modal, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import { Colors } from '../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
-import axios from 'axios';
+import { authentication, AuthenticationError, normalizePhone, otpMessage } from '../services/authentication';
 
 export default function AuthScreen() {
   const [isLogin, setIsLogin] = useState(true);
@@ -20,8 +20,7 @@ export default function AuthScreen() {
   const [showPassword, setShowPassword] = useState(false);
   const [otp, setOtp] = useState('');
   const [tempPhone, setTempPhone] = useState('');
-  const [firebaseConfirmation, setFirebaseConfirmation] = useState<any>(null);
-  const [useFirebaseOTP, setUseFirebaseOTP] = useState(false);
+  const [otpNotice, setOtpNotice] = useState('');
   
   // Forgot Password State
   const [showForgotPassword, setShowForgotPassword] = useState(false);
@@ -29,18 +28,21 @@ export default function AuthScreen() {
   const [resetOTP, setResetOTP] = useState('');
   const [newPassword, setNewPassword] = useState('');
   const [confirmPassword, setConfirmPassword] = useState('');
+  const [showNewPassword, setShowNewPassword] = useState(false);
+  const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [resetStep, setResetStep] = useState(1); // 1: enter phone, 2: enter OTP, 3: new password
   const [resetLoading, setResetLoading] = useState(false);
   
   const router = useRouter();
-  const { login, register, verifyOTP, isFirebaseAvailable, sendFirebaseOTP } = useAuth();
-  const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
+  const { login, register, verifyOTP, sendOTP } = useAuth();
 
   const handleProceedToConsent = () => {
     if (!fullName || !phoneNumber || !password) {
       Alert.alert('Error', 'Please fill in all fields');
       return;
     }
+    try { normalizePhone(phoneNumber); } catch (error: any) { Alert.alert('Error', error.message); return; }
+    if (password.length < 6) { Alert.alert('Error', 'Password must be at least 6 characters'); return; }
     setIsConsentScreen(true);
   };
 
@@ -72,26 +74,11 @@ export default function AuthScreen() {
         return;
       }
       
-      setTempPhone(phoneNumber);
+      setTempPhone(normalizePhone(phoneNumber));
+      setOtp('');
+      setOtpNotice(otpMessage(result));
       setIsConsentScreen(false);
       setIsOTPScreen(true);
-      
-      if (result.confirmation) {
-        setFirebaseConfirmation(result.confirmation);
-        setUseFirebaseOTP(true);
-        Alert.alert(
-          '📱 OTP Sent!', 
-          'An SMS with your verification code has been sent to your phone number via Firebase.',
-          [{ text: 'OK' }]
-        );
-      } else {
-        setUseFirebaseOTP(false);
-        Alert.alert(
-          '✅ Registration Successful!', 
-          'We sent an OTP to your phone number. Please check your WhatsApp or SMS.',
-          [{ text: 'OK, Got It!' }]
-        );
-      }
     } catch (error: any) {
       // If phone exists, prompt to login
       if (error.message.includes('already registered')) {
@@ -125,12 +112,11 @@ export default function AuthScreen() {
 
     setLoading(true);
     try {
-      await verifyOTP(tempPhone, otp, firebaseConfirmation);
+      await verifyOTP(tempPhone, otp);
       Alert.alert('Success', 'Phone number verified! You can now log in.');
       setIsOTPScreen(false);
       setIsLogin(true);
       setPhoneNumber(tempPhone);
-      setFirebaseConfirmation(null);
     } catch (error: any) {
       Alert.alert('Error', error.message);
     } finally {
@@ -147,19 +133,20 @@ export default function AuthScreen() {
     setLoading(true);
     try {
       // Send only phone_number and password - no role
-      const result = await login(phoneNumber, password);
-      
-      if (result.roles.includes('admin') || result.roles.includes('treasurer')) {
-  router.replace('/(treasurer)/dashboard');
-} else {
-  router.replace('/(member)/home');
-}
+      await login(phoneNumber, password);
+      router.replace('/');
       
     } catch (error: any) {
-      if (error.message.includes('Invalid phone number or password')) {
+      if (error instanceof AuthenticationError && error.code === 'verification_required') {
+        try {
+          const result = await sendOTP(phoneNumber);
+          setTempPhone(normalizePhone(phoneNumber));
+          setOtp(''); setOtpNotice(otpMessage(result)); setIsOTPScreen(true);
+        } catch (sendError: any) { Alert.alert('Error', sendError.message); }
+      } else if (error.message.includes('Invalid phone number or password')) {
         Alert.alert(
           'Login Failed',
-          'Invalid phone number or password.\n\nIf you just registered, make sure you verified your OTP first.'
+          'Invalid phone number or password.'
         );
       } else {
         Alert.alert('Error', error.message || 'Login failed. Please try again.');
@@ -168,9 +155,6 @@ export default function AuthScreen() {
       setLoading(false);
     }
   };
-
-  // Firebase confirmation object for reset password flow
-  const [resetConfirmation, setResetConfirmation] = useState<any>(null);
 
   // Forgot Password Functions
   const handleSendResetOTP = async () => {
@@ -181,30 +165,8 @@ export default function AuthScreen() {
 
     setResetLoading(true);
     try {
-      // First check if user exists in backend
-      await axios.post(`${API_URL}/api/auth/forgot-password`, {
-        phone_number: forgotPhoneNumber
-      });
-      
-      // Use Firebase to send OTP
-      if (isFirebaseAvailable) {
-        const result = await sendFirebaseOTP(forgotPhoneNumber);
-        if (result.confirmation) {
-          setResetConfirmation(result.confirmation);
-        }
-        Alert.alert(
-          'OTP Sent',
-          'A password reset code has been sent to your phone via SMS.',
-          [{ text: 'OK' }]
-        );
-      } else {
-        // Web fallback with mock OTP
-        Alert.alert(
-          'OTP Sent',
-          'For testing, use OTP: 1234',
-          [{ text: 'OK' }]
-        );
-      }
+      const result = await authentication.forgotPassword(forgotPhoneNumber);
+      Alert.alert('Verification code', otpMessage(result));
       setResetStep(2);
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || error.message || 'Failed to send reset code. Please check your phone number.');
@@ -221,25 +183,10 @@ export default function AuthScreen() {
 
     setResetLoading(true);
     try {
-      // Verify with Firebase if available
-      if (resetConfirmation && isFirebaseAvailable) {
-        await resetConfirmation.confirm(resetOTP);
-      } else {
-        // Backend verification for web/mock
-        await axios.post(`${API_URL}/api/auth/verify-reset-otp`, {
-          phone_number: forgotPhoneNumber,
-          otp: resetOTP
-        });
-      }
+      await authentication.verifyResetOTP(forgotPhoneNumber, resetOTP);
       setResetStep(3);
     } catch (error: any) {
-      if (error.code === 'auth/invalid-verification-code') {
-        Alert.alert('Error', 'Invalid OTP code. Please try again.');
-      } else if (error.code === 'auth/code-expired') {
-        Alert.alert('Error', 'OTP code has expired. Please request a new one.');
-      } else {
-        Alert.alert('Error', error.response?.data?.detail || 'Invalid OTP. Please try again.');
-      }
+      Alert.alert('Error', error.message || 'Invalid code. Please try again.');
     } finally {
       setResetLoading(false);
     }
@@ -263,11 +210,7 @@ export default function AuthScreen() {
 
     setResetLoading(true);
     try {
-      await axios.post(`${API_URL}/api/auth/reset-password`, {
-        phone_number: forgotPhoneNumber,
-        otp: resetOTP,
-        new_password: newPassword
-      });
+      await authentication.resetPassword(forgotPhoneNumber, resetOTP, newPassword);
       Alert.alert(
         'Password Reset Successful',
         'Your password has been changed. Please log in with your new password.',
@@ -282,7 +225,7 @@ export default function AuthScreen() {
         }}]
       );
     } catch (error: any) {
-      Alert.alert('Error', error.response?.data?.detail || 'Failed to reset password. Please try again.');
+      Alert.alert('Error', error.message || 'Failed to reset password. Please try again.');
     } finally {
       setResetLoading(false);
     }
@@ -313,7 +256,7 @@ export default function AuthScreen() {
             <Text style={styles.sectionTitle}>Enter OTP</Text>
 
             <Text style={styles.otpInfo}>
-              Enter the verification code
+              {otpNotice || 'Enter the verification code'}
             </Text>
 
             <TextInput
@@ -322,7 +265,7 @@ export default function AuthScreen() {
               value={otp}
               onChangeText={setOtp}
               keyboardType="number-pad"
-              maxLength={4}
+              maxLength={6}
             />
 
             <TouchableOpacity
@@ -333,6 +276,15 @@ export default function AuthScreen() {
               <Text style={styles.buttonText}>
                 {loading ? 'Verifying...' : 'Verify OTP'}
               </Text>
+            </TouchableOpacity>
+            <TouchableOpacity disabled={loading} onPress={async () => {
+              setLoading(true);
+              try { const result = await sendOTP(tempPhone); setOtp(''); setOtpNotice(otpMessage(result)); }
+              catch (error: any) { Alert.alert('Error', error.message); }
+              finally { setLoading(false); }
+            }}><Text style={styles.otpInfo}>Resend code</Text></TouchableOpacity>
+            <TouchableOpacity disabled={loading} onPress={() => { setIsOTPScreen(false); setIsLogin(true); }}>
+              <Text style={styles.otpInfo}>Back to Sign In</Text>
             </TouchableOpacity>
           </View>
         </ScrollView>
@@ -484,13 +436,25 @@ export default function AuthScreen() {
                 keyboardType="phone-pad"
               />
 
-              <TextInput
-                style={styles.input}
-                placeholder="Password"
-                value={password}
-                onChangeText={setPassword}
-                secureTextEntry
-              />
+              <View style={{ position: 'relative' }}>
+                <TextInput
+                  style={styles.input}
+                  placeholder="Password"
+                  value={password}
+                  onChangeText={setPassword}
+                  secureTextEntry={!showPassword}
+                />
+                <TouchableOpacity
+                  onPress={() => setShowPassword(!showPassword)}
+                  style={{ position: 'absolute', right: 18, top: 18 }}
+                >
+                  <Ionicons
+                    name={showPassword ? 'eye-off-outline' : 'eye-outline'}
+                    size={24}
+                    color="gray"
+                  />
+                </TouchableOpacity>
+              </View>
 
               <TouchableOpacity
                 style={[styles.button, loading && styles.buttonDisabled]}
@@ -503,7 +467,9 @@ export default function AuthScreen() {
               </TouchableOpacity>
 
               <TouchableOpacity onPress={() => setIsLogin(true)}>
-                <Text style={styles.switchText}>Already a member? Sign In</Text>
+                <Text style={styles.switchText}>
+                  Already a member? <Text style={{ color: Colors.gold }}>Sign In</Text>
+                </Text>
               </TouchableOpacity>
             </>
           )}
@@ -585,7 +551,7 @@ export default function AuthScreen() {
                 <>
                   <Text style={styles.resetStepTitle}>Step 1: Enter your phone number</Text>
                   <Text style={styles.resetStepDesc}>
-                    We'll send you a verification code via SMS or WhatsApp
+                    We&apos;ll send you a verification code via SMS or WhatsApp
                   </Text>
                   <TextInput
                     style={styles.input}
@@ -620,7 +586,7 @@ export default function AuthScreen() {
                     value={resetOTP}
                     onChangeText={setResetOTP}
                     keyboardType="number-pad"
-                    maxLength={4}
+                    maxLength={6}
                   />
                   <TouchableOpacity
                     style={[styles.button, resetLoading && styles.buttonDisabled]}
@@ -645,20 +611,45 @@ export default function AuthScreen() {
                   <Text style={styles.resetStepDesc}>
                     Enter your new password below
                   </Text>
-                  <TextInput
-                    style={styles.input}
-                    placeholder="New Password"
-                    value={newPassword}
-                    onChangeText={setNewPassword}
-                    secureTextEntry
-                  />
-                  <TextInput
-                    style={styles.input}
-                    placeholder="Confirm New Password"
-                    value={confirmPassword}
-                    onChangeText={setConfirmPassword}
-                    secureTextEntry
-                  />
+                  <View style={{ position: 'relative' }}>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="New Password"
+                      value={newPassword}
+                      onChangeText={setNewPassword}
+                      secureTextEntry={!showNewPassword}
+                    />
+                    <TouchableOpacity
+                      onPress={() => setShowNewPassword(!showNewPassword)}
+                      style={{ position: 'absolute', right: 18, top: 18 }}
+                    >
+                      <Ionicons
+                        name={showNewPassword ? 'eye-off-outline' : 'eye-outline'}
+                        size={24}
+                        color="gray"
+                      />
+                    </TouchableOpacity>
+                  </View>
+
+                  <View style={{ position: 'relative' }}>
+                    <TextInput
+                      style={styles.input}
+                      placeholder="Confirm New Password"
+                      value={confirmPassword}
+                      onChangeText={setConfirmPassword}
+                      secureTextEntry={!showConfirmPassword}
+                    />
+                    <TouchableOpacity
+                      onPress={() => setShowConfirmPassword(!showConfirmPassword)}
+                      style={{ position: 'absolute', right: 18, top: 18 }}
+                    >
+                      <Ionicons
+                        name={showConfirmPassword ? 'eye-off-outline' : 'eye-outline'}
+                        size={24}
+                        color="gray"
+                      />
+                    </TouchableOpacity>
+                  </View>
                   <TouchableOpacity
                     style={[styles.button, resetLoading && styles.buttonDisabled]}
                     onPress={handleResetPassword}
