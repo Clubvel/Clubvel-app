@@ -49,6 +49,7 @@ export default function ProofOfPaymentsScreen() {
   const [loadingClubs, setLoadingClubs] = useState(false);
   const [proofs, setProofs] = useState<Proof[]>([]);
   const [proofFilter, setProofFilter] = useState<'all' | 'confirmed' | 'proof_uploaded'>('all');
+  const [proofsExpanded, setProofsExpanded] = useState(false);
   const confirmedProofs = proofs.filter(p => p.status === 'confirmed');
   const pendingProofs = proofs.filter(p => p.status === 'proof_uploaded');
   const visibleProofs = proofFilter === 'confirmed' ? confirmedProofs : proofFilter === 'proof_uploaded' ? pendingProofs : proofs;
@@ -473,7 +474,7 @@ export default function ProofOfPaymentsScreen() {
             <ActivityIndicator color={Colors.white} />
           ) : (
             <>
-              <Ionicons name="cloud-upload" size={24} color={Colors.white} />
+              <Ionicons name="cloud-upload" size={24} color={Colors.primaryDark} />
               <Text style={styles.uploadButtonText}>Upload Proof of Payment</Text>
             </>
           )}
@@ -506,9 +507,27 @@ export default function ProofOfPaymentsScreen() {
           </View>
         </View>
 
-        {/* Proofs List */}
+        {/* Ad banner stays above the potentially long proof list */}
+        <View style={styles.adPlacement}>
+          <AdBanner size="banner" />
+        </View>
+
+        {/* Collapsible Proofs List */}
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Proofs of Payment</Text>
+          <TouchableOpacity
+            style={styles.proofsSectionToggle}
+            accessibilityRole="button"
+            accessibilityState={{ expanded: proofsExpanded }}
+            onPress={() => setProofsExpanded(expanded => !expanded)}
+            activeOpacity={0.75}
+          >
+            <View style={styles.proofsSectionHeading}>
+              <Text style={styles.sectionTitle}>Proofs of Payment</Text>
+              <Text style={styles.proofsCount}>{visibleProofs.length}</Text>
+            </View>
+            <Ionicons name={proofsExpanded ? "chevron-up" : "chevron-down"} size={22} color={Colors.primary} />
+          </TouchableOpacity>
+          {proofsExpanded && <>
           {proofFilter !== 'all' && <View>
             <Text accessibilityLiveRegion="polite">Showing {proofFilter === 'confirmed' ? 'confirmed' : 'pending review'} proofs ({visibleProofs.length})</Text>
             <TouchableOpacity accessibilityRole="button" accessibilityLabel="Show all proofs" onPress={() => setProofFilter('all')}><Text style={styles.viewProofText}>Show all</Text></TouchableOpacity>
@@ -587,6 +606,7 @@ export default function ProofOfPaymentsScreen() {
               </View>
             ))
           )}
+          </>}
         </View>
 
         {/* Info Box */}
@@ -600,8 +620,6 @@ export default function ProofOfPaymentsScreen() {
           </View>
         </View>
         
-        {/* Ad Banner */}
-        <AdBanner size="banner" />
       </ScrollView>
 
       {/* Club Selection Modal */}
@@ -871,7 +889,40 @@ const styles = StyleSheet.create({
     fontSize: 18,
     fontWeight: 'bold',
     color: Colors.textPrimary,
-    marginBottom: 12,
+    marginBottom: 0,
+  },
+  adPlacement: {
+    marginHorizontal: 24,
+    marginTop: 16,
+    marginBottom: 4,
+  },
+  proofsSectionToggle: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    backgroundColor: Colors.accentLight,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.gold,
+    paddingHorizontal: 16,
+    paddingVertical: 14,
+  },
+  proofsSectionHeading: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  proofsCount: {
+    minWidth: 28,
+    textAlign: 'center',
+    overflow: 'hidden',
+    color: Colors.primaryDark,
+    backgroundColor: Colors.gold,
+    borderRadius: 14,
+    paddingHorizontal: 8,
+    paddingVertical: 3,
+    fontSize: 12,
+    fontWeight: 'bold',
   },
   emptyState: {
     backgroundColor: Colors.white,
@@ -988,7 +1039,7 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   uploadButton: {
-    backgroundColor: Colors.primary,
+    backgroundColor: Colors.gold,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -999,7 +1050,7 @@ const styles = StyleSheet.create({
     borderRadius: 12,
   },
   uploadButtonText: {
-    color: Colors.white,
+    color: Colors.primaryDark,
     fontSize: 16,
     fontWeight: 'bold',
   },
