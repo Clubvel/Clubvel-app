@@ -1147,9 +1147,9 @@ const styles = StyleSheet.create({
     borderColor: Colors.cardBorder, borderRadius: 18, borderWidth: 1,
     paddingHorizontal: 12, paddingVertical: 8,
   },
-  typeButtonActive: { backgroundColor: Colors.accent, borderColor: Colors.accent },
+  typeButtonActive: { backgroundColor: Colors.accentLight, borderColor: Colors.accent, borderWidth: 2 },
   typeButtonText: { color: Colors.textSecondary, fontSize: 13, fontWeight: '600' },
-  typeButtonTextActive: { color: Colors.white },
+  typeButtonTextActive: { color: Colors.primaryDark, fontWeight: '700' },
   formActions: { flexDirection: 'row', gap: 12, marginTop: 8 },
   cancelButton: {
     alignItems: 'center', borderColor: Colors.cardBorder, borderRadius: 10,
