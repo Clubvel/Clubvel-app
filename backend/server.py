@@ -8,6 +8,7 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import os
+import re
 import logging
 import math
 import unicodedata
@@ -2471,6 +2472,50 @@ async def get_member_dashboard(user_id: str, authorization: str | None = Header(
         "clubs": clubs
     }
 
+
+class UpdateGroupPhotoRequest(BaseModel):
+    group_id: str
+    photo_data_url: str = Field(..., min_length=1, max_length=1_500_000)
+
+
+@api_router.put("/groups/photo")
+async def update_group_photo(
+    data: UpdateGroupPhotoRequest,
+    authorization: Optional[str] = Header(None),
+):
+    """Save a club photo for all active members; only club admins may change it."""
+    actor = authenticated_user_id(authorization)
+    group = await db.groups.find_one({"id": data.group_id, "status": "active"})
+    if not group:
+        raise HTTPException(status_code=404, detail="Active club not found")
+
+    membership = await db.members.find_one({
+        "user_id": actor,
+        "group_id": data.group_id,
+        "status": "active",
+    })
+    if not membership or membership.get("role_in_group") != "admin":
+        raise HTTPException(status_code=403, detail="Club Admin role required")
+
+    photo = data.photo_data_url
+    if not re.fullmatch(r"data:image/(jpeg|png|webp);base64,[A-Za-z0-9+/]+={0,2}", photo):
+        raise HTTPException(status_code=422, detail="Use a valid JPEG, PNG or WebP image")
+
+    try:
+        raw = base64.b64decode(photo.split(",", 1)[1], validate=True)
+    except Exception:
+        raise HTTPException(status_code=422, detail="Invalid image encoding")
+
+    if not raw or len(raw) > 1_000_000:
+        raise HTTPException(status_code=413, detail="Club photo must be no larger than 1 MB")
+
+    await db.groups.update_one(
+        {"id": data.group_id},
+        {"$set": {"photo_data_url": photo, "updated_at": datetime.utcnow()}},
+    )
+    return {"message": "Club photo updated", "group_id": data.group_id}
+
+
 @api_router.get("/groups/{group_id}/context")
 async def get_club_home_context(group_id: str, authorization: Optional[str] = Header(None), month: int | None = None, year: int | None = None):
     """Read-only active club context and the caller's recorded obligations only."""
@@ -2498,7 +2543,7 @@ async def get_club_home_context(group_id: str, authorization: Optional[str] = He
     details = [financial_details(row, contribution_outstanding) for row in records]
     totals = financial_totals(details)
     return {
-        "club": {"id": group_id, "name": group["group_name"]},
+        "club": {"id": group_id, "name": group["group_name"], "photo_data_url": group.get("photo_data_url"), "group_photo": group.get("photo_data_url")},
         "membership": {"id": membership["id"], "role": membership.get("role_in_group", "member"), "status": "active"},
         "clubs": [{"id": row["id"], "name": row["group_name"]} for row in groups],
         "period": {"month": month, "year": year, "timezone": "Africa/Johannesburg"},
@@ -2577,6 +2622,7 @@ async def get_member_club_details(group_id: str, user_id: str, authorization: st
         "group": {
             "id": group['id'],
             "name": group['group_name'],
+            "group_photo": group.get("photo_data_url"),
             "type": group['group_type'],
             "contribution_mode": group.get('contribution_mode', 'fixed_monthly'),
             "monthly_contribution": group['monthly_contribution'],

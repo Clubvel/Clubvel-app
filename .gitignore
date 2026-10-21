@@ -1270,3 +1270,9 @@ credentials.json
 *.apk
 *.aab
 *.ipa
+frontend/.metro-cache/
+frontend/app/club/[id]/info.tsx.club-photo-backup-*
+backend/server.py.club-photo-backup-*
+backend/server.py.club-photo-compat-*
+backend/server.py.club-photo-details-*
+.gitignore.backup-*

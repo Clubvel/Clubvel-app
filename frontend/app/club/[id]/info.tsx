@@ -1,15 +1,17 @@
 import React, { useCallback, useRef, useState } from 'react';
-import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
+import { ActivityIndicator, Alert, Image, ScrollView, StyleSheet, Text, TouchableOpacity, View } from 'react-native';
 import { Redirect, useLocalSearchParams, useRouter, type Href } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
+import axios from 'axios';
 import { useAuth } from '../../../contexts/AuthContext';
 import { useClubPreview } from '../../../hooks/useClubPreview';
 import { ClubBottomNavigation } from '../../../components/ClubDashboard';
 import { Colors } from '../../../constants/Colors';
 import { paymentMoney } from '../../../services/paymentSummaryRecords';
 
-type ClubContext = { club: { id: string; name: string }; membership: { id: string; role: string; status: string }; period: { month: number; year: number }; own_financial_summary: { collected?: number | null; outstanding?: number | null }; availability: Record<string, string> };
+type ClubContext = { club: { id: string; name: string; photo_data_url?: string | null; group_photo?: string | null }; membership: { id: string; role: string; status: string }; period: { month: number; year: number }; own_financial_summary: { collected?: number | null; outstanding?: number | null }; availability: Record<string, string> };
 type ClubDetails = { group: { id: string; type?: string; contribution_mode?: string; monthly_contribution?: number; payment_due_date?: number; group_photo?: string; description?: string } };
 
 export default function MyClubScreen() {
@@ -23,6 +25,7 @@ export default function MyClubScreen() {
   const latest = useRef(key); latest.current = key;
   const [expanded, setExpanded] = useState<{ owner: string; section: string } | null>(null);
   const [failedPhoto, setFailedPhoto] = useState<string | null>(null);
+  const [uploadingPhoto, setUploadingPhoto] = useState(false);
   const period = new URLSearchParams();
   if (params.month) period.set('month', params.month);
   if (params.year) period.set('year', params.year);
@@ -52,7 +55,50 @@ export default function MyClubScreen() {
   const toggle = (section: string) => { if (latest.current === key && club) setExpanded(current => current?.owner === key && current.section === section ? null : { owner: key, section }); };
   const ownMoney = (field: 'collected' | 'outstanding') => club?.availability[field] === 'AVAILABLE' ? paymentMoney(club.own_financial_summary[field]) : 'Not available';
   const flexible = group?.contribution_mode === 'flexible_goal' || group?.type === 'travel';
-  const photo = group?.group_photo;
+  const photo = group?.group_photo || club?.club.photo_data_url || club?.club.group_photo;
+  const changeClubPhoto = async () => {
+    if (club?.membership.role !== 'admin' || !token || !params.id || !base) return;
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission required', 'Allow photo library access to choose a club photo.');
+        return;
+      }
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.3,
+        base64: true,
+      });
+      if (result.canceled) return;
+      const asset = result.assets?.[0];
+      if (!asset?.base64) {
+        Alert.alert('Photo unavailable', 'Please choose another image.');
+        return;
+      }
+      if (asset.base64.length > 1_350_000) {
+        Alert.alert('Photo too large', 'Please choose a smaller image.');
+        return;
+      }
+      setUploadingPhoto(true);
+      await axios.put(
+        `${base}/api/groups/photo`,
+        { group_id: params.id, photo_data_url: `data:image/jpeg;base64,${asset.base64}` },
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 20000 }
+      );
+      setFailedPhoto(null);
+      await Promise.all([context.reload(), details.reload()]);
+      Alert.alert('Club photo updated', 'The new photo is shared with all club members.');
+    } catch (error: any) {
+      Alert.alert(
+        'Could not update club photo',
+        error?.response?.data?.detail || error?.message || 'Please try again.'
+      );
+    } finally {
+      setUploadingPhoto(false);
+    }
+  };
   const photoKey = JSON.stringify([key, photo]);
   const entry = (label: string, caption: string, icon: React.ComponentProps<typeof Ionicons>['name'], action: () => void) => <TouchableOpacity accessibilityRole="button" accessibilityLabel={label} onPress={action} style={styles.entry}><View style={styles.icon}><Ionicons name={icon} color={Colors.corporateBlue} size={23} /></View><View style={{ flex: 1, minWidth: 0 }}><Text style={styles.entryTitle}>{label}</Text><Text style={styles.caption}>{caption}</Text></View><Ionicons name="chevron-forward" color={Colors.textSecondary} size={18} /></TouchableOpacity>;
   return <View style={styles.screen}>
@@ -62,6 +108,7 @@ export default function MyClubScreen() {
       {context.error && <View style={styles.card}><Text>Unable to open this club. Check your connection and active membership.</Text>{entry('Retry My Club', 'Verify active access again', 'refresh', () => void context.reload())}</View>}
       {club && <View style={styles.card}>
         <View style={styles.identity}>{photo && failedPhoto !== photoKey ? <Image source={{ uri: photo }} style={styles.photo} resizeMode="cover" onError={() => { if (latest.current === key) setFailedPhoto(photoKey); }} /> : <View style={[styles.photo, styles.fallback]}><Text style={{ color: Colors.primary, fontSize: 30 }}>{club.club.name.trim().charAt(0).toUpperCase()}</Text></View>}<View style={{ flex: 1 }}><Text style={styles.clubName}>{club.club.name}</Text><Text style={styles.caption}>Your role: {club.membership.role === 'admin' ? 'Admin' : club.membership.role === 'treasurer' ? 'Treasurer' : 'Member'}</Text></View></View>
+        {club.membership.role === 'admin' && entry(uploadingPhoto ? 'Saving club photo…' : 'Change club photo', 'Shared with all club members', 'camera-outline', () => { if (!uploadingPhoto) void changeClubPhoto(); })}
         <Text style={styles.caption}>Your recorded position · {club.period.month}/{club.period.year}</Text>
         <View style={styles.summary}><View style={styles.metric}><Text style={styles.value}>{ownMoney('collected')}</Text><Text style={styles.caption}>Confirmed collected</Text></View><View style={styles.metric}><Text style={styles.value}>{ownMoney('outstanding')}</Text><Text style={styles.caption}>Your outstanding</Text></View></View>
         {entry('Club Information', 'Details and your membership', 'information-circle', () => toggle('information'))}
@@ -79,6 +126,6 @@ export default function MyClubScreen() {
 }
 const styles = StyleSheet.create({
   screen: { flex: 1, backgroundColor: Colors.primary }, header: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 16, paddingBottom: 12 }, control: { minWidth: 44, minHeight: 44, justifyContent: 'center' }, title: { flex: 1, textAlign: 'center', color: Colors.white, fontWeight: '400', fontSize: 23 },
-  content: { flexGrow: 1, backgroundColor: Colors.background, padding: 16, borderTopLeftRadius: 24, borderTopRightRadius: 24 }, card: { padding: 16, backgroundColor: Colors.white, borderRadius: 20, borderWidth: 1, borderColor: Colors.cardBorder }, identity: { flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 18 }, photo: { width: 76, height: 76, borderRadius: 38 }, fallback: { backgroundColor: Colors.iceBlue, alignItems: 'center', justifyContent: 'center' }, clubName: { color: Colors.primary, fontSize: 21, fontWeight: '500' },
+  content: { flexGrow: 1, backgroundColor: Colors.background, padding: 16, borderTopLeftRadius: 24, borderTopRightRadius: 24 }, card: { padding: 16, backgroundColor: Colors.white, borderRadius: 20, borderWidth: 1, borderColor: Colors.cardBorder }, identity: { flexDirection: 'row', alignItems: 'center', gap: 16, marginBottom: 18 }, photo: { width: 76, height: 76, borderRadius: 38, borderWidth: 4, borderColor: '#F58220' }, fallback: { backgroundColor: Colors.iceBlue, alignItems: 'center', justifyContent: 'center' }, clubName: { color: Colors.primary, fontSize: 21, fontWeight: '500' },
   summary: { flexDirection: 'row', gap: 8, backgroundColor: Colors.iceBlue, borderRadius: 16, padding: 14, marginVertical: 14 }, metric: { flex: 1, minWidth: 0 }, value: { color: Colors.primary, fontSize: 19, fontWeight: '500' }, caption: { color: Colors.textSecondary, fontSize: 13, lineHeight: 19, marginTop: 4 }, entry: { flexDirection: 'row', gap: 12, alignItems: 'center', minHeight: 74, paddingVertical: 12, borderBottomWidth: 1, borderBottomColor: Colors.cardBorder }, icon: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center', backgroundColor: Colors.iceBlue }, entryTitle: { color: Colors.primary, fontSize: 16, fontWeight: '500' }, information: { backgroundColor: Colors.lightBackground, padding: 14, borderRadius: 12 },
 });
