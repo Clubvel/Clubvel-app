@@ -65,13 +65,13 @@ export default function AlertsScreen() {
       setAlerts(response.data.alerts);
       setLoadedContext(key);
       try {
-        const cr = await axios.get(`${API_URL}/api/member/contributions/${user.id}`, {
+        const cr = await axios.get(`${API_URL}/api/member/clubs/${user.id}`, {
           headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
         });
         if (ticket === sequence.current && latestContext.current === key) {
           const names: Record<string, string> = {};
-          for (const item of cr.data?.contributions || []) {
-            if (item?.group_id && item?.group_name) names[item.group_id] = item.group_name;
+          for (const item of cr.data?.clubs || []) {
+            if (item?.id && item?.name) names[item.id] = item.name;
           }
           setClubNames(names);
         }
@@ -306,8 +306,6 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 1,
-    borderColor: Colors.white,
   },
   profilePlaceholder: {
     width: 112,
@@ -316,8 +314,6 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-    borderWidth: 1,
-    borderColor: Colors.white,
   },
   content: {
     flex: 1,
