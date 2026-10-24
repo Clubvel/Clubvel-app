@@ -318,7 +318,7 @@ export default function ProfileScreen() {
                 <View style={styles.emptyState}>
                   <Ionicons name="people-outline" size={48} color={Colors.textMuted} />
                   <Text style={styles.emptyStateText}>No Clubs Available</Text>
-                  <Text style={styles.emptyStateSubtext}>You haven't joined any clubs yet</Text>
+                  <Text style={styles.emptyStateSubtext}>You haven&apos;t joined any clubs yet</Text>
                 </View>
               )}
             </ScrollView>
@@ -380,6 +380,8 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: Colors.primary,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
     paddingTop: 50,
     paddingBottom: 20,
     paddingHorizontal: 24,
@@ -397,8 +399,7 @@ const styles = StyleSheet.create({
     borderRadius: 56,
     backgroundColor: Colors.primary,
     justifyContent: 'center',
-    alignItems: 'center',
-   borderWidth: 1, borderColor: Colors.white, },
+    alignItems: 'center', },
   avatarContainer: {
     position: 'relative',
     marginBottom: 12,
@@ -407,8 +408,6 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 1,
-    borderColor: Colors.white,
   },
   editBadge: {
     position: 'absolute',

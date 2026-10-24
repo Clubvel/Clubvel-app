@@ -600,7 +600,7 @@ export default function AdminDashboardScreen() {
           <View style={styles.emptyState}>
             <Ionicons name="people-outline" size={48} color={Colors.textMuted} />
             <Text style={styles.emptyStateText}>No groups managed</Text>
-            <Text style={styles.emptyStateSubtext}>Tap "Create a Group" above to get started</Text>
+            <Text style={styles.emptyStateSubtext}>Tap &quot;Create a Group&quot; above to get started</Text>
           </View>
         )}
       </View>
@@ -885,6 +885,8 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: Colors.primary,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
     paddingTop: 52,
     paddingBottom: 16,
     paddingHorizontal: 24,
@@ -1162,14 +1164,11 @@ const styles = StyleSheet.create({
     borderRadius: 56,
     backgroundColor: Colors.primary,
     justifyContent: 'center',
-    alignItems: 'center',
-   borderWidth: 1, borderColor: Colors.white, },
+    alignItems: 'center', },
   avatarImage: {
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 1,
-    borderColor: Colors.white,
   },
   modalOverlay: {
     flex: 1,
@@ -1202,9 +1201,7 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 1,
-    borderColor: Colors.white,
-    backgroundColor: Colors.primary,
+backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },

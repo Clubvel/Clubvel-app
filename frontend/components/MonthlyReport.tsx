@@ -73,6 +73,7 @@ export default function MonthlyReport({ clubs, token, contextualClubId, refreshK
     if (next.year >= 1 && next.year <= 9999) setPeriod(next);
   };
   return <View style={styles.container}>
+    <Text style={styles.heading}>Select Club</Text>
     <TouchableOpacity accessibilityRole="button" accessibilityLabel="Select report club" style={styles.card} onPress={() => setSelection('club')}>
       <Text style={styles.heading}>{report?.club.name || club?.name || club?.group_name || 'Select club'} ▾</Text>
     </TouchableOpacity>

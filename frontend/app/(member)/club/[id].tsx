@@ -6,6 +6,7 @@ import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { useAuth } from '../../../contexts/AuthContext';
 import { StatusPill } from '../../../components/StatusPill';
 import { Colors } from '../../../constants/Colors';
+import ProfilePhotoFrame from '../../../components/ProfilePhotoFrame';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -15,6 +16,7 @@ interface ClubDetails {
   group: {
     id: string;
     name: string;
+    group_photo?: string | null;
     type: string;
     monthly_contribution: number;
     payment_due_date: number;
@@ -253,7 +255,26 @@ export default function ClubDetailScreen() {
         <TouchableOpacity onPress={back} style={styles.backButton}>
           <Ionicons name="arrow-back" size={24} color={Colors.white} />
         </TouchableOpacity>
-        <Text style={styles.headerTitle}>{clubData.group.name}</Text>
+                <View style={styles.clubIdentity}>
+          <ProfilePhotoFrame>
+            {clubData.group.group_photo ? (
+              <Image
+                source={{ uri: clubData.group.group_photo }}
+                style={styles.clubPhoto}
+                resizeMode="cover"
+              />
+            ) : (
+              <View style={styles.clubPhotoFallback}>
+                <Text style={styles.clubInitial}>
+                  {clubData.group.name.trim().charAt(0).toUpperCase() || '?'}
+                </Text>
+              </View>
+            )}
+          </ProfilePhotoFrame>
+          <Text style={styles.headerTitle} numberOfLines={2}>
+            {clubData.group.name}
+          </Text>
+        </View>
         <View style={styles.headerSpacer} />
       </View>
 
@@ -389,6 +410,9 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: Colors.darkGreen,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
+    overflow: 'hidden',
     paddingTop: 60,
     paddingBottom: 20,
     paddingHorizontal: 24,
@@ -399,6 +423,10 @@ const styles = StyleSheet.create({
   backButton: {
     width: 40,
   },
+  clubIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12 },
+  clubPhoto: { width: 112, height: 112, borderRadius: 56 },
+  clubPhotoFallback: { width: 112, height: 112, borderRadius: 56, backgroundColor: Colors.primary, alignItems: "center", justifyContent: "center" },
+  clubInitial: { color: Colors.white, fontSize: 24, fontWeight: "700" },
   headerTitle: {
     fontSize: 20,
     fontWeight: '400',

@@ -302,7 +302,7 @@ export default function TreasurerClaimsScreen() {
           </View>
         ) : (
           <>
-            <Text style={styles.selectorLabel}>Group</Text>
+            <Text style={styles.selectorLabel}>Select Group</Text>
             <TouchableOpacity
               style={styles.groupSelector}
               onPress={() => setShowGroupPicker(!showGroupPicker)}
@@ -531,6 +531,8 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: Colors.primary,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
     paddingTop: 60,
     paddingBottom: 20,
     paddingHorizontal: 24,
@@ -553,9 +555,7 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 1,
-    borderColor: Colors.white,
-  },
+},
   profilePlaceholder: {
     width: 112,
     height: 112,
@@ -563,7 +563,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-   borderWidth: 1, borderColor: Colors.white, },
+},
   content: {
     flex: 1,
   },

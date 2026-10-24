@@ -44,7 +44,7 @@ export default function PrivacyPolicyScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Why we collect it:</Text>
             <Text style={styles.sectionContent}>
-              To manage your Stokvel group's contributions, claims, and financial records.
+              To manage your Stokvel group&apos;s contributions, claims, and financial records.
             </Text>
           </View>
 
@@ -72,7 +72,7 @@ export default function PrivacyPolicyScreen() {
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Your rights:</Text>
             <Text style={styles.sectionContent}>
-              You have the right to access, correct, or request deletion of your personal information at any time. Use the "Delete My Account" option in Settings or contact us directly.
+              You have the right to access, correct, or request deletion of your personal information at any time. Use the &quot;Delete My Account&quot; option in Settings or contact us directly.
             </Text>
           </View>
 

@@ -359,6 +359,8 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: Colors.primary,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
     paddingTop: 50,
     paddingBottom: 20,
     alignItems: 'center',
@@ -380,9 +382,7 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 1,
-    borderColor: Colors.white,
-  },
+},
   editBadge: {
     position: 'absolute',
     bottom: 0,

@@ -2,7 +2,10 @@ export const Colors = {
   // Interface surfaces are independent of the approved icon/splash artwork.
   midnightNavy: '#06285B',
   headerBackground: '#06285B',
-  avatarRing: '#FFD600',
+  clementine: '#F58220',
+  clementineDark: '#C65D00',
+  clementineLight: '#FFF0E0',
+  avatarRing: '#F58220',
   signInAction: '#E5B83F', // Preserve the existing Sign In fill independently of photo rings.
   secondaryHighlight: '#397F78',
   corporateBlue: '#0756C9',
@@ -13,11 +16,11 @@ export const Colors = {
   lightGrey: '#F7F8F4',
   primary: '#06285B',
   primaryDark: '#06285B',
-  primaryLight: '#E8F2FF',
+  primaryLight: '#FFF0E0',
   
   // Alert/Accent Colors
-  accent: '#2677E8',
-  accentLight: '#E8F2FF',
+  accent: '#F58220',
+  accentLight: '#FFF0E0',
   sage: '#527866',
   softSage: '#E5EFE9',
   
@@ -25,7 +28,7 @@ export const Colors = {
   background: '#FFFFFF',
   lightBackground: '#FFFFFF',
   cardBackground: '#FFFFFF',   // White card backgrounds
-  cardBorder: '#E5E7EB',       // Light gray borders
+  cardBorder: '#F6C28B',       // Light gray borders
   
   // Typography Colors
   textPrimary: '#12234A',
@@ -47,7 +50,7 @@ export const Colors = {
   darkGreen: '#06285B',
   mediumGreen: '#06285B',
   primaryGreen: '#06285B',
-  lightGreen: '#E8F2FF',
-  gold: '#F59E0B',
-  lightGold: '#FFF4DB',
+  lightGreen: '#FFF0E0',
+  gold: '#F58220',
+  lightGold: '#FFF0E0',
 };

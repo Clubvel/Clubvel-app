@@ -8,6 +8,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useRouter } from 'expo-router';
 import axios from 'axios';
 import { format } from 'date-fns';
+import { AdBanner } from '../../components/AdBanner';
 
 interface Alert {
   id: string;
@@ -26,6 +27,9 @@ export default function AlertsScreen() {
   const { user, token } = useAuth();
   const router = useRouter();
   const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [clubNames, setClubNames] = useState<Record<string, string>>({});
+  const [myAlertsExpanded, setMyAlertsExpanded] = useState(false);
+  const [expandedClubs, setExpandedClubs] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -60,6 +64,18 @@ export default function AlertsScreen() {
       if (!Array.isArray(response.data?.alerts)) throw new Error('Invalid alerts response');
       setAlerts(response.data.alerts);
       setLoadedContext(key);
+      try {
+        const cr = await axios.get(`${API_URL}/api/member/contributions/${user.id}`, {
+          headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+        });
+        if (ticket === sequence.current && latestContext.current === key) {
+          const names: Record<string, string> = {};
+          for (const item of cr.data?.contributions || []) {
+            if (item?.group_id && item?.group_name) names[item.group_id] = item.group_name;
+          }
+          setClubNames(names);
+        }
+      } catch { /* Keep previously loaded club names if this request fails. */ }
     } catch {
       if (ticket === sequence.current && latestContext.current === key) {
         setError('Unable to load alerts. Please try again.');
@@ -111,28 +127,20 @@ export default function AlertsScreen() {
     }
   };
 
-  const groupByDate = () => {
-    const today: Alert[] = [];
-    const yesterday: Alert[] = [];
-    const earlier: Alert[] = [];
+  const visibleAlerts = loadedContext === context
+    ? alerts.filter(alert => !dismissedIds.has(`${context}:${alert.id}`))
+    : [];
 
-    const now = new Date();
-    const todayStart = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    const yesterdayStart = new Date(todayStart.getTime() - 86400000);
-
-    (loadedContext === context ? alerts : []).filter(alert => !dismissedIds.has(`${context}:${alert.id}`)).forEach((alert) => {
-      const alertDate = new Date(alert.created_at);
-      if (alertDate >= todayStart) {
-        today.push(alert);
-      } else if (alertDate >= yesterdayStart) {
-        yesterday.push(alert);
-      } else {
-        earlier.push(alert);
-      }
+  const clubGroups = Array.from(visibleAlerts.reduce((map, alert) => {
+    const id = alert.group_id || '__general__';
+    if (!map.has(id)) map.set(id, {
+      id,
+      name: id === '__general__' ? 'General Alerts' : (clubNames[id] || 'Club Alerts'),
+      alerts: [] as Alert[],
     });
-
-    return { today, yesterday, earlier };
-  };
+    map.get(id)!.alerts.push(alert);
+    return map;
+  }, new Map<string, { id: string; name: string; alerts: Alert[] }>()).values());
 
   if ((loading || loadedContext !== context) && !error) {
     return (
@@ -142,7 +150,6 @@ export default function AlertsScreen() {
     );
   }
 
-  const { today, yesterday, earlier } = groupByDate();
 
   const renderAlert = (alert: Alert) => {
     const icon = getAlertIcon(alert.alert_type);
@@ -201,45 +208,60 @@ export default function AlertsScreen() {
             </TouchableOpacity>
           </View>
         )}
-        {today.length > 0 && (
+
+        {!error && (
           <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Today</Text>
-            {today.map(renderAlert)}
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityState={{ expanded: myAlertsExpanded }}
+              onPress={() => setMyAlertsExpanded(v => !v)}
+              style={styles.myAlertsHeader}
+            >
+              <Ionicons name="notifications" size={22} color={Colors.white} style={styles.sideIcon} />
+              <Text style={styles.myAlertsTitle}>My Alerts</Text>
+              <Ionicons name={myAlertsExpanded ? 'chevron-up' : 'chevron-down'}
+                size={21} color={Colors.white} style={styles.sideIcon} />
+            </TouchableOpacity>
+
+            {myAlertsExpanded && (
+              <View style={styles.alertsDropdown}>
+                {clubGroups.map(group => {
+                  const expanded = !!expandedClubs[group.id];
+                  return (
+                    <View key={group.id} style={styles.clubGroup}>
+                      <TouchableOpacity
+                        accessibilityRole="button"
+                        accessibilityState={{ expanded }}
+                        onPress={() => setExpandedClubs(prev => ({
+                          ...prev, [group.id]: !prev[group.id],
+                        }))}
+                        style={styles.clubHeader}
+                      >
+                        <Text style={styles.clubHeaderTitle}>{group.name}</Text>
+                        <Ionicons name={expanded ? 'chevron-up' : 'chevron-down'}
+                          size={20} color={Colors.white} />
+                      </TouchableOpacity>
+                      {expanded && <View style={styles.clubAlerts}>
+                        {group.alerts.map(renderAlert)}
+                      </View>}
+                    </View>
+                  );
+                })}
+                {clubGroups.length === 0 && (
+                  <View style={styles.emptyState}>
+                    <Ionicons name="notifications-outline" size={56} color={Colors.accent} />
+                    <Text style={styles.emptyStateText}>No alerts</Text>
+                    <Text style={styles.emptyStateSubtext}>You&apos;re all caught up!</Text>
+                  </View>
+                )}
+              </View>
+            )}
           </View>
         )}
 
-        {yesterday.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Yesterday</Text>
-            {yesterday.map(renderAlert)}
-          </View>
-        )}
-
-        {/* Mock Ad between groups */}
-        {(today.length > 0 || yesterday.length > 0) && earlier.length > 0 && (
-          <View style={styles.adContainer}>
-            <Text style={styles.adLabel}>Sponsored</Text>
-            <View style={styles.adCard}>
-              <Text style={styles.adTitle}>Protect what matters</Text>
-              <Text style={styles.adBody}>Get R50,000 funeral cover for your family from only R89/month. No waiting period.</Text>
-            </View>
-          </View>
-        )}
-
-        {earlier.length > 0 && (
-          <View style={styles.section}>
-            <Text style={styles.sectionTitle}>Earlier</Text>
-            {earlier.map(renderAlert)}
-          </View>
-        )}
-
-        {!error && today.length === 0 && yesterday.length === 0 && earlier.length === 0 && (
-          <View style={styles.emptyState}>
-            <Ionicons name="notifications-outline" size={64} color={Colors.accent} />
-            <Text style={styles.emptyStateText}>No alerts</Text>
-            <Text style={styles.emptyStateSubtext}>You're all caught up!</Text>
-          </View>
-        )}
+        <View style={styles.adBannerContainer}>
+          <AdBanner size="banner" />
+        </View>
       </ScrollView>
     </View>
   );
@@ -258,6 +280,8 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: Colors.primary,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
     paddingTop: 60,
     paddingBottom: 20,
     paddingHorizontal: 24,
@@ -292,13 +316,42 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-   borderWidth: 1, borderColor: Colors.white, },
+    borderWidth: 1,
+    borderColor: Colors.white,
+  },
   content: {
     flex: 1,
   },
   section: {
     paddingHorizontal: 24,
     paddingTop: 24,
+  },
+  myAlertsHeader: {
+    minHeight: 58, backgroundColor: '#C62828', borderRadius: 12,
+    paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center',
+  },
+  sideIcon: { width: 28, textAlign: 'center' },
+  myAlertsTitle: {
+    flex: 1, textAlign: 'center', color: Colors.white,
+    fontSize: 18, fontWeight: '700',
+  },
+  alertsDropdown: { paddingTop: 12 },
+  clubGroup: {
+    marginBottom: 12, borderRadius: 10, overflow: 'hidden',
+    backgroundColor: Colors.white,
+  },
+  clubHeader: {
+    minHeight: 50, backgroundColor: Colors.primary, padding: 14,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+  },
+  clubHeaderTitle: {
+    flex: 1, textAlign: 'center', color: Colors.white,
+    fontSize: 16, fontWeight: '700',
+  },
+  clubAlerts: { padding: 10 },
+  adBannerContainer: {
+    marginHorizontal: 24, marginTop: 12, marginBottom: 20,
+    alignItems: 'center',
   },
   sectionTitle: {
     fontSize: 16,
@@ -359,32 +412,5 @@ const styles = StyleSheet.create({
     fontSize: 14,
     color: Colors.textSecondary,
     marginTop: 4,
-  },
-  adContainer: {
-    paddingHorizontal: 24,
-    paddingTop: 24,
-  },
-  adLabel: {
-    fontSize: 10,
-    color: Colors.textMuted,
-    marginBottom: 8,
-    textTransform: 'uppercase',
-  },
-  adCard: {
-    backgroundColor: Colors.white,
-    padding: 16,
-    borderRadius: 12,
-    borderWidth: 1,
-    borderColor: Colors.cardBorder,
-  },
-  adTitle: {
-    fontSize: 16,
-    fontWeight: 'bold',
-    color: Colors.textPrimary,
-    marginBottom: 4,
-  },
-  adBody: {
-    fontSize: 14,
-    color: Colors.textSecondary,
   },
 });

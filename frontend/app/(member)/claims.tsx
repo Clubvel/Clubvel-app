@@ -19,6 +19,7 @@ import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Colors } from '../../constants/Colors';
+import { AdBanner } from '../../components/AdBanner';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePersonalClaims, PersonalClaim } from '../../hooks/usePersonalClaims';
 
@@ -66,6 +67,7 @@ export default function ClaimsScreen() {
   const router = useRouter();
   const { claim_id: selectedClaimId, view } = useLocalSearchParams<{ claim_id?: string; view?: string }>();
   const [showAllClaims, setShowAllClaims] = useState(false);
+  const [myClaimsExpanded, setMyClaimsExpanded] = useState(false);
   useFocusEffect(useCallback(() => { if (view === 'payouts') setShowAllClaims(false); }, [view]));
   const [activeGroups, setActiveGroups] = useState<Array<{
     id: string;
@@ -291,13 +293,31 @@ export default function ClaimsScreen() {
           <Text style={styles.submitButtonText}>Submit a Claim</Text>
         </TouchableOpacity>
 
-        <Text style={styles.sectionTitle}>{payoutsOnly ? 'Upcoming Payouts' : 'Your Claims'}</Text>
+        {payoutsOnly ? (
+          <Text style={styles.sectionTitle}>Upcoming Payouts</Text>
+        ) : (
+          <TouchableOpacity
+            style={styles.myClaimsDropdown}
+            accessibilityRole="button"
+            accessibilityLabel="My Claims"
+            accessibilityState={{ expanded: myClaimsExpanded }}
+            onPress={() => setMyClaimsExpanded(value => !value)}
+          >
+            <View style={styles.myClaimsDropdownLabel}>
+              <Ionicons name="document-text-outline" size={20} color={Colors.white} />
+              <Text style={styles.myClaimsDropdownText}>My Claims</Text>
+            </View>
+            <Ionicons name={myClaimsExpanded ? 'chevron-up' : 'chevron-down'} size={20} color={Colors.white} />
+          </TouchableOpacity>
+        )}
         {payoutsOnly && <View>
           <Text style={styles.helperText}>Approved claims with a remaining balance in your active Clubvels. Figures reflect the latest claim records.</Text>
           {(phase === 'ready' || phase === 'empty') && <Text style={styles.meta}>Remaining total: R{remainingPayout.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>}
           <TouchableOpacity accessibilityRole="button" accessibilityLabel="Show all claims" onPress={() => setShowAllClaims(true)}><Text style={styles.retryText}>Show all claims</Text></TouchableOpacity>
         </View>}
 
+        {(payoutsOnly || myClaimsExpanded) && (
+          <>
         {refreshing && phase !== 'loading' && (
           <Text accessibilityLiveRegion="polite" style={styles.helperText}>
             Updating claims…
@@ -320,9 +340,9 @@ export default function ClaimsScreen() {
         ) : visibleClaims.length === 0 ? (
           <View style={styles.empty}>
             <Ionicons name="document-text-outline" size={52} color={Colors.accent} />
-            <Text style={styles.emptyTitle}>{payoutsOnly ? 'No payouts awaiting payment' : 'No claims yet'}</Text>
+            <Text style={styles.emptyTitle}>{payoutsOnly ? 'No payouts awaiting payment' : 'No claims submitted yet'}</Text>
             <Text style={styles.emptyText}>
-              {payoutsOnly ? 'No approved claims have a remaining payout balance.' : 'Claims you submit to your groups will appear here.'}
+              {payoutsOnly ? 'No approved claims have a remaining payout balance.' : 'Your submitted claims will appear here.'}
             </Text>
           </View>
         ) : (
@@ -391,6 +411,10 @@ export default function ClaimsScreen() {
             );
           })
         )}
+          </>
+        )}
+
+        <AdBanner size="banner" style={{ marginTop: 12 }} />
       </ScrollView>
 
       <Modal
@@ -507,6 +531,8 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: Colors.primary,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
     paddingTop: 60,
     paddingBottom: 20,
     paddingHorizontal: 24,
@@ -526,9 +552,7 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 1,
-    borderColor: Colors.white,
-  },
+},
   profilePlaceholder: {
     width: 112,
     height: 112,
@@ -536,7 +560,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.accent,
     justifyContent: 'center',
     alignItems: 'center',
-   borderWidth: 1, borderColor: Colors.white, },
+},
   content: {
     flexGrow: 1,
     padding: 24,
@@ -554,6 +578,26 @@ const styles = StyleSheet.create({
     marginBottom: 26,
   },
   submitButtonText: {
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: '700',
+  },
+  myClaimsDropdown: {
+    minHeight: 52,
+    borderRadius: 12,
+    backgroundColor: Colors.accent,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 14,
+  },
+  myClaimsDropdownLabel: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+  },
+  myClaimsDropdownText: {
     color: Colors.white,
     fontSize: 16,
     fontWeight: '700',

@@ -56,12 +56,12 @@ App Version: 1.0.0
     }
 
     setSending(true);
-    
+
     // In production, this would send to your backend
     // For now, we'll simulate and open email
     setTimeout(() => {
       setSending(false);
-      
+
       const subject = encodeURIComponent(`Clubvel ${feedbackType === 'bug' ? 'Bug Report' : feedbackType === 'feature' ? 'Feature Request' : 'Feedback'}`);
       const body = encodeURIComponent(`
 Type: ${feedbackType}
@@ -76,9 +76,9 @@ Name: ${user?.full_name || 'N/A'}
 App Version: 1.0.0
 Device: ${Platform.OS} ${Platform.Version}
       `);
-      
+
       Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`);
-      
+
       Alert.alert(
         'Thank You!',
         'Your feedback has been prepared. Please send the email to complete submission.',
@@ -91,7 +91,7 @@ Device: ${Platform.OS} ${Platform.Version}
   };
 
   return (
-    <KeyboardAvoidingView 
+    <KeyboardAvoidingView
       style={styles.container}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
@@ -108,7 +108,7 @@ Device: ${Platform.OS} ${Platform.Version}
         {/* Quick Contact Options */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Contact Us</Text>
-          
+
           <TouchableOpacity style={styles.contactCard} onPress={handleEmailSupport}>
             <View style={[styles.contactIcon, { backgroundColor: Colors.corporateBlue }]}>
               <Ionicons name="mail" size={28} color={Colors.white} />
@@ -125,17 +125,17 @@ Device: ${Platform.OS} ${Platform.Version}
         {/* Feedback Form */}
         <View style={styles.section}>
           <Text style={styles.sectionTitle}>Send Feedback</Text>
-          
+
           <Text style={styles.label}>What type of feedback?</Text>
           <View style={styles.feedbackTypes}>
             <TouchableOpacity
               style={[styles.feedbackTypeButton, feedbackType === 'bug' && styles.feedbackTypeActive]}
               onPress={() => setFeedbackType('bug')}
             >
-              <Ionicons 
-                name="bug" 
-                size={20} 
-                color={feedbackType === 'bug' ? Colors.white : Colors.textSecondary} 
+              <Ionicons
+                name="bug"
+                size={20}
+                color={feedbackType === 'bug' ? Colors.white : Colors.textSecondary}
               />
               <Text style={[styles.feedbackTypeText, feedbackType === 'bug' && styles.feedbackTypeTextActive]}>
                 Bug
@@ -146,10 +146,10 @@ Device: ${Platform.OS} ${Platform.Version}
               style={[styles.feedbackTypeButton, feedbackType === 'feature' && styles.feedbackTypeActive]}
               onPress={() => setFeedbackType('feature')}
             >
-              <Ionicons 
-                name="bulb" 
-                size={20} 
-                color={feedbackType === 'feature' ? Colors.white : Colors.textSecondary} 
+              <Ionicons
+                name="bulb"
+                size={20}
+                color={feedbackType === 'feature' ? Colors.white : Colors.textSecondary}
               />
               <Text style={[styles.feedbackTypeText, feedbackType === 'feature' && styles.feedbackTypeTextActive]}>
                 Feature
@@ -160,10 +160,10 @@ Device: ${Platform.OS} ${Platform.Version}
               style={[styles.feedbackTypeButton, feedbackType === 'general' && styles.feedbackTypeActive]}
               onPress={() => setFeedbackType('general')}
             >
-              <Ionicons 
-                name="chatbubble" 
-                size={20} 
-                color={feedbackType === 'general' ? Colors.white : Colors.textSecondary} 
+              <Ionicons
+                name="chatbubble"
+                size={20}
+                color={feedbackType === 'general' ? Colors.white : Colors.textSecondary}
               />
               <Text style={[styles.feedbackTypeText, feedbackType === 'general' && styles.feedbackTypeTextActive]}>
                 General
@@ -206,7 +206,7 @@ Device: ${Platform.OS} ${Platform.Version}
           <View style={styles.faqItem}>
             <Text style={styles.faqQuestion}>How do I upload proof of payment?</Text>
             <Text style={styles.faqAnswer}>
-              Go to "Proof of Payments" tab, tap "Upload Proof of Payment", select your club, 
+              Go to &quot;Proof of Payments&quot; tab, tap &quot;Upload Proof of Payment&quot;, select your club,
               and choose an image from your gallery.
             </Text>
           </View>
@@ -214,15 +214,15 @@ Device: ${Platform.OS} ${Platform.Version}
           <View style={styles.faqItem}>
             <Text style={styles.faqQuestion}>How long until my payment is confirmed?</Text>
             <Text style={styles.faqAnswer}>
-              Your treasurer will review and confirm your payment within 24-48 hours. 
-              You'll receive a notification once confirmed.
+              Your treasurer will review and confirm your payment within 24-48 hours.
+              You&apos;ll receive a notification once confirmed.
             </Text>
           </View>
 
           <View style={styles.faqItem}>
             <Text style={styles.faqQuestion}>Is my data secure?</Text>
             <Text style={styles.faqAnswer}>
-              Yes! We use industry-standard encryption and secure servers to protect your 
+              Yes! We use industry-standard encryption and secure servers to protect your
               personal and financial information.
             </Text>
           </View>
@@ -230,7 +230,7 @@ Device: ${Platform.OS} ${Platform.Version}
           <View style={styles.faqItem}>
             <Text style={styles.faqQuestion}>How do I change my password?</Text>
             <Text style={styles.faqAnswer}>
-              Go to Profile tab and tap "Change Password". You'll need to verify your 
+              Go to Profile tab and tap &quot;Change Password&quot;. You&apos;ll need to verify your
               phone number with an OTP.
             </Text>
           </View>
@@ -238,8 +238,8 @@ Device: ${Platform.OS} ${Platform.Version}
           <View style={styles.faqItem}>
             <Text style={styles.faqQuestion}>What happens if I miss a payment?</Text>
             <Text style={styles.faqAnswer}>
-              Late payments may affect your trust score. Contact your treasurer 
-              if you're having difficulties making a payment on time.
+              Late payments may affect your trust score. Contact your treasurer
+              if you&apos;re having difficulties making a payment on time.
             </Text>
           </View>
         </View>

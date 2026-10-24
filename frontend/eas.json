@@ -36,7 +36,7 @@
         "buildType": "app-bundle"
       },
       "env": {
-        "EXPO_PUBLIC_BACKEND_URL": "https://clubvel-production.up.railway.app"
+        "EXPO_PUBLIC_BACKEND_URL": "https://clubvel-production-ada7.up.railway.app"
       }
     }
   },

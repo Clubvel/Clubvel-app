@@ -96,7 +96,7 @@ export default function NotificationPreferencesScreen() {
             <Ionicons name="information-circle" size={24} color={Colors.primaryGreen} />
           </View>
           <Text style={styles.infoText}>
-            Choose which notifications you'd like to receive. All notifications are off by default to protect your privacy.
+            Choose which notifications you&apos;d like to receive. All notifications are off by default to protect your privacy.
           </Text>
         </View>
 
@@ -134,7 +134,7 @@ export default function NotificationPreferencesScreen() {
               <View style={styles.preferenceTextContainer}>
                 <Text style={styles.preferenceTitle}>Claim Updates</Text>
                 <Text style={styles.preferenceDescription}>
-                  Get notified when it's your turn to claim or when claims are processed
+                  Get notified when it&apos;s your turn to claim or when claims are processed
                 </Text>
               </View>
             </View>

@@ -53,6 +53,7 @@ export default function ProofOfPaymentsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ group_id?: string; month?: string; year?: string; contribution_id?: string; scope?: string; from?: string }>();
   const clubScoped = params.scope === 'club';
+  const [expandedPaymentsMenu, setExpandedPaymentsMenu] = useState<'upload' | 'contributions' | 'proofs' | null>(clubScoped ? 'contributions' : null);
   const routeKey = JSON.stringify([params.scope, params.group_id, params.month, params.year, params.contribution_id, params.from]);
   const [appliedRoute, setAppliedRoute] = useState(routeKey);
   const routeReady = appliedRoute === routeKey;
@@ -62,7 +63,7 @@ export default function ProofOfPaymentsScreen() {
   const [period, setPeriod] = useState(() => ({ month: Number(params.month) || new Date().getMonth() + 1, year: Number(params.year) || new Date().getFullYear() }));
   const [records, setRecords] = useState<any[]>([]);
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
-  
+
   const [showClubModal, setShowClubModal] = useState(false);
   const [clubsOwner, setClubsOwner] = useState<string | null>(null);
   const [clubs, setClubs] = useState<Club[]>([]);
@@ -519,7 +520,7 @@ export default function ProofOfPaymentsScreen() {
     setViewerOwner(viewContext);
     setLoadingProof(true);
     setViewingProof(proof.id);
-    
+
     try {
       const response = await axios.get(
         `${API_URL}/api/contributions/${proof.contribution_id}/proof?user_id=${user?.id}`,
@@ -626,7 +627,7 @@ export default function ProofOfPaymentsScreen() {
           <Text style={styles.headerTitle}>Proof of Payments</Text>
 
         </View>
-      
+
       </View>
 
           {clubScoped && <TouchableOpacity style={{ backgroundColor: Colors.primary, paddingHorizontal: 24, paddingBottom: 12 }} accessibilityLabel="Back to Club Home" onPress={() => router.replace({ pathname: '/club/[id]', params: { id: params.group_id || '', month: String(period.month), year: String(period.year), contribution_id: selectedContributionId, from: params.from || 'member' } })}><Text style={styles.headerSubtitle}>Back to Club Home</Text></TouchableOpacity>}
@@ -649,30 +650,77 @@ export default function ProofOfPaymentsScreen() {
             setFlexibleAmount('');
           } catch { if (screenActive.current && latestAction.current === context && operationTicket.current === ticket) Alert.alert('Unable to continue', 'Refresh your club and try again.'); } finally { if (flexibleLookup.current?.ticket === ticket) flexibleLookup.current = null; }
         }}><Text>Record current-period contribution</Text></TouchableOpacity>}
-        {/* Upload Button */}
-        <TouchableOpacity 
-          style={styles.uploadButton}
-          onPress={handleUploadPress}
-          disabled={uploading || invalidPeriod}
-        >
-          {uploading ? (
-            <ActivityIndicator color={Colors.white} />
-          ) : (
-            <>
-              <Ionicons name="cloud-upload" size={24} color={Colors.white} />
-              <Text style={styles.uploadButtonText}>Upload Proof of Payment</Text>
-            </>
-          )}
-        </TouchableOpacity>
+        <View style={{ marginHorizontal: 24, marginTop: 32, marginBottom: 12 }}>
+          <TouchableOpacity
+                    style={[styles.uploadButton, { marginHorizontal: 0, marginTop: 0 }]}
+                    onPress={handleUploadPress}
+                    disabled={uploading || invalidPeriod}
+                  >
+                    {uploading ? (
+                      <ActivityIndicator color={Colors.white} />
+                    ) : (
+                      <>
+                        <Ionicons name="cloud-upload" size={24} color={Colors.white} />
+                        <Text style={styles.uploadButtonText}>Upload Proof of Payment</Text>
+                      </>
+                    )}
+                  </TouchableOpacity>
+        </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionTitle}>Contributions</Text>
-          {!clubScoped && <ScrollView horizontal><TouchableOpacity accessibilityLabel="All contribution clubs" onPress={() => { setSelectedGroup(""); setSelectedContributionId(""); }}><Text>All clubs</Text></TouchableOpacity>{Array.from(new Map(currentRecords.map(record => [record.group_id, record])).values()).map(record => <TouchableOpacity key={record.group_id} accessibilityLabel={`Select contribution club ${record.group_name}`} onPress={() => { setSelectedGroup(record.group_id); setSelectedContributionId(""); }}><Text> · {record.group_name}</Text></TouchableOpacity>)}</ScrollView>}
-          <View style={styles.summaryRow}>
-            <TouchableOpacity accessibilityLabel="Previous payment month" onPress={() => { setSelectedContributionId(''); const d = new Date(period.year, period.month - 2, 1); setPeriod({ month: d.getMonth() + 1, year: d.getFullYear() }); }}><Text>‹</Text></TouchableOpacity>
-            <Text>{new Date(period.year, period.month - 1, 1).toLocaleDateString('en-US', { month: 'long', year: 'numeric' })}</Text>
-            <TouchableOpacity accessibilityLabel="Next payment month" onPress={() => { setSelectedContributionId(''); const d = new Date(period.year, period.month, 1); setPeriod({ month: d.getMonth() + 1, year: d.getFullYear() }); }}><Text>›</Text></TouchableOpacity>
-          </View>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="My Contributions"
+            accessibilityState={{ expanded: expandedPaymentsMenu === 'contributions' }}
+            onPress={() => {
+              const opening = expandedPaymentsMenu !== 'contributions';
+              setExpandedPaymentsMenu(opening ? 'contributions' : null);
+              if (opening && !clubScoped) void fetchClubs();
+            }}
+            style={{ backgroundColor: Colors.clementine, borderColor: Colors.clementineDark, borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: expandedPaymentsMenu === 'contributions' ? 0 : 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
+          >
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <Ionicons name="wallet-outline" size={21} color={Colors.white} />
+              <Text style={{ color: Colors.white, fontSize: 16, fontWeight: '600', textAlign: 'center' }}>My Contributions</Text>
+            </View>
+            <View style={{ position: 'absolute', right: 14, alignItems: 'flex-end' }}>
+              <Ionicons name={expandedPaymentsMenu === 'contributions' ? 'chevron-up' : 'chevron-down'} size={20} color={Colors.white} />
+            </View>
+          </TouchableOpacity>
+          {expandedPaymentsMenu === 'contributions' && <View>
+          {!clubScoped && <View style={{ marginBottom: 14 }}>
+            <Text style={{ fontWeight: '700', marginBottom: 8, color: Colors.primary }}>My Clubs</Text>
+            {loadingClubs && clubs.length === 0 ? (
+              <ActivityIndicator color={Colors.clementine} />
+            ) : (
+              <ScrollView horizontal showsHorizontalScrollIndicator={false}>
+                {Array.from(new Map([
+                  ...clubs.map(club => [club.id, { id: club.id, name: club.name }] as const),
+                  ...currentRecords.map(record => [record.group_id, { id: record.group_id, name: record.group_name }] as const),
+                ]).values()).map(club => (
+                  <TouchableOpacity key={club.id} accessibilityRole="button" accessibilityLabel={`Select contribution club ${club.name}`} onPress={() => { setSelectedGroup(club.id); setSelectedContributionId(""); }} style={{ backgroundColor: 'transparent', borderColor: Colors.clementine, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 10, marginRight: 8 }}>
+                    <Text style={{ color: Colors.primary, fontWeight: selectedGroup === club.id ? '700' : '500' }}>{club.name}</Text>
+                  </TouchableOpacity>
+                ))}
+              </ScrollView>
+            )}
+          </View>}
+          <Text style={{ fontWeight: '700', color: Colors.primary, marginBottom: 6 }}>Select Month</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+            {Array.from({ length: 12 }, (_, i) => i + 1).map(month => (
+              <TouchableOpacity key={month} accessibilityRole="button" accessibilityLabel={`Select month ${month}`} onPress={() => { setSelectedContributionId(''); setPeriod(previous => ({ ...previous, month })); }} style={{ backgroundColor: 'transparent', borderColor: Colors.clementine, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, marginRight: 6 }}>
+                <Text style={{ color: Colors.primary, fontWeight: period.month === month ? '700' : '500' }}>{new Date(2000, month - 1, 1).toLocaleDateString('en-US', { month: 'short' })}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
+          <Text style={{ fontWeight: '700', color: Colors.primary, marginBottom: 6 }}>Select Year</Text>
+          <ScrollView horizontal showsHorizontalScrollIndicator={false} style={{ marginBottom: 12 }}>
+            {Array.from({ length: 11 }, (_, i) => 2026 + i).map(year => (
+              <TouchableOpacity key={year} accessibilityRole="button" accessibilityLabel={`Select year ${year}`} onPress={() => { setSelectedContributionId(''); setPeriod(previous => ({ ...previous, year })); }} style={{ backgroundColor: 'transparent', borderColor: Colors.clementine, borderWidth: 1, borderRadius: 8, paddingHorizontal: 12, paddingVertical: 8, marginRight: 6 }}>
+                <Text style={{ color: Colors.primary, fontWeight: period.year === year ? '700' : '500' }}>{year}</Text>
+              </TouchableOpacity>
+            ))}
+          </ScrollView>
           {!proofsLoading && !proofsError && selectedRecords.length === 0 && <Text>No contribution recorded for this period.</Text>}
           {contributionGroups.map(group => <View key={group.id} style={styles.clubSection}>
             <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Toggle contributions ${group.name}`} accessibilityState={{ expanded: groupExpanded(group.id) }} style={styles.clubRibbon} onPress={() => {
@@ -681,7 +729,7 @@ export default function ProofOfPaymentsScreen() {
               setExpandedClubs(previous => ({ owner: accordionContext, groups: { ...(previous.owner === accordionContext ? previous.groups : {}), [group.id]: !groupExpanded(group.id) } }));
             }}>
               <Text style={styles.clubRibbonTitle}>{group.name}</Text>
-              <Ionicons name={groupExpanded(group.id) ? 'chevron-up' : 'chevron-down'} size={18} color={Colors.white} />
+              <Ionicons name={groupExpanded(group.id) ? 'chevron-up' : 'chevron-down'} size={18} color={Colors.primary} />
             </TouchableOpacity>
             {groupExpanded(group.id) && <View>
               <View style={styles.clubOverview}>
@@ -712,8 +760,26 @@ export default function ProofOfPaymentsScreen() {
               </View>}
             </View>}
           </View>)}
+          </View>}
         </View>
 
+        <View style={styles.section}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="My Proof of Payments"
+            accessibilityState={{ expanded: expandedPaymentsMenu === 'proofs' }}
+            onPress={() => setExpandedPaymentsMenu(value => value === 'proofs' ? null : 'proofs')}
+            style={{ backgroundColor: Colors.primary, borderRadius: 12, padding: 14, marginBottom: expandedPaymentsMenu === 'proofs' ? 0 : 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
+          >
+            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
+              <Ionicons name="document-text-outline" size={21} color={Colors.white} />
+              <Text style={{ color: Colors.white, fontSize: 16, fontWeight: '600', textAlign: 'center' }}>My Proof of Payments</Text>
+            </View>
+            <View style={{ position: 'absolute', right: 14, alignItems: 'flex-end' }}>
+              <Ionicons name={expandedPaymentsMenu === 'proofs' ? 'chevron-up' : 'chevron-down'} size={20} color={Colors.white} />
+            </View>
+          </TouchableOpacity>
+          {expandedPaymentsMenu === 'proofs' && <View>
         {/* Summary Card */}
         {loadedProofContext === requestContext && !proofsError && <>
         <View style={styles.summaryCard}>
@@ -801,7 +867,7 @@ export default function ProofOfPaymentsScreen() {
                 )}
                 {proof.hasImage && (
                   <View style={styles.proofActions}>
-                    <TouchableOpacity 
+                    <TouchableOpacity
                       style={styles.viewProofButton}
                       onPress={() => handleViewProof(proof)}
                     >
@@ -833,19 +899,13 @@ export default function ProofOfPaymentsScreen() {
           )}
         </View>
 
-        {/* Info Box */}
-        <View style={styles.infoBox}>
-          <Ionicons name="information-circle" size={24} color={Colors.mediumGreen} />
-          <View style={styles.infoText}>
-            <Text style={styles.infoTitle}>About Proof of Payments</Text>
-            <Text style={styles.infoBody}>
-              Upload proof against a specific current group contribution. Your club admin can then review that recorded contribution.
-            </Text>
-          </View>
+        </View>}
         </View>
-        
-        {/* Ad Banner */}
-        <AdBanner size="banner" />
+
+        <View style={{ marginHorizontal: 24, marginTop: 16, marginBottom: 16 }}>
+          <AdBanner size="banner" />
+        </View>
+
       </ScrollView>
 
       {/* Club Selection Modal */}
@@ -992,12 +1052,12 @@ export default function ProofOfPaymentsScreen() {
               </View>
             ) : proofImage ? (
               <>
-                <Image 
-                  source={{ uri: proofImage }} 
+                <Image
+                  source={{ uri: proofImage }}
                   style={styles.proofImageDisplay}
                   resizeMode="contain"
                 />
-                <TouchableOpacity 
+                <TouchableOpacity
                   style={styles.downloadButton}
                   onPress={handleDownloadProof}
                 >
@@ -1020,8 +1080,8 @@ export default function ProofOfPaymentsScreen() {
 
 const styles = StyleSheet.create({
   clubSection: { borderWidth: 1, borderColor: Colors.cardBorder, borderRadius: 12, overflow: 'hidden', marginBottom: 12 },
-  clubRibbon: { backgroundColor: Colors.coralAction, borderColor: Colors.coralRed, borderWidth: 1, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  clubRibbonTitle: { color: Colors.white, fontWeight: '400', fontSize: 16, flex: 1, minWidth: 0 },
+  clubRibbon: { backgroundColor: Colors.clementine, borderColor: Colors.clementineDark, borderWidth: 1, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  clubRibbonTitle: { color: Colors.primary, fontWeight: '600', fontSize: 16, flex: 1, minWidth: 0 },
   clubOverview: { padding: 12, gap: 8, backgroundColor: Colors.iceBlue },
   contributionCounts: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   contributionDetailsAction: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
@@ -1034,8 +1094,10 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: Colors.primary,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
     paddingTop: 60,
-    paddingBottom: 20,
+    paddingBottom: 22,
     paddingHorizontal: 24,
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -1063,9 +1125,7 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 1,
-    borderColor: Colors.white,
-  },
+},
   profilePlaceholder: {
     width: 112,
     height: 112,
@@ -1073,7 +1133,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
-   borderWidth: 1, borderColor: Colors.white, },
+},
   content: {
     flex: 1,
   },
@@ -1086,6 +1146,8 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: Colors.cardBorder,
   },
+  monthHeading: { backgroundColor: Colors.coralAction, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
+  monthHeadingText: { color: Colors.white, fontWeight: '700', fontSize: 16 },
   summaryRow: {
     flexDirection: 'row',
     justifyContent: 'space-around',
@@ -1245,13 +1307,13 @@ const styles = StyleSheet.create({
     lineHeight: 18,
   },
   uploadButton: {
-    backgroundColor: Colors.coralAction, borderColor: Colors.coralRed, borderWidth: 1,
+    backgroundColor: Colors.coralAction, borderWidth: 0,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
     marginHorizontal: 24,
-    marginTop: 16,
+    marginTop: 24,
     paddingVertical: 16,
     borderRadius: 12,
   },

@@ -349,9 +349,6 @@ export default function ReportsScreen() {
       <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
       {/* Header */}
       <View style={styles.header}>
-        <TouchableOpacity onPress={() => router.push('/(treasurer)/profile')} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color={Colors.white} />
-        </TouchableOpacity>
         <TouchableOpacity
           accessibilityRole="button"
           accessibilityLabel="Expand profile photo"
@@ -426,6 +423,8 @@ const styles = StyleSheet.create({
   },
   header: {
     backgroundColor: Colors.primary,
+    borderBottomLeftRadius: 22,
+    borderBottomRightRadius: 22,
     paddingTop: 60,
     paddingBottom: 20,
     paddingHorizontal: 24,
@@ -448,16 +447,12 @@ const styles = StyleSheet.create({
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 1,
-    borderColor: Colors.white,
-  },
+},
   profilePlaceholder: {
     width: 112,
     height: 112,
     borderRadius: 56,
-    borderWidth: 1,
-    borderColor: Colors.white,
-    backgroundColor: Colors.primary,
+backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
