@@ -2,6 +2,7 @@ import React, { useEffect, useState } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, RefreshControl, ActivityIndicator, Linking, Alert, Modal, Image, TextInput, KeyboardAvoidingView, Platform, Keyboard, TouchableWithoutFeedback } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { AdBanner } from '../../components/AdBanner';
+import { ClubvelSpotlight } from '../../components/ClubvelSpotlight';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
@@ -392,8 +393,12 @@ export default function AdminDashboardScreen() {
         </View>
       )}
 
+      {/* Clubvel Spotlight */}
+      <ClubvelSpotlight title="Clubvel Spotlight" subtitle="Smart savings. Stronger together." />
       {/* Advertisement Banner */}
-      <AdBanner size="banner" />
+      <View style={styles.adContainer}>
+        <AdBanner size="banner" />
+      </View>
     </ScrollView>
 
     {/* Profile Dropdown Menu Modal */}
@@ -615,7 +620,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.darkGreen,
+    backgroundColor: Colors.midnightNavy,
     paddingTop: 60,
     paddingBottom: 24,
     paddingHorizontal: 24,
@@ -826,7 +831,7 @@ const styles = StyleSheet.create({
   },
   claimCard: {
     backgroundColor: Colors.lightGold,
-    borderColor: Colors.gold,
+    borderColor: Colors.clementine,
   },
   claimHeader: {
     flexDirection: 'row',
@@ -882,7 +887,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.clementine,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -891,7 +896,7 @@ const styles = StyleSheet.create({
     height: 48,
     borderRadius: 24,
     borderWidth: 2,
-    borderColor: Colors.gold,
+    borderColor: Colors.clementine,
   },
   modalOverlay: {
     flex: 1,
@@ -922,7 +927,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.clementine,
     justifyContent: 'center',
     alignItems: 'center',
   },

@@ -1,14 +1,14 @@
 """
 Notification Service for Clubvel App
-Handles OTP verification and notifications via WhatsApp (primary) and SMS (fallback)
+Delivers codes and notifications via WhatsApp (primary) and SMS (fallback).
+Authentication challenge ownership and verification live in auth_otp.py.
 Uses Twilio API for both channels
 """
 
 import os
-import random
 import logging
-from datetime import datetime, timedelta
-from typing import Optional, Dict, Any
+from typing import Dict, Any
+from .phone_numbers import normalize_phone
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -25,84 +25,13 @@ TWILIO_WHATSAPP_NUMBER = os.environ.get('TWILIO_WHATSAPP_NUMBER', 'whatsapp:+141
 ENABLE_REAL_NOTIFICATIONS = os.environ.get('ENABLE_REAL_NOTIFICATIONS', 'false').lower() == 'true'
 OTP_EXPIRY_MINUTES = 10
 
-# In-memory OTP storage (in production, use Redis or database)
-otp_storage: Dict[str, Dict[str, Any]] = {}
-
-
 def is_twilio_configured() -> bool:
     """Check if Twilio credentials are configured"""
     return bool(TWILIO_ACCOUNT_SID and TWILIO_AUTH_TOKEN and TWILIO_PHONE_NUMBER)
 
 
 def format_phone_number(phone: str) -> str:
-    """
-    Convert South African phone format to international E.164 format
-    0821234567 -> +27821234567
-    """
-    phone = phone.strip().replace(' ', '').replace('-', '')
-    
-    # Already in international format
-    if phone.startswith('+'):
-        return phone
-    
-    # South African format starting with 0
-    if phone.startswith('0') and len(phone) == 10:
-        return '+27' + phone[1:]
-    
-    # Assume South African if no prefix
-    if len(phone) == 9:
-        return '+27' + phone
-    
-    # Default: add +27
-    return '+27' + phone.lstrip('0')
-
-
-def generate_otp() -> str:
-    """Generate a 4-digit OTP"""
-    return str(random.randint(1000, 9999))
-
-
-def store_otp(phone: str, otp: str, channel: str = 'whatsapp') -> None:
-    """Store OTP with expiry time"""
-    otp_storage[phone] = {
-        'otp': otp,
-        'channel': channel,
-        'created_at': datetime.utcnow(),
-        'expires_at': datetime.utcnow() + timedelta(minutes=OTP_EXPIRY_MINUTES),
-        'verified': False,
-        'attempts': 0
-    }
-    logger.info(f"OTP stored for {phone[-4:]}**** via {channel}")
-
-
-def verify_stored_otp(phone: str, otp: str) -> Dict[str, Any]:
-    """Verify OTP against stored value"""
-    formatted_phone = format_phone_number(phone)
-    
-    # Check both formatted and original phone
-    stored = otp_storage.get(formatted_phone) or otp_storage.get(phone)
-    
-    if not stored:
-        return {'valid': False, 'error': 'No OTP found. Please request a new one.'}
-    
-    # Check expiry
-    if datetime.utcnow() > stored['expires_at']:
-        return {'valid': False, 'error': 'OTP has expired. Please request a new one.'}
-    
-    # Check attempts (max 3)
-    if stored['attempts'] >= 3:
-        return {'valid': False, 'error': 'Too many attempts. Please request a new OTP.'}
-    
-    # Increment attempts
-    stored['attempts'] += 1
-    
-    # Verify OTP
-    if stored['otp'] == otp:
-        stored['verified'] = True
-        return {'valid': True, 'channel': stored['channel']}
-    
-    remaining = 3 - stored['attempts']
-    return {'valid': False, 'error': f'Invalid OTP. {remaining} attempts remaining.'}
+    return normalize_phone(phone)
 
 
 async def send_whatsapp_otp(phone: str, otp: str) -> Dict[str, Any]:
@@ -111,8 +40,7 @@ async def send_whatsapp_otp(phone: str, otp: str) -> Dict[str, Any]:
     """
     if not ENABLE_REAL_NOTIFICATIONS or not is_twilio_configured():
         # Mock mode - just log and return success
-        logger.info(f"[MOCK] WhatsApp OTP to {phone}: {otp}")
-        store_otp(phone, otp, 'whatsapp')
+        logger.info("[MOCK] WhatsApp verification requested")
         return {
             'success': True,
             'channel': 'whatsapp',
@@ -132,7 +60,6 @@ async def send_whatsapp_otp(phone: str, otp: str) -> Dict[str, Any]:
             body=f'🔐 Your Clubvel verification code is: *{otp}*\n\nThis code expires in {OTP_EXPIRY_MINUTES} minutes.\n\nDo not share this code with anyone.'
         )
         
-        store_otp(formatted_phone, otp, 'whatsapp')
         
         logger.info(f"WhatsApp OTP sent to {phone[-4:]}****, SID: {message.sid}")
         return {
@@ -157,8 +84,7 @@ async def send_sms_otp(phone: str, otp: str) -> Dict[str, Any]:
     """
     if not ENABLE_REAL_NOTIFICATIONS or not is_twilio_configured():
         # Mock mode
-        logger.info(f"[MOCK] SMS OTP to {phone}: {otp}")
-        store_otp(phone, otp, 'sms')
+        logger.info("[MOCK] SMS verification requested")
         return {
             'success': True,
             'channel': 'sms',
@@ -178,7 +104,6 @@ async def send_sms_otp(phone: str, otp: str) -> Dict[str, Any]:
             body=f'Clubvel: Your verification code is {otp}. Expires in {OTP_EXPIRY_MINUTES} min. Do not share.'
         )
         
-        store_otp(formatted_phone, otp, 'sms')
         
         logger.info(f"SMS OTP sent to {phone[-4:]}****, SID: {message.sid}")
         return {
@@ -197,7 +122,7 @@ async def send_sms_otp(phone: str, otp: str) -> Dict[str, Any]:
         }
 
 
-async def send_otp(phone: str, preferred_channel: str = 'whatsapp') -> Dict[str, Any]:
+async def send_otp(phone: str, preferred_channel: str = 'whatsapp', *, otp: str) -> Dict[str, Any]:
     """
     Send OTP via preferred channel with fallback
     
@@ -208,12 +133,9 @@ async def send_otp(phone: str, preferred_channel: str = 'whatsapp') -> Dict[str,
     Returns:
         Dict with success status, channel used, and mock flag
     """
-    otp = generate_otp()
-    
-    # In mock mode, always use 1234 for testing
-    if not ENABLE_REAL_NOTIFICATIONS:
-        otp = "1234"
-    
+    if ENABLE_REAL_NOTIFICATIONS and not is_twilio_configured():
+        return {'success': False, 'error': 'Notification delivery is not configured'}
+
     if preferred_channel == 'whatsapp':
         # Try WhatsApp first
         result = await send_whatsapp_otp(phone, otp)

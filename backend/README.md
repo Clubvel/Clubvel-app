@@ -2,7 +2,11 @@
 
 FastAPI backend for Clubvel - South African Stokvel Management Platform
 
-## Deploy to Railway
+## Deployment reference
+
+For the recovery/staging review, follow [STAGING_AUTH_PREFLIGHT.md](STAGING_AUTH_PREFLIGHT.md) first. Do not create a new project, push, deploy or run these examples until staging isolation and the existing keys have been verified.
+
+### Existing generic deployment instructions
 
 1. Fork this repository or push to GitHub
 2. Go to [Railway](https://railway.app)
@@ -11,10 +15,10 @@ FastAPI backend for Clubvel - South African Stokvel Management Platform
 5. Add these environment variables in Railway:
 
 ```
-MONGO_URL=mongodb+srv://kennchabeleng_db_user:AQD98gTS%26%26@cluster0.c7nzonq.mongodb.net/?retryWrites=true&w=majority&appName=Cluster0
+MONGO_URL=mongodb+srv://<database-user>:<database-password>@<verified-staging-host>/<staging-database>
 DB_NAME=clubvel
-JWT_SECRET_KEY=1fqX0_JthkMeamm5gL98dOq9Gu85CNY3zBxBFnR9ITd-TYBHmKBZZKvzSwzQs3r6kgUKXGuNUDn3Q1shtI8v-Q
-FIELD_ENCRYPTION_KEY=_yWsZpdfBasaMbjxBIJ4eAQLRlWaQjw6RDxL4vsdZDw
+JWT_SECRET_KEY=<existing-private-staging-signing-key>
+FIELD_ENCRYPTION_KEY=<existing-private-staging-encryption-key-do-not-rotate-blindly>
 PRODUCTION_MODE=true
 ENABLE_REAL_NOTIFICATIONS=false
 ENABLE_BANK_FEED=false

@@ -1,10 +1,9 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity, Image } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import { useRouter } from 'expo-router';
-import { AdBanner } from '../../components/AdBanner';
 import axios from 'axios';
 import { format } from 'date-fns';
 
@@ -20,43 +19,45 @@ interface Alert {
 }
 
 export default function AlertsScreen() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const router = useRouter();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
+  const [error, setError] = useState(false);
+  const request = useRef(0);
+
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
-  const fetchAlerts = async () => {
+  const fetchAlerts = useCallback(async () => {
+    const ticket = ++request.current;
+    setError(false);
     try {
-      // Fetch alerts from API - empty if no alerts
-      const response = await fetch(`${API_URL}/api/alerts/${user?.id}`, {
-        headers: { 'Authorization': `Bearer ${user?.id}` }
+      if (!user?.id || !token) throw new Error('Sign in required');
+      const response = await axios.get(`${API_URL}/api/alerts/${user.id}`, {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
       });
-      if (response.ok) {
-        const data = await response.json();
-        setAlerts(data.alerts || []);
-      } else {
-        setAlerts([]);
+      const records = response.data?.alerts;
+      if (!Array.isArray(records) || records.some(record => !record || typeof record.id !== 'string' ||
+          typeof record.alert_message !== 'string' || typeof record.created_at !== 'string' || !Number.isFinite(Date.parse(record.created_at)))) {
+        throw new Error('Invalid alerts response');
       }
-    } catch (error) {
-      console.error('Error fetching alerts:', error);
-      setAlerts([]);
+      if (ticket === request.current) setAlerts(records);
+    } catch {
+      if (ticket === request.current) { setAlerts([]); setError(true); }
     } finally {
-      setLoading(false);
-      setRefreshing(false);
+      if (ticket === request.current) { setLoading(false); setRefreshing(false); }
     }
-  };
+  }, [API_URL, user?.id, token]);
 
   useEffect(() => {
-    fetchAlerts();
-  }, []);
+    setLoading(true); setAlerts([]);
+    void fetchAlerts();
+    return () => { request.current += 1; };
+  }, [fetchAlerts]);
 
-  const onRefresh = () => {
-    setRefreshing(true);
-    fetchAlerts();
-  };
+  const onRefresh = () => { setRefreshing(true); void fetchAlerts(); };
 
   const getAlertIcon = (type: string) => {
     switch (type) {
@@ -96,14 +97,6 @@ export default function AlertsScreen() {
 
     return { today, yesterday, earlier };
   };
-
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={Colors.mediumGreen} />
-      </View>
-    );
-  }
 
   const { today, yesterday, earlier } = groupByDate();
 
@@ -145,6 +138,10 @@ export default function AlertsScreen() {
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
         }
       >
+        {loading && <ActivityIndicator accessibilityLabel="Loading alerts" color={Colors.mediumGreen} style={{ margin: 24 }} />}
+        {error && <TouchableOpacity accessibilityRole="button" onPress={onRefresh} style={styles.emptyState}>
+          <Text style={styles.emptyStateText}>Unable to load alerts</Text><Text style={styles.emptyStateSubtext}>Tap to retry</Text>
+        </TouchableOpacity>}
         {today.length > 0 && (
           <View style={styles.section}>
             <Text style={styles.sectionTitle}>Today</Text>
@@ -177,11 +174,11 @@ export default function AlertsScreen() {
           </View>
         )}
 
-        {today.length === 0 && yesterday.length === 0 && earlier.length === 0 && (
+        {!loading && !error && today.length === 0 && yesterday.length === 0 && earlier.length === 0 && (
           <View style={styles.emptyState}>
             <Ionicons name="notifications-outline" size={64} color="#F97316" />
             <Text style={styles.emptyStateText}>No alerts</Text>
-            <Text style={styles.emptyStateSubtext}>You're all caught up!</Text>
+            <Text style={styles.emptyStateSubtext}>You&apos;re all caught up!</Text>
           </View>
         )}
       </ScrollView>

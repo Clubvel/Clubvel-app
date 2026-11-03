@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, ActivityIndicator, Modal, Platform } from 'react-native';
 import { useLocalSearchParams, useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
@@ -17,24 +17,19 @@ interface UserStats {
   date_joined?: string | null;
 }
 
-interface Club {
-  id: string;
-  name: string;
-  monthly_contribution: number;
-  contribution_mode?: 'fixed_monthly' | 'flexible_goal';
-  target_amount_per_member?: number | null;
-}
-
 export default function ProfileScreen() {
   const { user, token, logout, updateProfilePhoto } = useAuth();
   const router = useRouter();
   const { showClubs } = useLocalSearchParams<{ showClubs?: string }>();
   const [uploading, setUploading] = useState(false);
   const [loading, setLoading] = useState(true);
-  const [stats, setStats] = useState<UserStats>({ clubs_count: 0, total_saved: 0, on_time_percentage: 0, trust_score: null, date_joined: null });
+  const [stats, setStats] = useState<UserStats | null>(null);
+  const [statsError, setStatsError] = useState(false);
+  const statsRequest = useRef(0);
   const { clubs: membershipClubs, membershipError, refreshMemberships, selectGroup } = useWorkspace();
   const clubs = membershipClubs || [];
-  const clubsError = !!membershipError || membershipClubs === null;
+  const clubsError = !!membershipError;
+  const clubsLoading = membershipClubs === null && !clubsError;
   const payouts = usePersonalClaims(user?.id, token);
   const payoutSchedules = payouts.records;
   const [showClubsModal, setShowClubsModal] = useState(false);
@@ -42,35 +37,39 @@ export default function ProfileScreen() {
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
+  const fetchProfileData = useCallback(async () => {
+    const ticket = ++statsRequest.current;
+    setLoading(true); setStatsError(false);
+    try {
+      if (!user?.id || !token) throw new Error('Sign in required');
+      const response = await axios.get(`${API_URL}/api/user/stats/${user.id}`, {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
+      });
+      const value = response.data;
+      if (!value || !Number.isFinite(value.total_saved) || value.total_saved < 0 ||
+          !Number.isFinite(value.on_time_percentage) || value.on_time_percentage < 0 || value.on_time_percentage > 100) {
+        throw new Error('Invalid profile statistics');
+      }
+      if (ticket === statsRequest.current) setStats(value);
+    } catch {
+      if (ticket === statsRequest.current) { setStats(null); setStatsError(true); }
+    } finally {
+      if (ticket === statsRequest.current) setLoading(false);
+    }
+  }, [API_URL, user?.id, token]);
+
   useEffect(() => {
     if (showClubs === 'true') {
       setShowClubsModal(true);
-      fetchProfileData();
       router.setParams({ showClubs: undefined });
     }
-  }, [showClubs, user?.id]);
+  }, [showClubs, router]);
 
   useEffect(() => {
-    fetchProfileData();
-  }, [user?.id]);
-
-  const fetchProfileData = async () => {
-    if (!user?.id) return;
-    setLoading(true);
-    try {
-      const [statsResponse] = await Promise.allSettled([
-        axios.get(`${API_URL}/api/user/stats/${user.id}`),
-        refreshMemberships(),
-      ]);
-      if (statsResponse.status === 'fulfilled') setStats(statsResponse.value.data);
-    } catch (error) {
-      console.error('Error fetching profile data:', error);
-      // Set defaults if API fails
-      setStats({ clubs_count: 0, total_saved: 0, on_time_percentage: 0, trust_score: null, date_joined: null });
-    } finally {
-      setLoading(false);
-    }
-  };
+    void fetchProfileData();
+    void refreshMemberships().catch(() => {});
+    return () => { statsRequest.current += 1; };
+  }, [fetchProfileData, refreshMemberships]);
 
   const handleLogout = async () => {
     if (Platform.OS === 'web') {
@@ -154,33 +153,38 @@ export default function ProfileScreen() {
           </View>
         </TouchableOpacity>
         <Text style={styles.name}>{user?.full_name}</Text>
-        {stats.date_joined && (
-          <Text style={styles.memberSince}>Joined {new Date(stats.date_joined).toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' })}</Text>
+        {stats?.date_joined && (
+          <Text style={styles.memberSince}>Joined {new Date(stats?.date_joined).toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' })}</Text>
         )}
       </View>
 
       <ScrollView style={styles.content}>
-        {/* Stats - Dynamically loaded */}
-        {loading ? (
-          <View style={styles.statsLoading}>
-            <ActivityIndicator size="small" color={Colors.mediumGreen} />
+        <View style={styles.statsContainer}>
+          <View style={styles.statCard}>
+            {clubsLoading ? <ActivityIndicator accessibilityLabel="Loading clubs" color={Colors.mediumGreen} /> :
+              <Text accessibilityLabel={clubsError ? 'Clubs unavailable' : `${clubs.length} clubs`}
+                style={styles.statValue}>{clubsError ? '—' : clubs.length}</Text>}
+            <Text style={styles.statLabel}>Clubs</Text>
           </View>
-        ) : (
-          <View style={styles.statsContainer}>
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>{clubsError ? 'Unavailable' : clubs.length}</Text>
-              <Text style={styles.statLabel}>Clubs</Text>
-            </View>
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>R{stats.total_saved.toLocaleString()}</Text>
-              <Text style={styles.statLabel}>Total Saved</Text>
-            </View>
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>{stats.on_time_percentage}%</Text>
-              <Text style={styles.statLabel}>On Time</Text>
-            </View>
+          <View style={styles.statCard}>
+            {loading ? <ActivityIndicator accessibilityLabel="Loading savings" color={Colors.mediumGreen} /> :
+              <Text accessibilityLabel={statsError ? 'Savings unavailable' : undefined} style={styles.statValue}>
+                {stats ? `R${stats.total_saved.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '—'}
+              </Text>}
+            <Text style={styles.statLabel}>Total Saved</Text>
           </View>
-        )}
+          <View style={styles.statCard}>
+            {loading ? <ActivityIndicator accessibilityLabel="Loading payment statistics" color={Colors.mediumGreen} /> :
+              <Text accessibilityLabel={statsError ? 'On time percentage unavailable' : undefined} style={styles.statValue}>{stats ? `${stats.on_time_percentage}%` : '—'}</Text>}
+            <Text style={styles.statLabel}>On Time</Text>
+          </View>
+        </View>
+        {clubsError && <TouchableOpacity accessibilityRole="button" onPress={() => void refreshMemberships().catch(() => {})}>
+          <Text style={styles.dataError}>Could not load your clubs. Tap to retry.</Text>
+        </TouchableOpacity>}
+        {statsError && <TouchableOpacity accessibilityRole="button" onPress={() => void fetchProfileData()}>
+          <Text style={styles.dataError}>Could not load your statistics. Tap to retry.</Text>
+        </TouchableOpacity>}
 
         {/* Menu */}
         <View style={styles.menuSection}>
@@ -190,7 +194,7 @@ export default function ProfileScreen() {
               <Text style={styles.menuItemText}>My Clubs</Text>
             </View>
             <View style={styles.menuItemRight}>
-              <Text style={styles.menuItemCount}>{clubsError ? 'Unavailable' : clubs.length}</Text>
+              <Text style={styles.menuItemCount}>{clubsLoading ? 'Loading…' : clubsError ? 'Unavailable' : clubs.length}</Text>
               <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
             </View>
           </TouchableOpacity>
@@ -271,12 +275,12 @@ export default function ProfileScreen() {
               </TouchableOpacity>
             </View>
             <ScrollView style={styles.modalBody}>
-              {loading ? <ActivityIndicator color={Colors.mediumGreen} /> : clubsError ? (
-                <TouchableOpacity accessibilityRole="button" onPress={fetchProfileData}>
+              {clubsLoading ? <ActivityIndicator color={Colors.mediumGreen} /> : clubsError ? (
+                <TouchableOpacity accessibilityRole="button" onPress={() => void refreshMemberships().catch(() => {})}>
                   <Text style={styles.emptyStateText}>Could not load your clubs. Tap to retry.</Text>
                 </TouchableOpacity>
               ) : clubs.length > 0 ? (
-                clubs.map((club, index) => (
+                clubs.map((club) => (
                   <TouchableOpacity key={club.id} style={styles.clubItem} accessibilityRole="button" onPress={() => { setShowClubsModal(false); void selectGroup(club.id); }}>
                     <View style={styles.clubIcon}>
                       <Ionicons name="people" size={24} color={Colors.mediumGreen} />
@@ -292,7 +296,7 @@ export default function ProfileScreen() {
                 <View style={styles.emptyState}>
                   <Ionicons name="people-outline" size={48} color={Colors.textMuted} />
                   <Text style={styles.emptyStateText}>No Clubs Available</Text>
-                  <Text style={styles.emptyStateSubtext}>You haven't joined any clubs yet</Text>
+                  <Text style={styles.emptyStateSubtext}>You haven&apos;t joined any clubs yet</Text>
                 </View>
               )}
             </ScrollView>
@@ -356,16 +360,16 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.darkGreen,
+    backgroundColor: Colors.midnightNavy,
     paddingTop: 50,
     paddingBottom: 20,
     alignItems: 'center',
   },
   avatar: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
-    backgroundColor: Colors.gold,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
+    backgroundColor: Colors.clementine,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -374,11 +378,11 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   avatarImage: {
-    width: 80,
-    height: 80,
-    borderRadius: 40,
+    width: 88,
+    height: 88,
+    borderRadius: 44,
     borderWidth: 3,
-    borderColor: Colors.gold,
+    borderColor: Colors.clementine,
   },
   editBadge: {
     position: 'absolute',
@@ -406,6 +410,7 @@ const styles = StyleSheet.create({
   content: {
     flex: 1,
   },
+  dataError: { marginHorizontal: 24, marginBottom: 12, fontSize: 14, lineHeight: 20, color: Colors.textSecondary },
   statsLoading: {
     padding: 32,
     alignItems: 'center',
@@ -427,7 +432,9 @@ const styles = StyleSheet.create({
   },
   statValue: {
     fontSize: 16,
-    fontWeight: 'bold',
+    fontWeight: '600',
+    fontVariant: ['tabular-nums'],
+    textAlign: 'center',
     color: Colors.textPrimary,
     marginBottom: 4,
   },
@@ -456,6 +463,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 16,
   },
   menuItemLeft: {
+    flex: 1,
+    flexShrink: 1,
     flexDirection: 'row',
     alignItems: 'center',
     gap: 16,
@@ -466,6 +475,7 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   menuItemText: {
+    flexShrink: 1,
     fontSize: 16,
     color: Colors.textPrimary,
   },

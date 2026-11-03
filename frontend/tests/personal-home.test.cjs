@@ -160,3 +160,24 @@ test('invalid claims response fails validation rather than producing a zero', ()
   assert.deepEqual(homePolicy.personalClaims({ schedules: [] }), []);
 });
 
+
+test('Home header/cards render and navigate before slow invitations and financial requests settle', () => {
+  const h = harness(); h.respond(() => new Promise(() => {}));
+  const tree = h.render();
+  assert.ok(text(tree).includes('Clubvel'));
+  assert.equal(text(button(tree, 'Contributions')), 'ContributionsLoading...');
+  button(tree, 'Claims').props.onPress(); assert.equal(h.routes[0], '/(member)/claims');
+  assert.equal(h.calls.length, 3); assert.equal(h.membershipRequests(), 1);
+  h.render(); assert.equal(h.calls.length, 3);
+});
+
+test('returning to Home retains verified personal figures while fresh requests run in background', async () => {
+  const h = harness({ records: [record()], claims: [claim] });
+  h.render(); await tick(); h.render(); h.blur();
+  h.respond(() => new Promise(() => {})); h.focus();
+  const tree = h.render();
+  assert.equal(text(button(tree, 'Contributions')), 'ContributionsR80.00');
+  assert.equal(text(button(tree, 'Claims')), 'Claims1');
+  assert.ok(text(tree).includes('Updating your information'));
+  assert.equal(h.calls.length, 6); // Fresh reads still occur on every return.
+});

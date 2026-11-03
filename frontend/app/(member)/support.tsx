@@ -57,10 +57,7 @@ App Version: 1.0.0
 
     setSending(true);
     
-    // In production, this would send to your backend
-    // For now, we'll simulate and open email
-    setTimeout(() => {
-      setSending(false);
+    try {
       
       const subject = encodeURIComponent(`Clubvel ${feedbackType === 'bug' ? 'Bug Report' : feedbackType === 'feature' ? 'Feature Request' : 'Feedback'}`);
       const body = encodeURIComponent(`
@@ -77,7 +74,7 @@ App Version: 1.0.0
 Device: ${Platform.OS} ${Platform.Version}
       `);
       
-      Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`);
+      await Linking.openURL(`mailto:${SUPPORT_EMAIL}?subject=${subject}&body=${body}`);
       
       Alert.alert(
         'Thank You!',
@@ -87,7 +84,9 @@ Device: ${Platform.OS} ${Platform.Version}
           setFeedbackType(null);
         }}]
       );
-    }, 1000);
+    } catch {
+      Alert.alert('Email unavailable', `Please email ${SUPPORT_EMAIL} from your email app.`);
+    } finally { setSending(false); }
   };
 
   return (
@@ -206,7 +205,7 @@ Device: ${Platform.OS} ${Platform.Version}
           <View style={styles.faqItem}>
             <Text style={styles.faqQuestion}>How do I upload proof of payment?</Text>
             <Text style={styles.faqAnswer}>
-              Go to "Proof of Payments" tab, tap "Upload Proof of Payment", select your club, 
+              Go to the Payments tab, tap Upload Proof of Payment, select your club,
               and choose an image from your gallery.
             </Text>
           </View>
@@ -215,7 +214,7 @@ Device: ${Platform.OS} ${Platform.Version}
             <Text style={styles.faqQuestion}>How long until my payment is confirmed?</Text>
             <Text style={styles.faqAnswer}>
               Your treasurer will review and confirm your payment within 24-48 hours. 
-              You'll receive a notification once confirmed.
+              You&apos;ll receive a notification once confirmed.
             </Text>
           </View>
 
@@ -230,8 +229,8 @@ Device: ${Platform.OS} ${Platform.Version}
           <View style={styles.faqItem}>
             <Text style={styles.faqQuestion}>How do I change my password?</Text>
             <Text style={styles.faqAnswer}>
-              Go to Profile tab and tap "Change Password". You'll need to verify your 
-              phone number with an OTP.
+              On the Sign In screen, tap Forgot Password. You&apos;ll need to verify your
+              phone number with a verification code before setting a new password.
             </Text>
           </View>
 
@@ -239,7 +238,7 @@ Device: ${Platform.OS} ${Platform.Version}
             <Text style={styles.faqQuestion}>What happens if I miss a payment?</Text>
             <Text style={styles.faqAnswer}>
               Late payments may affect your trust score. Contact your treasurer 
-              if you're having difficulties making a payment on time.
+              if you&apos;re having difficulties making a payment on time.
             </Text>
           </View>
         </View>

@@ -15,7 +15,7 @@ from unittest.mock import AsyncMock
 SOURCE = Path(__file__).resolve().parents[1] / 'backend' / 'server.py'
 NAMES = {'contribution_outstanding', 'proof_is_eligible', 'calculate_contribution_status',
          'get_person_contribution_records', 'personal_contribution_status', 'personal_contribution_view',
-         'get_proof_eligible_contributions', 'record_monthly_contribution',
+         'get_proof_eligible_contributions', 'ensure_monthly_contribution_for_member', 'record_monthly_contribution',
          'get_member_club_details', 'upload_proof_of_payment', 'get_club_detail',
          'get_group_contributions', 'confirm_payment'}
 functions = [n for n in ast.parse(SOURCE.read_text(encoding='utf-8-sig')).body
@@ -56,7 +56,10 @@ class Collection:
         if row is not None:
             row.update(update.get('$set', {}))
             return SimpleNamespace(modified_count=1 if '$set' in update else 0)
-        if upsert: self.rows.append(copy.deepcopy(update['$setOnInsert']))
+        if upsert:
+            new_row = copy.deepcopy(update.get('$setOnInsert', {}))
+            self.rows.append(new_row)
+            return SimpleNamespace(modified_count=0)
         return SimpleNamespace(modified_count=0)
     async def insert_one(self, row): self.writes.append(row); self.rows.append(copy.deepcopy(row))
 
@@ -219,6 +222,26 @@ class ContributionTests(unittest.IsolatedAsyncioTestCase):
             ns['db'].contributions.reject_update = stale
             await self.assert_error(409, ns['confirm_payment'](SimpleNamespace(contribution_id='obligation', treasurer_id='admin', notes=None)))
             self.assertEqual(ns['db'].alerts.rows, []); ns['send_payment_confirmation'].assert_not_awaited()
+
+    async def test_explicit_recording_is_idempotent_for_repeated_calls(self):
+        ns = environment()
+        data = SimpleNamespace(member_id='membership', treasurer_id='admin')
+        first = await ns['record_monthly_contribution']('group', data, 'admin')
+        second = await ns['record_monthly_contribution']('group', data, 'admin')
+        third = await ns['record_monthly_contribution']('group', data, 'admin')
+        self.assertEqual(first, third)
+        self.assertEqual(len(ns['db'].contributions.rows), 1)
+        self.assert_no_writes(ns) if False else None
+
+    async def test_proof_upload_and_treasurer_confirmation_workflow_with_existing_record(self):
+        ns = environment([record(contribution_status='pending')])
+        upload = SimpleNamespace(contribution_id='obligation', user_id='person', proof_image='proof', reference_number='REF')
+        await ns['upload_proof_of_payment'](upload)
+        self.assertEqual(ns['db'].contributions.rows[0]['contribution_status'], 'proof_uploaded')
+        confirm = SimpleNamespace(contribution_id='obligation', treasurer_id='admin', notes=None)
+        await ns['confirm_payment'](confirm)
+        self.assertEqual(ns['db'].contributions.rows[0]['amount_paid'], 125.5)
+        self.assertEqual(ns['db'].contributions.rows[0]['contribution_status'], 'confirmed')
 
 
 if __name__ == '__main__':

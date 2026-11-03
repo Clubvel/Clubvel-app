@@ -61,15 +61,18 @@
           "resizeMode": "contain",
           "backgroundColor": "#FFFFFF",
           "android": {
-            "image": "./assets/images/clubvel-community-adaptive.png",
-            "imageWidth": 200,
+            "image": "./assets/images/clubvel-community-splash.png",
+            "imageWidth": 224,
+            "backgroundColor": "#FFFFFF"
+          },
+          "dark": {
+            "image": "./assets/images/clubvel-community-splash.png",
             "backgroundColor": "#FFFFFF"
           }
         }
       ],
       "expo-secure-store",
       "@react-native-firebase/app",
-      "@react-native-firebase/auth",
       [
         "expo-build-properties",
         {

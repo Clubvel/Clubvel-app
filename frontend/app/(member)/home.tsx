@@ -5,6 +5,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useWorkspace } from '../../contexts/WorkspaceContext';
 import { StatusPill } from '../../components/StatusPill';
 import { AdBanner } from '../../components/AdBanner';
+import { ClubvelSpotlight } from '../../components/ClubvelSpotlight';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
@@ -41,6 +42,8 @@ export default function MemberHomeScreen() {
   const router = useRouter();
   const contributions = usePersonalContributions(user?.id, token);
   const claims = usePersonalClaims(user?.id, token);
+  const reloadContributions = contributions.reload;
+  const reloadClaims = claims.reload;
   const homeRequest = useRef(0);
   const { clubs, membershipError: clubsError, refreshMemberships, selectGroup } = useWorkspace();
 
@@ -134,7 +137,7 @@ export default function MemberHomeScreen() {
     }
   };
 
-  const fetchHomeData = async (refreshFinancial = true) => {
+  const fetchHomeData = useCallback(async (refreshFinancial = true) => {
     const ticket = ++homeRequest.current;
     try {
       const [, invitationsResponse] = await Promise.allSettled([
@@ -142,7 +145,7 @@ export default function MemberHomeScreen() {
         axios.get(`${API_URL}/api/invitations/pending/${user?.id}`, {
           headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
         }),
-        ...(refreshFinancial ? [contributions.reload(), claims.reload()] : []),
+        ...(refreshFinancial ? [reloadContributions(), reloadClaims()] : []),
       ]);
       if (ticket !== homeRequest.current) return;
       if (invitationsResponse.status === 'fulfilled') {
@@ -155,7 +158,7 @@ export default function MemberHomeScreen() {
     } finally {
       if (ticket === homeRequest.current) { setLoading(false); setRefreshing(false); }
     }
-  };
+  }, [refreshMemberships, API_URL, user?.id, token, reloadContributions, reloadClaims]);
 
   useFocusEffect(useCallback(() => {
     setPaymentView(null);
@@ -163,7 +166,7 @@ export default function MemberHomeScreen() {
     if (user?.id) void fetchHomeData(false);
     else setLoading(false);
     return () => { homeRequest.current += 1; };
-  }, [user?.id, token, refreshMemberships]));
+  }, [user?.id, fetchHomeData]));
 
   const financialReady = contributions.phase === 'ready' || contributions.phase === 'empty';
   const summary = homeContributions(contributions.records);
@@ -278,13 +281,6 @@ export default function MemberHomeScreen() {
     }
   };
 
-  if (loading) {
-    return (
-      <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={Colors.mediumGreen} />
-      </View>
-    );
-  }
 
   return (
     <View style={{ flex: 1 }}>
@@ -311,6 +307,7 @@ export default function MemberHomeScreen() {
           </TouchableOpacity>
         </View>
 
+        {(loading || contributions.refreshing || claims.refreshing) && <Text accessibilityLiveRegion="polite" style={styles.emptyStateSubtext}>Updating your information…</Text>}
         {/* Summary Cards */}
         <View style={styles.summaryContainer}>
         <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" onPress={() => setPaymentView('contributions')}>
@@ -322,7 +319,7 @@ export default function MemberHomeScreen() {
 
         <TouchableOpacity style={styles.summaryCard} accessibilityRole="button" onPress={() => router.push({ pathname: '/(member)/profile', params: { showClubs: 'true' } })}>
           <Text style={styles.summaryLabel}>Groups &amp; Clubs</Text>
-          <Text style={styles.summaryValue}>{clubs === null ? 'Unavailable' : clubs.length}</Text>
+          <Text style={styles.summaryValue}>{clubsError ? 'Unavailable' : clubs === null ? 'Loading...' : clubs.length}</Text>
         </TouchableOpacity>
       </View>
 
@@ -371,7 +368,7 @@ export default function MemberHomeScreen() {
           </View>
         )}
 
-        {clubsError || clubs === null ? (
+        {clubs === null && !clubsError ? <ActivityIndicator accessibilityLabel="Loading clubs" color={Colors.mediumGreen} /> : clubsError ? (
           <TouchableOpacity style={styles.emptyState} onPress={onRefresh} accessibilityRole="button">
             <Text style={styles.emptyStateText}>Could not load your clubs</Text>
             <Text style={styles.emptyStateSubtext}>Tap to retry</Text>
@@ -416,8 +413,12 @@ export default function MemberHomeScreen() {
         </View>
       </View>
 
+      {/* Clubvel Spotlight */}
+      <ClubvelSpotlight title="Clubvel Spotlight" subtitle="Smart savings. Stronger together." />
       {/* Advertisement Banner */}
-      <AdBanner size="banner" />
+      <View style={styles.adContainer}>
+        <AdBanner size="banner" />
+      </View>
     </ScrollView>
 
     <Modal visible={paymentView !== null} transparent animationType="slide" onRequestClose={() => setPaymentView(null)}>
@@ -709,7 +710,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.darkGreen,
+    backgroundColor: Colors.midnightNavy,
     paddingTop: 60,
     paddingBottom: 24,
     paddingHorizontal: 24,
@@ -835,7 +836,7 @@ const styles = StyleSheet.create({
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
-    borderColor: Colors.gold,
+    borderColor: Colors.clementine,
   },
   adTitle: {
     fontSize: 16,
@@ -864,7 +865,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.clementine,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -873,7 +874,7 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     borderWidth: 2,
-    borderColor: Colors.gold,
+    borderColor: Colors.clementine,
   },
   modalOverlay: {
     flex: 1,
@@ -904,7 +905,7 @@ const styles = StyleSheet.create({
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.clementine,
     justifyContent: 'center',
     alignItems: 'center',
   },

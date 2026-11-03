@@ -1,39 +1,46 @@
 export const Colors = {
+  // Clubvel brand
+  midnightNavy: '#06285B',
+  clementine: '#F58220',
+  clementineDark: '#C65D00',
+  clementineLight: '#FFF0E0',
+  navy: '#06285B',
+
   // Approved Clubvel charcoal and clementine identity
-  primary: '#3F4145',
-  primaryDark: '#292B2E',
-  primaryLight: '#F3F4F6',
+  primary: '#06285B',
+  primaryDark: '#051E43',
+  primaryLight: '#E8F0FE',
   
   // Alert/Accent Colors
-  accent: '#F97316',
-  accentLight: '#FFF1E8',
+  accent: '#F58220',
+  accentLight: '#FFF0E0',
   
   // Background Colors
   background: '#FFFFFF',       // Crisp white canvas
-  lightBackground: '#F4F7F9',  // Soft neutral gray background
+  lightBackground: '#F8F9FA',  // Soft neutral gray background
   cardBackground: '#FFFFFF',   // White card backgrounds
   cardBorder: '#E5E7EB',       // Light gray borders
   
   // Typography Colors
-  textPrimary: '#333333',      // Dark graphite gray - high contrast readability
+  textPrimary: '#111827',      // Dark graphite
   textSecondary: '#6B7280',    // Medium gray for secondary text
   textMuted: '#9CA3AF',        // Light gray for muted text
   
-  // Status Colors (Corporate Financial Interface)
-  statusPaid: '#16A34A',       // Green for success/paid
-  statusLate: '#E31B23',       // Red for late/urgent
-  statusDue: '#F59E0B',        // Amber for due soon
-  statusUpcoming: '#9CA3AF',   // Gray for upcoming
+  // Status Colors
+  statusPaid: '#16A34A',
+  statusLate: '#DC2626',
+  statusDue: '#F59E0B',
+  statusUpcoming: '#9CA3AF',
   
   // UI Colors
   white: '#FFFFFF',
   black: '#000000',
   
-  // Legacy color mappings (for backward compatibility)
-  darkGreen: '#3F4145',
-  mediumGreen: '#3F4145',
-  primaryGreen: '#3F4145',
-  lightGreen: '#F3F4F6',
-  gold: '#F97316',
-  lightGold: '#FFF1E8',
+  // Legacy mappings
+  darkGreen: '#06285B',
+  mediumGreen: '#06285B',
+  primaryGreen: '#06285B',
+  lightGreen: '#E8F0FE',
+  gold: '#F58220',
+  lightGold: '#FFF0E0',
 };

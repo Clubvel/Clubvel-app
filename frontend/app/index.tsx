@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { View, Image } from 'react-native';
+import { View, ActivityIndicator } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 import { useWorkspace } from '../contexts/WorkspaceContext';
@@ -11,7 +11,7 @@ export default function Index() {
 
   useEffect(() => {
     if (!loading) {
-      if (user) {
+      if (user?.id) {
         void restoreWorkspace();
       } else {
         router.replace('/auth');
@@ -19,9 +19,9 @@ export default function Index() {
     }
   }, [user?.id, loading, router, restoreWorkspace]);
 
-  return <View style={{ flex: 1, backgroundColor: '#FFFFFF' }}>
-    <Image source={require('../assets/images/clubvel-community-splash.png')}
-      resizeMode="contain" accessibilityLabel="clubvel — save, plan, grow together"
-      style={{ width: '100%', height: '100%' }} />
+  // The native splash owns cold-start branding. This route only resolves the
+  // destination; the indicator remains useful on web and later in-app routing.
+  return <View style={{ flex: 1, backgroundColor: '#FFFFFF', justifyContent: 'center' }}>
+    <ActivityIndicator accessibilityLabel="Opening Clubvel" color="#3F4145" />
   </View>;
 }

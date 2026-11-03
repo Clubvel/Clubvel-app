@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from 'react';
+import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Switch, ActivityIndicator, Alert } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
@@ -14,7 +14,7 @@ interface NotificationPrefs {
 }
 
 export default function NotificationPreferencesScreen() {
-  const { user } = useAuth();
+  const { user, token } = useAuth();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -24,28 +24,38 @@ export default function NotificationPreferencesScreen() {
     group_announcements: false,
   });
 
+  const [error, setError] = useState(false);
+  const request = useRef(0);
+
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
-  useEffect(() => {
-    fetchPreferences();
-  }, []);
-
-  const fetchPreferences = async () => {
+  const fetchPreferences = useCallback(async () => {
+    const ticket = ++request.current;
+    setLoading(true); setError(false);
     try {
-      const response = await axios.get(`${API_URL}/api/user/notification-preferences/${user?.id}`);
-      setPreferences({
-        contribution_reminders: response.data.contribution_reminders || false,
-        claim_updates: response.data.claim_updates || false,
-        group_announcements: response.data.group_announcements || false,
+      if (!user?.id || !token) throw new Error('Sign in required');
+      const response = await axios.get(`${API_URL}/api/user/notification-preferences/${user.id}`, {
+        headers: { Authorization: `Bearer ${token}` }, timeout: 15000,
       });
-    } catch (error) {
-      console.error('Error fetching notification preferences:', error);
+      const data = response.data;
+      if (!data || ['contribution_reminders', 'claim_updates', 'group_announcements'].some(key => typeof data[key] !== 'boolean')) {
+        throw new Error('Invalid notification preferences');
+      }
+      if (ticket === request.current) setPreferences(data);
+    } catch {
+      if (ticket === request.current) setError(true);
     } finally {
-      setLoading(false);
+      if (ticket === request.current) setLoading(false);
     }
-  };
+  }, [API_URL, user?.id, token]);
+
+  useEffect(() => {
+    void fetchPreferences();
+    return () => { request.current += 1; };
+  }, [fetchPreferences]);
 
   const updatePreference = async (key: keyof NotificationPrefs, value: boolean) => {
+    if (loading || error || saving || !user?.id || !token) return;
     // Optimistic update
     setPreferences(prev => ({ ...prev, [key]: value }));
     setSaving(true);
@@ -54,7 +64,7 @@ export default function NotificationPreferencesScreen() {
       await axios.put(`${API_URL}/api/user/notification-preferences`, {
         user_id: user?.id,
         [key]: value,
-      });
+      }, { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 });
     } catch (error) {
       console.error('Error updating notification preferences:', error);
       // Revert on error
@@ -64,17 +74,6 @@ export default function NotificationPreferencesScreen() {
       setSaving(false);
     }
   };
-
-  if (loading) {
-    return (
-      <SafeAreaView style={styles.container}>
-        <View style={styles.loadingContainer}>
-          <ActivityIndicator size="large" color={Colors.primaryGreen} />
-          <Text style={styles.loadingText}>Loading preferences...</Text>
-        </View>
-      </SafeAreaView>
-    );
-  }
 
   return (
     <SafeAreaView style={styles.container}>
@@ -87,14 +86,16 @@ export default function NotificationPreferencesScreen() {
         {saving && <ActivityIndicator size="small" color={Colors.primaryGreen} style={styles.savingIndicator} />}
       </View>
 
-      <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
+      {loading ? <View style={styles.loadingContainer}><ActivityIndicator color={Colors.primaryGreen} /><Text style={styles.loadingText}>Loading preferences...</Text></View>
+        : error ? <TouchableOpacity accessibilityRole="button" style={styles.loadingContainer} onPress={() => void fetchPreferences()}><Text style={styles.loadingText}>Unable to load preferences. Tap to retry.</Text></TouchableOpacity>
+        : <ScrollView style={styles.content} showsVerticalScrollIndicator={false}>
         {/* Info Card */}
         <View style={styles.infoCard}>
           <View style={styles.infoIconContainer}>
             <Ionicons name="information-circle" size={24} color={Colors.primaryGreen} />
           </View>
           <Text style={styles.infoText}>
-            Choose which notifications you'd like to receive. All notifications are off by default to protect your privacy.
+            Choose which notifications you&apos;d like to receive. All notifications are off by default to protect your privacy.
           </Text>
         </View>
 
@@ -116,6 +117,7 @@ export default function NotificationPreferencesScreen() {
               </View>
             </View>
             <Switch
+              disabled={saving}
               value={preferences.contribution_reminders}
               onValueChange={(value) => updatePreference('contribution_reminders', value)}
               trackColor={{ false: Colors.cardBorder, true: Colors.lightGreen }}
@@ -132,11 +134,12 @@ export default function NotificationPreferencesScreen() {
               <View style={styles.preferenceTextContainer}>
                 <Text style={styles.preferenceTitle}>Claim Updates</Text>
                 <Text style={styles.preferenceDescription}>
-                  Get notified when it's your turn to claim or when claims are processed
+                  Get notified when it&apos;s your turn to claim or when claims are processed
                 </Text>
               </View>
             </View>
             <Switch
+              disabled={saving}
               value={preferences.claim_updates}
               onValueChange={(value) => updatePreference('claim_updates', value)}
               trackColor={{ false: Colors.cardBorder, true: Colors.lightGold }}
@@ -158,6 +161,7 @@ export default function NotificationPreferencesScreen() {
               </View>
             </View>
             <Switch
+              disabled={saving}
               value={preferences.group_announcements}
               onValueChange={(value) => updatePreference('group_announcements', value)}
               trackColor={{ false: Colors.cardBorder, true: Colors.lightGreen }}
@@ -173,7 +177,7 @@ export default function NotificationPreferencesScreen() {
             Your notification preferences are stored securely. You can change these settings at any time. We respect your privacy in accordance with POPIA.
           </Text>
         </View>
-      </ScrollView>
+      </ScrollView>}
     </SafeAreaView>
   );
 }

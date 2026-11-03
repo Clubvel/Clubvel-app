@@ -197,7 +197,7 @@ export default function ProofOfPaymentsScreen({ personalAdmin = false }: { perso
             <ActivityIndicator color={Colors.white} />
           ) : (
             <>
-              <Ionicons name="cloud-upload" size={24} color={Colors.white} />
+              <Ionicons name="cloud-upload" size={22} color={Colors.white} />
               <Text style={styles.uploadButtonText}>Upload Proof of Payment</Text>
             </>
           )}
@@ -439,13 +439,13 @@ const styles = StyleSheet.create({
     height: 44,
     borderRadius: 22,
     borderWidth: 2,
-    borderColor: Colors.gold,
+    borderColor: Colors.clementine,
   },
   profilePlaceholder: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.clementine,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -455,8 +455,8 @@ const styles = StyleSheet.create({
   summaryCard: {
     backgroundColor: Colors.white,
     marginHorizontal: 24,
-    marginTop: 16,
-    padding: 16,
+    marginTop: 14,
+    padding: 14,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.cardBorder,
@@ -493,11 +493,11 @@ const styles = StyleSheet.create({
     color: Colors.statusPaid,
   },
   pendingValue: {
-    color: Colors.gold,
+    color: Colors.clementine,
   },
   section: {
     paddingHorizontal: 24,
-    paddingTop: 24,
+    paddingTop: 20,
   },
   sectionTitle: {
     fontSize: 18,
@@ -597,8 +597,8 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     backgroundColor: Colors.white,
     marginHorizontal: 24,
-    marginTop: 16,
-    marginBottom: 24,
+    marginTop: 18,
+    marginBottom: 28,
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
@@ -631,14 +631,14 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
   },
   uploadButton: {
-    backgroundColor: Colors.gold,
+    backgroundColor: Colors.clementine,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
     gap: 10,
     marginHorizontal: 24,
-    marginTop: 16,
-    paddingVertical: 16,
+    marginTop: 18,
+    paddingVertical: 14,
     borderRadius: 12,
   },
   uploadButtonText: {
@@ -708,7 +708,7 @@ const styles = StyleSheet.create({
   },
   clubAmount: {
     fontSize: 14,
-    color: Colors.gold,
+    color: Colors.clementine,
     fontWeight: '500',
   },
   noClubsContainer: {

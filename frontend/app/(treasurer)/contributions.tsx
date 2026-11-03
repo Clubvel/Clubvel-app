@@ -6,6 +6,7 @@ import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
 import { useRouter } from 'expo-router';
 import { AdBanner } from '../../components/AdBanner';
+import { useWorkspace } from '../../contexts/WorkspaceContext';
 import axios from 'axios';
 
 interface Contribution {
@@ -13,7 +14,7 @@ interface Contribution {
   member_id: string;
   member_name: string;
   reference_code: string;
-  amount_due: number;
+  amount_due: number | null;
   amount_paid: number;
   status: string;
   proof_uploaded: boolean;
@@ -24,6 +25,7 @@ interface Contribution {
 
 export default function ContributionsScreen() {
   const { user } = useAuth();
+  const { selectedClub } = useWorkspace();
   const router = useRouter();
   const [loading, setLoading] = useState(true);
   const [contributions, setContributions] = useState<Contribution[]>([]);
@@ -33,24 +35,48 @@ export default function ContributionsScreen() {
   const [selectedProof, setSelectedProof] = useState<string | null>(null);
   const [modalVisible, setModalVisible] = useState(false);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
+  const [fetchError, setFetchError] = useState<string | null>(null);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
   const fetchContributions = async () => {
     try {
-      // Empty contributions - real data will come from API when user creates a club
+      setFetchError(null);
+      if (!selectedClub?.id || !user?.id) {
+        setContributions([]);
+        setSummary({ collected: 0, outstanding: 0, total_expected: 0, collection_rate: 0 });
+        return;
+      }
+      const response = await axios.get(
+        `${API_URL}/api/treasurer/contributions/${selectedClub.id}/month/${currentMonth}/year/${currentYear}`,
+        { params: { treasurer_id: user.id }, timeout: 15000 }
+      );
+      const data = response.data || {};
+      setContributions(Array.isArray(data.contributions) ? data.contributions : []);
+      if (data.summary) {
+        setSummary({
+          collected: Number(data.summary.collected) || 0,
+          outstanding: Number(data.summary.outstanding) || 0,
+          total_expected: Number(data.summary.total_expected) || 0,
+          collection_rate: Number(data.summary.collection_rate) || 0,
+        });
+      } else {
+        setSummary({ collected: 0, outstanding: 0, total_expected: 0, collection_rate: 0 });
+      }
+    } catch (error: any) {
+      console.error('Error fetching contributions:', error);
+      setFetchError(error.response?.data?.detail || error.message || 'Failed to load contributions');
       setContributions([]);
       setSummary({ collected: 0, outstanding: 0, total_expected: 0, collection_rate: 0 });
-    } catch (error) {
-      console.error('Error fetching contributions:', error);
     } finally {
       setLoading(false);
     }
   };
 
   useEffect(() => {
+    setLoading(true);
     fetchContributions();
-  }, [currentMonth, currentYear]);
+  }, [currentMonth, currentYear, selectedClub?.id, user?.id]);
 
   const handlePreviousMonth = () => {
     if (currentMonth === 1) {
@@ -80,14 +106,18 @@ export default function ContributionsScreen() {
   const handleConfirmPayment = async (contributionId: string) => {
     setConfirmingId(contributionId);
     try {
+      if (!selectedClub?.id || !user?.id) {
+        Alert.alert('Error', 'Missing group or treasurer context');
+        return;
+      }
       await axios.post(`${API_URL}/api/treasurer/confirm-payment`, {
         contribution_id: contributionId,
         notes: 'Payment confirmed by treasurer',
-        treasurer_id: user?.id,  // Authorization: Pass treasurer ID for access control
+        treasurer_id: user.id,
       });
-
       Alert.alert('Success', 'Payment confirmed! Member has been notified.');
-      fetchContributions(); // Refresh data
+      setLoading(true);
+      await fetchContributions();
     } catch (error: any) {
       Alert.alert('Error', error.response?.data?.detail || 'Failed to confirm payment');
     } finally {
@@ -108,12 +138,28 @@ export default function ContributionsScreen() {
     );
   }
 
+  if (!selectedClub?.id || !user?.id) {
+    return (
+      <View style={styles.container}>
+        <View style={styles.header}>
+          <View style={styles.headerLeft}>
+            <Text style={styles.headerTitle}>Payments</Text>
+          </View>
+        </View>
+        <View style={styles.emptyState}>
+          <Text style={styles.emptyStateText}>Select a club from the dashboard to view contributions.</Text>
+        </View>
+      </View>
+    );
+  }
+
   return (
     <View style={styles.container}>
       {/* Header with Month Navigation and Profile */}
       <View style={styles.header}>
         <View style={styles.headerLeft}>
           <Text style={styles.headerTitle}>Payments</Text>
+          <Text style={styles.clubNameHeader}>{selectedClub.name}</Text>
           <View style={styles.monthNav}>
             <TouchableOpacity onPress={handlePreviousMonth} style={styles.monthButton}>
               <Ionicons name="chevron-back" size={20} color={Colors.white} />
@@ -155,8 +201,21 @@ export default function ContributionsScreen() {
 
       {/* Contributions List */}
       <ScrollView style={styles.content}>
+        {fetchError ? (
+          <View style={styles.errorBox}>
+            <Text style={styles.errorText}>{fetchError}</Text>
+            <TouchableOpacity style={styles.retryButton} onPress={() => { setLoading(true); fetchContributions(); }}>
+              <Text style={styles.retryButtonText}>Retry</Text>
+            </TouchableOpacity>
+          </View>
+        ) : null}
+        {contributions.length === 0 && !fetchError ? (
+          <View style={styles.emptyState}>
+            <Text style={styles.emptyStateText}>No contributions found for this month.</Text>
+          </View>
+        ) : null}
         {contributions.map((contribution, index) => (
-          <View key={index} style={styles.contributionCard}>
+          <View key={contribution.id || index} style={styles.contributionCard}>
             <View style={styles.contributionHeader}>
               <View>
                 <Text style={styles.memberName}>{contribution.member_name}</Text>
@@ -167,10 +226,10 @@ export default function ContributionsScreen() {
 
             <View style={styles.contributionAmount}>
               <Text style={styles.amountLabel}>Amount</Text>
-              <Text style={styles.amountValue}>R{contribution.amount_due.toFixed(2)}</Text>
+              <Text style={styles.amountValue}>R{contribution.amount_due != null ? contribution.amount_due.toFixed(2) : contribution.amount_paid.toFixed(2)}</Text>
             </View>
 
-            {contribution.proof_uploaded && contribution.status !== 'confirmed' && (
+            {contribution.proof_uploaded && contribution.status !== 'confirmed' && contribution.proof_of_payment && contribution.id && (
               <View style={styles.contributionActions}>
                 <TouchableOpacity
                   style={styles.viewProofButton}
@@ -262,6 +321,12 @@ const styles = StyleSheet.create({
     fontSize: 24,
     fontWeight: 'bold',
     color: Colors.white,
+    marginBottom: 4,
+  },
+  clubNameHeader: {
+    fontSize: 14,
+    color: Colors.white,
+    opacity: 0.9,
     marginBottom: 12,
   },
   profileButton: {
@@ -285,7 +350,7 @@ const styles = StyleSheet.create({
   monthNav: {
     flexDirection: 'row',
     alignItems: 'center',
-    justifyContent: 'center',
+    justifyContent: 'flex-start',
     gap: 16,
   },
   monthButton: {
@@ -432,6 +497,40 @@ const styles = StyleSheet.create({
     fontSize: 12,
     color: Colors.statusPaid,
     fontWeight: '600',
+  },
+  errorBox: {
+    backgroundColor: '#FEF2F2',
+    borderColor: '#FECACA',
+    borderWidth: 1,
+    padding: 12,
+    borderRadius: 8,
+    marginBottom: 12,
+  },
+  errorText: {
+    color: '#DC2626',
+    fontSize: 13,
+    marginBottom: 8,
+  },
+  retryButton: {
+    alignSelf: 'flex-start',
+    backgroundColor: '#DC2626',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  retryButtonText: {
+    color: Colors.white,
+    fontSize: 13,
+    fontWeight: '600',
+  },
+  emptyState: {
+    padding: 24,
+    alignItems: 'center',
+  },
+  emptyStateText: {
+    color: Colors.textSecondary,
+    fontSize: 14,
+    textAlign: 'center',
   },
   modalOverlay: {
     flex: 1,

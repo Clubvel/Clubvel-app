@@ -25,10 +25,13 @@ from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 # Import notification service
 from services.notification_service import (
-    send_otp, verify_stored_otp, get_notification_status,
+    send_otp, get_notification_status,
     send_payment_reminder, send_payment_confirmation, send_late_payment_alert,
     format_phone_number
 )
+
+from services.phone_numbers import normalize_phone, phone_aliases, phone_identity_query
+from services.auth_otp import AuthOTP, OTPError
 
 # Import bank feed service
 from services.bank_feed_service import (
@@ -45,7 +48,9 @@ load_dotenv(ROOT_DIR / '.env')
 limiter = Limiter(key_func=get_remote_address)
 
 # MongoDB connection with SSL certificate handling
-mongo_url = os.environ.get('MONGO_URL', 'mongodb://localhost:27017')
+mongo_url = os.environ.get('MONGO_URL')
+if not mongo_url:
+    raise RuntimeError("Configure MONGO_URL privately in the environment.")
 
 # Configure SSL for MongoDB Atlas connections
 if 'mongodb+srv' in mongo_url or 'mongodb.net' in mongo_url:
@@ -59,20 +64,34 @@ if 'mongodb+srv' in mongo_url or 'mongodb.net' in mongo_url:
     )
 else:
     # Local MongoDB - no SSL needed
+    if PRODUCTION_MODE:
+        raise RuntimeError("MONGO_URL must use a managed MongoDB connection in production.")
     client = AsyncIOMotorClient(mongo_url)
 
-db = client[os.environ.get('DB_NAME', 'clubvel')]
+db_name = os.environ.get('DB_NAME')
+if not db_name:
+    if PRODUCTION_MODE:
+        raise RuntimeError("Configure DB_NAME privately in the environment.")
+    db_name = 'clubvel'
+db = client[db_name]
 
 # Password hashing
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # JWT settings
-SECRET_KEY = os.environ.get('JWT_SECRET_KEY', 'clubvel-secret-key-change-in-production')
+def required_secret(name: str) -> str:
+    value = os.environ.get(name)
+    if not value or len(value) < 32:
+        raise RuntimeError(f"Configure {name} privately with the existing environment key (at least 32 characters).")
+    return value
+
+
+SECRET_KEY = required_secret('JWT_SECRET_KEY')
 ALGORITHM = "HS256"
-ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Session expires after 30 minutes of inactivity
+ACCESS_TOKEN_EXPIRE_MINUTES = 30  # Absolute JWT lifetime; the client also tracks inactivity.
 
 # Field-level encryption key (for sensitive data at rest)
-ENCRYPTION_KEY = os.environ.get('FIELD_ENCRYPTION_KEY', 'clubvel-encryption-key-32bytes!')
+ENCRYPTION_KEY = required_secret('FIELD_ENCRYPTION_KEY')
 
 def get_fernet_key():
     """Generate a Fernet-compatible key from the encryption key"""
@@ -115,6 +134,23 @@ app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
 
 api_router = APIRouter(prefix="/api")
+
+
+@app.get("/health")
+async def health_check():
+    """Liveness probe - confirms the application process is responding."""
+    return {"status": "ok"}
+
+
+@app.get("/ready")
+async def readiness_check():
+    """Readiness probe - confirms required dependencies are available."""
+    try:
+        await db.command("ping")
+        return {"status": "ready"}
+    except Exception:
+        raise HTTPException(status_code=503, detail="Not ready")
+
 
 # ==================== MODELS ====================
 
@@ -551,13 +587,7 @@ def authenticated_user_id(authorization: Optional[str]) -> str:
 
 
 def phone_variants(phone_number: str) -> list[str]:
-    """Match current E.164 and legacy local formatting for the same SA number."""
-    normalized = format_phone_number(phone_number)
-    variants = {phone_number, normalized}
-    if normalized.startswith("+27"):
-        variants.add("0" + normalized[3:])
-        variants.add(normalized[1:])
-    return list(variants)
+    return sorted(set(phone_aliases(phone_number)) | {phone_number})
 
 def generate_reference_code(prefix: str, member_position: int) -> str:
     """Generate unique reference code for member"""
@@ -664,6 +694,31 @@ async def get_proof_eligible_contributions(user_id: str, authorization: Optional
     return {'contributions': [personal_contribution_view(*row) for row in records if proof_is_eligible(row[0])]}
 
 
+async def ensure_monthly_contribution_for_member(group: dict, member: dict, for_date: Optional[datetime] = None):
+    """Create the current month's fixed-monthly contribution if eligible.
+    Idempotent and safe against concurrent requests. Does not charge mid-month by default."""
+    if group.get('contribution_mode', 'fixed_monthly') != 'fixed_monthly' or group.get('group_type') == 'travel':
+        return None
+    amount = group.get('monthly_contribution')
+    if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not math.isfinite(amount) or amount <= 0:
+        return None
+    now = for_date or datetime.utcnow()
+    period = {'member_id': member['id'], 'group_id': group['id'], 'month': now.month, 'year': now.year}
+    existing = await db.contributions.find_one(period)
+    if existing:
+        return existing.get('id')
+    record = Contribution(**period, amount_due=amount).dict()
+    record['_id'] = f"monthly:{group['id']}:{member['id']}:{now.year}:{now.month}"
+    try:
+        await db.contributions.update_one(period, {'$setOnInsert': record}, upsert=True)
+    except DuplicateKeyError:
+        pass
+    recorded = await db.contributions.find_one(period)
+    if not recorded:
+        return None
+    return recorded.get('id')
+
+
 @api_router.post('/treasurer/contributions/{group_id}/current')
 async def record_monthly_contribution(group_id: str, data: RecordMonthlyContribution,
                                       authorization: Optional[str] = Header(None)):
@@ -675,244 +730,178 @@ async def record_monthly_contribution(group_id: str, data: RecordMonthlyContribu
     member = await db.members.find_one({'id': data.member_id, 'group_id': group_id, 'status': 'active'})
     if not group or not member:
         raise HTTPException(status_code=404, detail='Active group membership not found')
-    amount = group.get('monthly_contribution')
-    if group.get('contribution_mode', 'fixed_monthly') != 'fixed_monthly' or group.get('group_type') == 'travel':
-        raise HTTPException(status_code=409, detail='Flexible or Travel groups do not create automatic monthly obligations')
-    if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not math.isfinite(amount) or amount <= 0:
-        raise HTTPException(status_code=409, detail='No valid monthly contribution amount is configured')
-    now = datetime.utcnow()
-    period = {'member_id': member['id'], 'group_id': group_id, 'month': now.month, 'year': now.year}
-    existing = await db.contributions.find_one(period)
-    if existing:
-        return {'contribution_id': existing['id']}
-    record = Contribution(**period, amount_due=amount).dict()
-    # A deterministic key also prevents duplicate inserts from concurrent requests.
-    record['_id'] = f"monthly:{group_id}:{member['id']}:{now.year}:{now.month}"
-    try:
-        await db.contributions.update_one(period, {'$setOnInsert': record}, upsert=True)
-    except DuplicateKeyError:
-        pass
-    recorded = await db.contributions.find_one(period)
-    if not recorded:
+    result = await ensure_monthly_contribution_for_member(group, member)
+    if result is None:
+        amount = group.get('monthly_contribution')
+        if group.get('contribution_mode', 'fixed_monthly') != 'fixed_monthly' or group.get('group_type') == 'travel':
+            raise HTTPException(status_code=409, detail='Flexible or Travel groups do not create automatic monthly obligations')
+        if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not math.isfinite(amount) or amount <= 0:
+            raise HTTPException(status_code=409, detail='No valid monthly contribution amount is configured')
         raise HTTPException(status_code=409, detail='Could not record this contribution. Please retry.')
-    return {'contribution_id': recorded['id']}
+    return {'contribution_id': result}
 
 # ==================== AUTHENTICATION ROUTES ====================
 
+PRODUCTION_MODE = os.environ.get('PRODUCTION_MODE', 'false').lower() == 'true'
+CLUBVEL_ENV = os.environ.get('CLUBVEL_ENV', '').lower()
+ALLOW_MOCK_OTP = os.environ.get('ALLOW_MOCK_OTP', '').lower() == 'true'
+
+auth_otp = AuthOTP(
+    db.auth_otp_challenges, send_otp, get_notification_status, SECRET_KEY,
+    allow_mock=(
+        not PRODUCTION_MODE
+        and CLUBVEL_ENV in {'staging', 'test', 'development'}
+        and ALLOW_MOCK_OTP
+    ),
+)
+
+
+def auth_phone(phone: str) -> str:
+    try:
+        return normalize_phone(phone)
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error))
+
+
+async def find_auth_user(phone: str):
+    matches = await db.users.find(phone_identity_query(auth_phone(phone))).to_list(2)
+    if len(matches) > 1:
+        # Never select or merge two existing identities based on a phone alias.
+        raise HTTPException(status_code=409, detail="Multiple accounts use this phone number. Please contact support.")
+    return matches[0] if matches else None
+
+
+async def issue_auth_code(phone: str, purpose: str, channel: str = "whatsapp"):
+    if channel not in ("whatsapp", "sms"):
+        raise HTTPException(status_code=422, detail="Choose WhatsApp or SMS.")
+    try:
+        return await auth_otp.issue(auth_phone(phone), purpose, channel)
+    except OTPError as error:
+        raise HTTPException(status_code=503, detail=str(error))
+
+
+async def check_auth_code(phone: str, purpose: str, otp: str, consume: bool = False):
+    try:
+        await auth_otp.check(auth_phone(phone), purpose, otp, consume=consume)
+    except OTPError as error:
+        raise HTTPException(status_code=400, detail=str(error))
+
+
 @api_router.post("/auth/register")
-@limiter.limit("5/minute")  # Limit to 5 registration attempts per minute
+@limiter.limit("5/minute")
 async def register(request: Request, user_data: UserCreate):
-    # Check if phone number already exists
-    existing_user = await db.users.find_one({"phone_number": user_data.phone_number})
-    
-    if existing_user:
-        # A phone number identifies one person. Never create another identity or
-        # mutate account-wide roles during registration.
-        return {
-            "message": "This phone number already has a Clubvel account. Please login.",
-            "user_id": existing_user['id'],
-            "already_registered": True
-        }
-    
-    # Account creation establishes identity only. Group roles are created in members.
-    user = User(
-        full_name=user_data.full_name,
-        phone_number=user_data.phone_number,
-        email=user_data.email,
-        password_hash=hash_password(user_data.password),
-        stokvel_memberships=[],  # New contextual membership array - populated when joining stokvels
-        otp_verified=False
-    )
-    
-    await db.users.insert_one(person_document(user))
-        
-    # Send OTP via WhatsApp (with SMS fallback)
-    otp_result = await send_otp(user_data.phone_number, preferred_channel='whatsapp')
-    
-    # Get notification status for response
-    notif_status = get_notification_status()
-    
-    response = {
-        "message": "User registered successfully. OTP sent to phone.",
-        "user_id": user.id,
-        "otp_channel": otp_result.get('channel', 'whatsapp'),
-        "notification_mode": notif_status['mode']
-    }
-    
-    # Include mock OTP in response if in mock mode
-    if notif_status['mode'] == 'mock':
-        response["mock_otp"] = "1234"
-        response["note"] = "App is in demo mode. Real WhatsApp/SMS will be enabled when Twilio is configured."
-    
-    return response
+    phone = auth_phone(user_data.phone_number)
+    if not user_data.full_name.strip() or len(user_data.password) < 6:
+        raise HTTPException(status_code=422, detail="Enter your name and a password of at least 6 characters.")
+    existing = await find_auth_user(phone)
+    if existing:
+        if existing.get('otp_verified') is not False or not verify_password(user_data.password, existing['password_hash']):
+            return {"message": "This phone number already has a Clubvel account. Please sign in.",
+                    "already_registered": True}
+        # Resume interrupted registration without replacing its password or identity.
+        result = await issue_auth_code(phone, "registration")
+        return {**result, "user_id": existing['id'], "already_registered": False}
+
+    # A sparse unique key protects new registrations against concurrent alias requests.
+    # Legacy records remain untouched and are checked above before insertion.
+    await db.users.create_index("phone_e164", unique=True, sparse=True)
+    user = User(full_name=user_data.full_name.strip(), phone_number=phone, email=user_data.email,
+                password_hash=hash_password(user_data.password), stokvel_memberships=[], otp_verified=False)
+    document = person_document(user)
+    document['phone_e164'] = phone
+    try:
+        await db.users.insert_one(document)
+    except DuplicateKeyError:
+        raise HTTPException(status_code=409, detail="An account was just created for this number. Please sign in.")
+    result = await issue_auth_code(phone, "registration")
+    return {**result, "user_id": user.id, "already_registered": False}
 
 
 @api_router.post("/auth/send-otp")
-@limiter.limit("3/minute")  # Limit to 3 OTP requests per minute
+@limiter.limit("3/minute")
 async def send_otp_endpoint(request: Request, otp_request: SendOTPRequest):
-    """Send or resend OTP to phone number"""
-    # Check if user exists
-    user = await db.users.find_one({"phone_number": otp_request.phone_number})
+    user = await find_auth_user(otp_request.phone_number)
     if not user:
         raise HTTPException(status_code=404, detail="User not found. Please register first.")
-    
-    if user.get('otp_verified'):
-        raise HTTPException(status_code=400, detail="Phone already verified. Please login.")
-    
-    # Send OTP
-    otp_result = await send_otp(otp_request.phone_number, preferred_channel=otp_request.channel)
-    
-    if not otp_result['success']:
-        raise HTTPException(status_code=500, detail=f"Failed to send OTP: {otp_result.get('error', 'Unknown error')}")
-    
-    notif_status = get_notification_status()
-    
-    response = {
-        "message": f"OTP sent via {otp_result['channel']}",
-        "channel": otp_result['channel'],
-        "notification_mode": notif_status['mode']
-    }
-    
-    if notif_status['mode'] == 'mock':
-        response["mock_otp"] = "1234"
-    
-    return response
+    if user.get('otp_verified') is not False:
+        raise HTTPException(status_code=400, detail="Phone already verified. Please sign in.")
+    return await issue_auth_code(otp_request.phone_number, "registration", otp_request.channel)
 
 
 @api_router.post("/auth/verify-otp")
 async def verify_otp(otp_data: OTPVerify):
-    # Verify OTP using notification service
-    verification_result = verify_stored_otp(otp_data.phone_number, otp_data.otp)
-    
-    if not verification_result['valid']:
-        raise HTTPException(status_code=400, detail=verification_result['error'])
-    
-    # Update user verification status
-    result = await db.users.update_one(
-        {"phone_number": otp_data.phone_number},
-        {"$set": {"otp_verified": True}}
-    )
-    
-    if result.modified_count == 0:
+    user = await find_auth_user(otp_data.phone_number)
+    if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    return {
-        "message": "OTP verified successfully",
-        "channel": verification_result.get('channel', 'unknown')
-    }
+    await check_auth_code(otp_data.phone_number, "registration", otp_data.otp, consume=True)
+    await db.users.update_one({"id": user['id']}, {"$set": {"otp_verified": True}})
+    return {"message": "Phone verified. You can now sign in."}
 
 
 @api_router.get("/auth/notification-status")
 async def get_notification_service_status():
-    """Get current notification service configuration status"""
     return get_notification_status()
 
+
 @api_router.post("/auth/login")
-@limiter.limit("10/minute")  # Limit to 10 login attempts per minute
+@limiter.limit("10/minute")
 async def login(request: Request, login_data: UserLogin):
-    # Find user
-    user = await db.users.find_one({"phone_number": login_data.phone_number})
-    if not user:
+    user = await find_auth_user(login_data.phone_number)
+    if not user or not verify_password(login_data.password, user['password_hash']):
         raise HTTPException(status_code=401, detail="Invalid phone number or password")
-    
-    # Verify password
-    if not verify_password(login_data.password, user['password_hash']):
-        raise HTTPException(status_code=401, detail="Invalid phone number or password")
-
-    # One-time/lazy compatibility migration for groups that explicitly identify
-    # this existing person as a legacy treasurer or administrator.
+    if user.get('otp_verified') is False:
+        raise HTTPException(status_code=403, detail={"code": "verification_required",
+                            "message": "Please verify your phone number to finish registration."})
     await reconcile_legacy_admin_memberships(user['id'])
-    
-    # The session identifies a person only. Authorization loads the selected
-    # group's active membership instead of embedding global roles in the token.
-    access_token = create_access_token(
-        data={"user_id": user['id'], "phone": user['phone_number']}
-    )
-    
-    return {
-        "access_token": access_token,
-        "token_type": "bearer",
-        "user": {
-            "id": user['id'],
-            "full_name": user['full_name'],
-            "phone_number": user['phone_number'],
-            "profile_photo": user.get('profile_photo')
-        }
-    }
+    access_token = create_access_token(data={"user_id": user['id'], "phone": user['phone_number']})
+    return {"access_token": access_token, "token_type": "bearer", "user": {
+        "id": user['id'], "full_name": user['full_name'], "phone_number": user['phone_number'],
+        "profile_photo": user.get('profile_photo')}}
 
-
-# ==================== FORGOT PASSWORD ENDPOINTS ====================
 
 class ForgotPasswordRequest(BaseModel):
     phone_number: str
 
+
 class VerifyResetOTPRequest(BaseModel):
     phone_number: str
     otp: str
+
 
 class ResetPasswordRequest(BaseModel):
     phone_number: str
     otp: str
     new_password: str
 
+
 @api_router.post("/auth/forgot-password")
 @limiter.limit("3/minute")
 async def forgot_password(request: Request, data: ForgotPasswordRequest):
-    """Send password reset OTP to user's phone"""
-    user = await db.users.find_one({"phone_number": data.phone_number})
+    user = await find_auth_user(data.phone_number)
     if not user:
         raise HTTPException(status_code=404, detail="No account found with this phone number")
-    
-    # Send OTP via WhatsApp/SMS
-    otp_result = await send_otp(data.phone_number, preferred_channel='whatsapp')
-    
-    if not otp_result['success']:
-        raise HTTPException(status_code=500, detail="Failed to send reset code. Please try again.")
-    
-    notif_status = get_notification_status()
-    response = {
-        "message": f"Reset code sent via {otp_result['channel']}",
-        "channel": otp_result['channel']
-    }
-    
-    if notif_status['mode'] == 'mock':
-        response["mock_otp"] = "1234"
-    
-    return response
+    return await issue_auth_code(data.phone_number, "password_reset")
+
 
 @api_router.post("/auth/verify-reset-otp")
 async def verify_reset_otp(data: VerifyResetOTPRequest):
-    """Verify reset OTP before allowing password change"""
-    user = await db.users.find_one({"phone_number": data.phone_number})
+    user = await find_auth_user(data.phone_number)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    verification_result = verify_stored_otp(data.phone_number, data.otp)
-    
-    if not verification_result['valid']:
-        raise HTTPException(status_code=400, detail=verification_result['error'])
-    
-    return {"message": "OTP verified successfully", "can_reset": True}
+    await check_auth_code(data.phone_number, "password_reset", data.otp)
+    return {"message": "Code verified", "can_reset": True}
+
 
 @api_router.post("/auth/reset-password")
 async def reset_password(data: ResetPasswordRequest):
-    """Reset user password after OTP verification"""
-    user = await db.users.find_one({"phone_number": data.phone_number})
+    if len(data.new_password) < 6:
+        raise HTTPException(status_code=422, detail="Password must be at least 6 characters")
+    user = await find_auth_user(data.phone_number)
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
-    
-    # Verify OTP again for security
-    verification_result = verify_stored_otp(data.phone_number, data.otp)
-    if not verification_result['valid']:
-        raise HTTPException(status_code=400, detail="Invalid or expired reset code")
-    
-    # Update password
     new_hash = hash_password(data.new_password)
-    await db.users.update_one(
-        {"phone_number": data.phone_number},
-        {"$set": {"password_hash": new_hash}}
-    )
-    
+    await check_auth_code(data.phone_number, "password_reset", data.otp, consume=True)
+    await db.users.update_one({"id": user['id']}, {"$set": {"password_hash": new_hash, "otp_verified": True}})
     return {"message": "Password reset successful"}
 
 
@@ -1226,6 +1215,11 @@ async def create_group(data: CreateGroupRequest):
         }
     )
     
+    try:
+        await ensure_monthly_contribution_for_member(group, member)
+    except Exception:
+        pass
+    
     logging.info(f"Group created: {data.group_name} by user {data.admin_user_id}")
     
     return {
@@ -1528,6 +1522,14 @@ async def update_profile_photo(data: ProfilePhotoUpdate):
     )
     
     return {"message": "Profile photo updated successfully"}
+
+
+@api_router.get("/alerts/{user_id}")
+async def get_user_alerts(user_id: str, authorization: Optional[str] = Header(None)):
+    if authenticated_user_id(authorization) != user_id:
+        raise HTTPException(status_code=403, detail="You may only view your own alerts")
+    records = await db.alerts.find({"user_id": user_id}, {"_id": 0}).sort("created_at", -1).to_list(1000)
+    return {"alerts": records}
 
 
 # ==================== NOTIFICATION PREFERENCES ====================
@@ -1923,6 +1925,18 @@ async def upload_proof_of_payment(proof_data: ProofUpload):
         raise HTTPException(status_code=403, detail='An active group membership is required')
     if not proof_is_eligible(contribution):
         raise HTTPException(status_code=409, detail='This contribution no longer needs a new proof. Refresh your contributions.')
+
+    proof_image = proof_data.proof_image or ""
+    if not proof_image.strip():
+        raise HTTPException(status_code=422, detail="Proof of payment image is required")
+    if len(proof_image) > 5_000_000:
+        raise HTTPException(status_code=413, detail="Proof image is too large")
+    if proof_image.strip().startswith("data:"):
+        if not proof_image.strip().lower().startswith("data:image/"):
+            raise HTTPException(status_code=422, detail="Only image files are allowed")
+    reference_number = (proof_data.reference_number or "").strip()
+    if not reference_number:
+        raise HTTPException(status_code=422, detail="Reference number is required")
     
     # Update contribution with proof
     updated = await db.contributions.update_one(
@@ -1930,14 +1944,36 @@ async def upload_proof_of_payment(proof_data: ProofUpload):
          'amount_due': contribution['amount_due'], 'amount_paid': contribution['amount_paid'],
          'proof_of_payment': contribution.get('proof_of_payment')},
         {"$set": {
-            "proof_of_payment": proof_data.proof_image,
-            "reference_number": proof_data.reference_number,
+            "proof_of_payment": proof_image,
+            "reference_number": reference_number,
             "contribution_status": "proof_uploaded",
             "payment_date": datetime.utcnow()
         }}
     )
     if updated.modified_count != 1:
         raise HTTPException(status_code=409, detail='This contribution changed. Refresh before uploading proof.')
+    
+    # Get group info for alert
+    group = await db.groups.find_one({"id": contribution['group_id']})
+    user = await db.users.find_one({"id": member['user_id']})
+    
+    # Create alert for treasurer
+    try:
+        alert = Alert(
+            user_id=group['treasurer_user_id'],
+            group_id=group['id'],
+            alert_type="payment_proof_uploaded",
+            alert_message=f"{user['full_name']} has uploaded proof of payment for {group['group_name']} - {contribution['month']}/{contribution['year']}",
+            action_url=f"/treasurer/contributions/{group['id']}"
+        )
+        await db.alerts.insert_one(alert.dict())
+    except Exception:
+        pass
+    
+    return {
+        "message": "Proof of payment uploaded successfully",
+        "status": "proof_uploaded"
+    }
     
     # Get group info for alert
     group = await db.groups.find_one({"id": contribution['group_id']})
@@ -2013,13 +2049,25 @@ async def admin_upload_proof_of_payment(proof_data: ProofUpload):
         raise HTTPException(status_code=404, detail="Group not found")
     
     await verify_user_is_group_treasurer(proof_data.user_id, contribution['group_id'])
+
+    proof_image = proof_data.proof_image or ""
+    if not proof_image.strip():
+        raise HTTPException(status_code=422, detail="Proof of payment image is required")
+    if len(proof_image) > 5_000_000:
+        raise HTTPException(status_code=413, detail="Proof image is too large")
+    if proof_image.strip().startswith("data:"):
+        if not proof_image.strip().lower().startswith("data:image/"):
+            raise HTTPException(status_code=422, detail="Only image files are allowed")
+    reference_number = (proof_data.reference_number or "").strip()
+    if not reference_number:
+        raise HTTPException(status_code=422, detail="Reference number is required")
     
     # Update contribution with proof
     await db.contributions.update_one(
         {"id": proof_data.contribution_id},
         {"$set": {
-            "proof_of_payment": proof_data.proof_image,
-            "reference_number": proof_data.reference_number,
+            "proof_of_payment": proof_image,
+            "reference_number": reference_number,
             "contribution_status": "proof_uploaded",
             "payment_date": datetime.utcnow(),
             "uploaded_by_admin": proof_data.user_id
@@ -2437,9 +2485,12 @@ async def confirm_payment(confirm_data: ConfirmPayment):
             outstanding is None or outstanding <= 0):
         raise HTTPException(status_code=409, detail='This contribution is not awaiting payment confirmation. Refresh the group.')
     
-    # Update contribution
+    # Update contribution - ensure only pending states can be confirmed
+    current_status = contribution.get('contribution_status')
+    if current_status == 'confirmed':
+        raise HTTPException(status_code=409, detail='This payment has already been confirmed.')
     updated = await db.contributions.update_one(
-        {"id": confirm_data.contribution_id, 'contribution_status': contribution['contribution_status'],
+        {"id": confirm_data.contribution_id, 'contribution_status': {'$in': ['pending', 'due', 'late', 'proof_uploaded']},
          'amount_due': contribution['amount_due'], 'amount_paid': contribution['amount_paid']},
         {"$set": {
             "contribution_status": "confirmed",
@@ -2668,6 +2719,10 @@ async def accept_invitation(request: AcceptInvitationRequest, authorization: Opt
                       "accepted_by": request.user_id},
              "$unset": {"accepting_by": ""}}
         )
+        try:
+            await ensure_monthly_contribution_for_member(group, member)
+        except Exception:
+            pass
     except Exception as error:
         await db.invitations.update_one(
             {"id": invitation['id'], "status": "accepting",
@@ -2884,18 +2939,15 @@ async def match_single_transaction(
 @api_router.post("/seed/demo-data")
 async def seed_demo_data():
     """DISABLED - Demo data seeding is no longer available."""
+    if PRODUCTION_MODE:
+        raise HTTPException(
+            status_code=403,
+            detail="Demo data seeding is disabled in production mode"
+        )
     raise HTTPException(
         status_code=403,
-        detail="Demo data seeding is disabled in production."
+        detail="Demo data seeding is disabled."
     )
-    
-    # Block this endpoint in production
-    production_mode = os.environ.get('PRODUCTION_MODE', 'false').lower() == 'true'
-    if production_mode:
-        raise HTTPException(
-            status_code=403, 
-            detail="This endpoint is disabled in production mode"
-        )
     
     # Clear existing data
     await db.users.delete_many({})
@@ -3097,11 +3149,18 @@ async def seed_demo_data():
 
 app.include_router(api_router)
 
+cors_origins_raw = os.environ.get("CORS_ORIGINS", "")
+cors_origins = [origin.strip() for origin in cors_origins_raw.split(",") if origin.strip()]
+if not cors_origins:
+    if PRODUCTION_MODE:
+        cors_origins = []
+    else:
+        cors_origins = ["*"]
 app.add_middleware(
     CORSMiddleware,
-    allow_credentials=True,
-    allow_origins=["*"],
-    allow_methods=["*"],
+    allow_credentials=True if cors_origins else False,
+    allow_origins=cors_origins,
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
     allow_headers=["*"],
 )
 
