@@ -8,6 +8,7 @@ import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { AdBanner } from '../../components/AdBanner';
+import ClubvelSpotlight from '../../components/ClubvelSpotlight';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import axios from 'axios';
@@ -336,6 +337,7 @@ export default function ContributionsScreen() {
         
         {/* Ad Banner */}
         <AdBanner size="banner" />
+        <ClubvelSpotlight />
       </ScrollView>
 
       <Modal visible={showClubs} transparent animationType="fade" onRequestClose={() => setShowClubs(false)}>

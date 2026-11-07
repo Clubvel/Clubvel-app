@@ -4,6 +4,7 @@ import copy
 import unittest
 from datetime import UTC, datetime, timedelta
 from types import SimpleNamespace as Obj
+from zoneinfo import ZoneInfo
 
 from test_member_invitations import (
     Collection,
@@ -65,6 +66,22 @@ class AdminInvitationTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(rows), 1); self.assertEqual(rows[0]['role_in_group'], 'admin')
         self.assertEqual(ns['db'].groups.records[0]['admin_user_ids'], ['recipient'])
         self.assertEqual(ns['db'].groups.records[0]['admin_invitation_slots'], [])
+
+    async def test_fixed_monthly_admin_acceptance_records_current_contribution_once(self):
+        ns = environment()
+        ns['db'].groups.records[0].update(group_type='savings', contribution_mode='fixed_monthly',
+                                          monthly_contribution=300)
+        result = await invite(ns)
+        await accept(ns, result['invitation_id'])
+        member = next(row for row in ns['db'].members.records if row['user_id'] == 'recipient')
+        records = [row for row in ns['db'].contributions.records if row['group_id'] == 'group']
+        now = datetime.now(ZoneInfo('Africa/Johannesburg'))
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]['member_id'], member['id'])
+        self.assertEqual(records[0]['amount_due'], 300)
+        self.assertEqual((records[0]['month'], records[0]['year']), (now.month, now.year))
+        await accept(ns, result['invitation_id'])
+        self.assertEqual(len([row for row in ns['db'].contributions.records if row['group_id'] == 'group']), 1)
 
     async def test_existing_admin_treasurer_inactive_removed_rejected(self):
         for status, role in [('active', 'admin'), ('active', 'treasurer'), ('removed', 'member'), ('inactive', 'member')]:

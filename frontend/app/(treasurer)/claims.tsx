@@ -21,6 +21,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useAuth } from '../../contexts/AuthContext';
 import { useLocalSearchParams, useRouter, useFocusEffect } from 'expo-router';
 import { AdBanner } from '../../components/AdBanner';
+import ClubvelSpotlight from '../../components/ClubvelSpotlight';
 import axios from 'axios';
 
 interface Group {
@@ -471,6 +472,7 @@ export default function TreasurerClaimsScreen() {
             )}
 
             <AdBanner size="banner" />
+        <ClubvelSpotlight />
           </>
         )}
       </ScrollView>

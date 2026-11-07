@@ -43,7 +43,9 @@ class MemberFinancialTests(unittest.IsolatedAsyncioTestCase):
         def functions(source): return {node.name: ast.dump(legacy_admin_dashboard(node)) for node in ast.parse(source).body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
         old = functions(subprocess.check_output(['git', 'show', 'e471647344053e8736b644045f9dcf7eef6e2ee0:backend/server.py'], cwd=root, text=True))
         new = functions((root/'backend/server.py').read_text())
-        self.assertEqual({name for name in old if old[name] != new[name]}, {'get_member_dashboard', 'get_member_club_details'})
+        self.assertEqual({name for name in old if old[name] != new[name]},
+                         {'get_member_dashboard', 'get_member_club_details', 'create_group',
+                          'record_monthly_contribution', 'accept_invitation', 'accept_admin_invitation'})
         dashboard = next(node for node in ast.parse((root/'backend/server.py').read_text()).body if isinstance(node, ast.AsyncFunctionDef) and node.name == 'get_member_dashboard')
         self.assertFalse(any(isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in {'update_one','insert_one','delete_one','update_many'} for node in ast.walk(dashboard)))
 

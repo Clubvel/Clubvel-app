@@ -4,6 +4,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import axios, { isAxiosError } from 'axios';
 import { Colors } from '../constants/Colors';
+import { Typography } from '../constants/Typography';
 import { currentReportPeriod, moveReportMonth, REPORT_MONTHS } from '../services/monthlyReport';
 import { displayMetric, explainWarning, Metric, Summary, summaryError, summaryLabels, validateSummary } from '../services/clubSummary';
 
@@ -114,9 +115,9 @@ const styles = StyleSheet.create({
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.45)' }, backdrop: { ...StyleSheet.absoluteFillObject },
   sheet: { maxHeight: '92%', backgroundColor: Colors.white, borderTopLeftRadius: 20, borderTopRightRadius: 20, padding: 20, gap: 12 },
   row: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 }, period: { flex: 1, alignItems: 'center' },
-  content: { paddingBottom: 24, gap: 12 }, card: { backgroundColor: Colors.white, borderColor: Colors.cardBorder, borderWidth: 1, borderRadius: 12, padding: 16 },
-  metric: { marginVertical: 8 }, value: { fontSize: 26, fontWeight: '700' }, supportValue: { fontSize: 16, fontWeight: '600' },
-  title: { fontSize: 18, fontWeight: '600', color: Colors.primary, flexShrink: 1 }, caption: { fontSize: 14, color: Colors.textSecondary, lineHeight: 21 },
+  content: { paddingBottom: 24, gap: 12 }, card: { backgroundColor: Colors.white, borderColor: Colors.cardBorder, borderWidth: 1, borderRadius: 14, padding: 16 },
+  metric: { marginVertical: 8 }, value: { ...Typography.financialFigure, fontSize: 26, lineHeight: 34 }, supportValue: { ...Typography.bodyMedium, fontSize: 16, lineHeight: 24 },
+  title: { ...Typography.sectionTitle, color: Colors.primary, flexShrink: 1 }, caption: { ...Typography.body, fontSize: 13, color: Colors.textSecondary, lineHeight: 20 },
   link: { color: Colors.accent, fontSize: 16, paddingVertical: 10 }, control: { color: Colors.primary, fontSize: 28, padding: 10 },
   input: { borderColor: Colors.cardBorder, borderWidth: 1, padding: 12, color: Colors.primary },
 });

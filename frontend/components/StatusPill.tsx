@@ -1,6 +1,7 @@
 import React from 'react';
 import { View, Text, StyleSheet } from 'react-native';
 import { Colors } from '../constants/Colors';
+import { Typography } from '../constants/Typography';
 
 interface StatusPillProps {
   status: string;
@@ -75,13 +76,14 @@ export const StatusPill: React.FC<StatusPillProps> = ({ status, label, subtleAcc
 
 const styles = StyleSheet.create({
   pill: {
-    paddingHorizontal: 12,
-    paddingVertical: 6,
-    borderRadius: 12,
+    paddingHorizontal: 10,
+    paddingVertical: 5,
+    borderRadius: 8,
   },
   text: {
+    ...Typography.label,
     color: Colors.white,
-    fontSize: 12,
-    fontWeight: '600',
+    fontSize: 11,
+    lineHeight: 16,
   },
 });

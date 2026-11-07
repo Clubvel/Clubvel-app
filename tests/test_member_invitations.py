@@ -3,6 +3,7 @@ import ast
 import asyncio
 import copy
 import logging
+import math
 import subprocess
 import sys
 import unittest
@@ -13,6 +14,7 @@ from pathlib import Path
 from types import SimpleNamespace as Obj
 from typing import Optional
 from unittest.mock import AsyncMock, Mock, patch
+from zoneinfo import ZoneInfo
 
 from fastapi import HTTPException as HTTPError
 from services.phone_numbers import normalize_phone, phone_aliases
@@ -97,9 +99,18 @@ class Member(Obj):
     def dict(self): return vars(self).copy()
 
 
+class Contribution(Obj):
+    def __init__(self, **data):
+        data.setdefault('amount_paid', 0.0)
+        data.setdefault('contribution_status', 'pending')
+        super().__init__(id='contribution-' + uuid.uuid4().hex, **data)
+    def dict(self): return vars(self).copy()
+
+
 def environment():
     names = {'require_account_owner', 'admin_invitation_result', 'authenticated_user_id', 'verify_user_is_group_treasurer', 'invite_member',
-             'get_pending_invitations', 'accept_invitation', 'invite_admin', 'accept_admin_invitation', 'decline_invitation', 'delete_member', 'delete_user_account', 'delete_club'}
+             'get_pending_invitations', 'accept_invitation', 'invite_admin', 'accept_admin_invitation', 'decline_invitation', 'delete_member', 'delete_user_account', 'delete_club',
+             'fixed_monthly_contribution_amount', 'ensure_monthly_contribution'}
     nodes = [n for n in ast.parse(SOURCE.read_text()).body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in names]
     for n in nodes: n.decorator_list = []
     def token(value):
@@ -110,7 +121,8 @@ def environment():
                                 'phone_number': '+27821234567' if uid == 'recipient' else '+27831234567'}
                                for uid in ('admin', 'treasurer', 'recipient', 'outsider')]),
              members=Collection([{'id': uid, 'user_id': uid, 'group_id': 'group', 'status': 'active', 'role_in_group': role}
-                                 for uid, role in [('admin', 'admin'), ('treasurer', 'treasurer')]]), invitations=Collection(), alerts=Collection())
+                                 for uid, role in [('admin', 'admin'), ('treasurer', 'treasurer')]]), invitations=Collection(),
+             contributions=Collection(), alerts=Collection())
     async def user(uid):
         found = await db.users.find_one({'id': uid})
         if not found: raise HTTPError(404, 'User not found')
@@ -118,7 +130,8 @@ def environment():
     ns = {'db': db, 'Optional': Optional, 'Header': lambda default: default, 'HTTPException': HTTPError,
               'DeleteMemberRequest': Obj, 'DeleteAccountRequest': Obj, 'DeleteClubRequest': Obj,
               'logging': logging, 'hash_password': lambda value: 'offline-hash', 'InviteMemberRequest': Obj, 'InviteAdminRequest': Obj, 'AcceptInvitationRequest': Obj, 'datetime': datetime, 'timedelta': timedelta, 'UTC': UTC,
-              'uuid': uuid, 'verify_token': token, 'verify_user_exists': user, 'Member': Member,
+              'uuid': uuid, 'verify_token': token, 'verify_user_exists': user, 'Member': Member, 'Contribution': Contribution,
+              'math': math, 'BUSINESS_TIMEZONE': ZoneInfo('Africa/Johannesburg'),
               'DuplicateKeyError': DuplicateKeyError, 'format_phone_number': normalize_phone,
               'phone_variants': lambda phone: sorted(set(phone_aliases(phone)) | {phone}),
               'reconcile_legacy_group_admin_membership': AsyncMock(return_value=None),
@@ -249,6 +262,42 @@ class InvitationTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(HTTPError): await ns['accept_invitation'](payload, 'Bearer recipient')
         self.assertEqual(sum(m.get('user_id') == 'recipient' for m in ns['db'].members.records), 1)
 
+    async def test_fixed_monthly_member_acceptance_records_current_contribution_once(self):
+        ns = environment()
+        ns['db'].groups.records[0].update(group_type='savings', contribution_mode='fixed_monthly',
+                                          monthly_contribution=250)
+        result = await ns['invite_member'](request(), 'Bearer admin')
+        payload = Obj(invitation_id=result['invitation_id'], user_id='recipient')
+        await ns['accept_invitation'](payload, 'Bearer recipient')
+        member = next(row for row in ns['db'].members.records if row['user_id'] == 'recipient')
+        records = [row for row in ns['db'].contributions.records if row['group_id'] == 'group']
+        now = datetime.now(ZoneInfo('Africa/Johannesburg'))
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]['member_id'], member['id'])
+        self.assertEqual(records[0]['amount_due'], 250)
+        self.assertEqual((records[0]['month'], records[0]['year']), (now.month, now.year))
+        repeated = await ns['ensure_monthly_contribution'](ns['db'].groups.records[0], member)
+        self.assertEqual(repeated['id'], records[0]['id'])
+        self.assertEqual(len([row for row in ns['db'].contributions.records if row['group_id'] == 'group']), 1)
+
+    async def test_fixed_monthly_contribution_insert_race_returns_existing_record(self):
+        ns = environment()
+        group = ns['db'].groups.records[0]
+        group.update(group_type='savings', contribution_mode='fixed_monthly', monthly_contribution=250)
+        member = {'id': 'receiving-member', 'user_id': 'recipient', 'group_id': 'group', 'status': 'active'}
+        original = ns['db'].contributions.update_one
+
+        async def conflicting_update(query, update, upsert=False):
+            winner = dict(update['$setOnInsert'], id='winner')
+            ns['db'].contributions.records.append(winner)
+            raise DuplicateKeyError()
+
+        ns['db'].contributions.update_one = conflicting_update
+        record = await ns['ensure_monthly_contribution'](group, member)
+        ns['db'].contributions.update_one = original
+        self.assertEqual(record['id'], 'winner')
+        self.assertEqual(len(ns['db'].contributions.records), 1)
+
     async def test_sms_sender_submits_actual_text_and_reports_failure_mock(self):
         node = next(n for n in ast.parse(NOTIFICATIONS.read_text()).body if isinstance(n, ast.AsyncFunctionDef) and n.name == 'send_invitation_sms')
         ns = {'Dict': dict, 'Any': object, 'ENABLE_REAL_NOTIFICATIONS': True, 'is_twilio_configured': lambda: True,
@@ -335,7 +384,8 @@ class InvitationTests(unittest.IsolatedAsyncioTestCase):
                             'contribution_metadata_projection', 'personal_contribution_view', 'submit_member_claim',
                             'get_member_claims', 'review_group_claim', 'get_user_alerts', 'get_group_report',
                             'get_group_payment_records', 'get_person_contribution_records', 'get_personal_contributions',
-                            'get_member_club_details', 'get_group_contributions', 'get_club_detail', 'get_member_dashboard'}:
+                            'get_member_club_details', 'get_group_contributions', 'get_club_detail', 'get_member_dashboard',
+                            'record_monthly_contribution'}:
                 self.assertEqual(new[name], body, name)
         self.assertNotIn('send_sms_otp', ast.get_source_segment(SOURCE.read_text(), next(n for n in ast.parse(SOURCE.read_text()).body if isinstance(n, ast.AsyncFunctionDef) and n.name == 'invite_member')))
         for path in ['frontend/services/pdfReportService.ts',
@@ -386,7 +436,30 @@ class Phase2BPreservationTests(unittest.TestCase):
         baseline = subprocess.check_output(['git', 'show', 'HEAD:backend/server.py'], cwd=ROOT, text=True)
         old = {n.name: n for n in ast.parse(baseline).body if isinstance(n, ast.AsyncFunctionDef)}
         current = {n.name: n for n in ast.parse(SOURCE.read_text()).body if isinstance(n, ast.AsyncFunctionDef)}
+
+        def without_automatic_contribution(node):
+            node = copy.deepcopy(node)
+            def strip(parent):
+                for field, value in ast.iter_fields(parent):
+                    if isinstance(value, list):
+                        kept = []
+                        for item in value:
+                            if (isinstance(item, ast.Expr) and isinstance(item.value, ast.Await) and
+                                    isinstance(item.value.value, ast.Call) and
+                                    isinstance(item.value.value.func, ast.Name) and
+                                    item.value.value.func.id == 'ensure_monthly_contribution'):
+                                continue
+                            kept.append(item)
+                            if isinstance(item, ast.AST):
+                                strip(item)
+                        setattr(parent, field, kept)
+                    elif isinstance(value, ast.AST):
+                        strip(value)
+            strip(node)
+            return ast.dump(node)
+
         for name in ('accept_invitation', 'accept_admin_invitation'):
-            self.assertEqual(ast.dump(current[name]), ast.dump(old[name]), name)
+            self.assertEqual(without_automatic_contribution(current[name]),
+                             without_automatic_contribution(old[name]), name)
         path = 'backend/services/admin_invitations.py'
         self.assertEqual((ROOT / path).read_text(), subprocess.check_output(['git', 'show', 'HEAD:' + path], cwd=ROOT, text=True))

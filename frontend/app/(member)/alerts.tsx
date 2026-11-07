@@ -9,6 +9,7 @@ import { useFocusEffect, useRouter } from 'expo-router';
 import axios from 'axios';
 import { format } from 'date-fns';
 import { AdBanner } from '../../components/AdBanner';
+import ClubvelSpotlight from '../../components/ClubvelSpotlight';
 
 interface Alert {
   id: string;
@@ -261,6 +262,7 @@ export default function AlertsScreen() {
 
         <View style={styles.adBannerContainer}>
           <AdBanner size="banner" />
+        <ClubvelSpotlight />
         </View>
       </ScrollView>
     </View>
@@ -283,7 +285,7 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 22,
     borderBottomRightRadius: 22,
     paddingTop: 60,
-    paddingBottom: 20,
+    paddingBottom: 22,
     paddingHorizontal: 24,
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -319,14 +321,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   section: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 16,
     paddingTop: 24,
   },
   myAlertsHeader: {
-    minHeight: 58, backgroundColor: '#C62828', borderRadius: 12,
+    minHeight: 58, backgroundColor: Colors.coralAction, borderRadius: 12,
     paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center',
   },
-  sideIcon: { width: 28, textAlign: 'center' },
+  sideIcon: { width: 22, textAlign: 'center' },
   myAlertsTitle: {
     flex: 1, textAlign: 'center', color: Colors.white,
     fontSize: 18, fontWeight: '700',
@@ -366,7 +368,7 @@ const styles = StyleSheet.create({
     alignItems: 'flex-start',
   },
   alertCardUnread: {
-    backgroundColor: '#F0F9FF',
+    backgroundColor: Colors.lightBackground,
     borderColor: Colors.mediumGreen,
   },
   alertDot: {

@@ -2,38 +2,38 @@ export const Colors = {
   // Interface surfaces are independent of the approved icon/splash artwork.
   midnightNavy: '#06285B',
   headerBackground: '#06285B',
-  clementine: '#F58220',
-  clementineDark: '#C65D00',
-  clementineLight: '#FFF0E0',
-  avatarRing: '#F58220',
+  clementine: '#C43D4D',
+  clementineDark: '#702C3B',
+  clementineLight: '#FBECEF',
+  avatarRing: '#C43D4D',
   signInAction: '#E5B83F', // Preserve the existing Sign In fill independently of photo rings.
-  secondaryHighlight: '#397F78',
+  secondaryHighlight: '#702C3B',
   corporateBlue: '#0756C9',
   royalBlue: '#2677E8',
-  coralRed: '#FF403D',
-  coralAction: '#C92F2D', // Accessible coral fill for normal-size white control labels.
+  coralRed: '#C43D4D',
+  coralAction: '#B52F40', // Accessible coral fill for normal-size white control labels.
   iceBlue: '#DCEEFF',
-  lightGrey: '#F7F8F4',
+  lightGrey: '#F3F5F8',
   primary: '#06285B',
   primaryDark: '#06285B',
-  primaryLight: '#FFF0E0',
+  primaryLight: '#FBECEF',
   
   // Alert/Accent Colors
-  accent: '#F58220',
-  accentLight: '#FFF0E0',
+  accent: '#C43D4D',
+  accentLight: '#FBECEF',
   sage: '#527866',
   softSage: '#E5EFE9',
   
   // Background Colors
-  background: '#FFFFFF',
-  lightBackground: '#FFFFFF',
+  background: '#F7F8FA',
+  lightBackground: '#F7F8FA',
   cardBackground: '#FFFFFF',   // White card backgrounds
-  cardBorder: '#F6C28B',       // Light gray borders
+  cardBorder: '#EAECF0',       // Light gray borders
   
   // Typography Colors
-  textPrimary: '#12234A',
-  textSecondary: '#6B7280',    // Medium gray for secondary text
-  textMuted: '#6B7280',        // Light gray for muted text
+  textPrimary: '#344054',
+  textSecondary: '#667085',    // Medium gray for secondary text
+  textMuted: '#667085',        // Light gray for muted text
   
   // Status Colors (Corporate Financial Interface)
   statusPaid: '#16A34A',       // Green for success/paid
@@ -51,6 +51,6 @@ export const Colors = {
   mediumGreen: '#06285B',
   primaryGreen: '#06285B',
   lightGreen: '#FFF0E0',
-  gold: '#F58220',
-  lightGold: '#FFF0E0',
+  gold: '#C43D4D',
+  lightGold: '#FBECEF',
 };

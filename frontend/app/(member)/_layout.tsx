@@ -1,10 +1,12 @@
 import React from 'react';
+
 import { Tabs, Redirect } from 'expo-router';
 import { useAuth } from '../../contexts/AuthContext';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../../constants/Colors';
 import { Platform } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
+
 
 export default function MemberLayout() {
   const insets = useSafeAreaInsets();
@@ -16,20 +18,20 @@ export default function MemberLayout() {
     <Tabs
       screenOptions={{
         headerShown: false,
-        tabBarActiveTintColor: Colors.royalBlue,
+        tabBarActiveTintColor: Colors.accent,
         tabBarInactiveTintColor: Colors.textMuted,
         tabBarStyle: {
           backgroundColor: Colors.white,
           borderTopWidth: 1,
           borderTopColor: Colors.cardBorder,
-          paddingTop: 8,
-          paddingBottom: Math.max(insets.bottom, 8),
-          height: 60 + Math.max(insets.bottom, 8),
+          paddingTop: 4,
+          paddingBottom: Math.max(insets.bottom, 4),
+          height: 52 + Math.max(insets.bottom, 4),
         },
         tabBarLabelStyle: {
           fontSize: 12,
           fontWeight: '600',
-          marginBottom: 4,
+          marginBottom: 2,
         },
       }}
     >

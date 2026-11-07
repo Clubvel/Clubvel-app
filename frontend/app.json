@@ -1,15 +1,11 @@
 {
   "expo": {
     "name": "Clubvel",
-        "web": {
-      "meta": [
-        {
-          "name": "google-site-verification",
-          "content": "r-xt51IGc-WCi5UHh1icvg_2gLkdE8Vf7N5rBhVtWGc"
-        }
-      ]
+    "web": {
+      "bundler": "metro",
+      "output": "static",
+      "favicon": "./assets/images/favicon.png"
     },
-
     "slug": "clubvel",
     "version": "1.0.0",
     "runtimeVersion": {
@@ -56,11 +52,6 @@
         "android.permission.RECEIVE_SMS"
       ]
     },
-    "web": {
-      "bundler": "metro",
-      "output": "static",
-      "favicon": "./assets/images/favicon.png"
-    },
     "plugins": [
       "expo-router",
       [
@@ -94,7 +85,14 @@
         }
       ],
       "expo-web-browser",
-      "expo-font"
+      "expo-font",
+      [
+        "react-native-google-mobile-ads",
+        {
+          "androidAppId": "ca-app-pub-3940256099942544~3347511713",
+          "iosAppId": "ca-app-pub-3940256099942544~1458002511"
+        }
+      ]
     ],
     "experiments": {
       "typedRoutes": true
@@ -104,11 +102,10 @@
         "projectId": "d5dc39d8-0b5e-4fbb-8b92-3e37e0863234"
       },
       "admob": {
-        "androidAppId": "ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY",
-        "iosAppId": "ca-app-pub-XXXXXXXXXXXXXXXX~YYYYYYYYYY",
-        "note": "Replace with your actual AdMob App IDs when ready for production"
+        "androidAppId": "ca-app-pub-3940256099942544~3347511713",
+        "iosAppId": "ca-app-pub-3940256099942544~1458002511",
+        "note": "Google test App IDs only; replace with registered production App IDs before release."
       }
     }
   }
 }
-

@@ -10,6 +10,7 @@ import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { AdBanner } from '../../components/AdBanner';
+import ClubvelSpotlight from '../../components/ClubvelSpotlight';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
@@ -650,9 +651,9 @@ export default function ProofOfPaymentsScreen() {
             setFlexibleAmount('');
           } catch { if (screenActive.current && latestAction.current === context && operationTicket.current === ticket) Alert.alert('Unable to continue', 'Refresh your club and try again.'); } finally { if (flexibleLookup.current?.ticket === ticket) flexibleLookup.current = null; }
         }}><Text>Record current-period contribution</Text></TouchableOpacity>}
-        <View style={{ marginHorizontal: 24, marginTop: 32, marginBottom: 12 }}>
+        <View style={{ marginHorizontal: 16, marginTop: 16, marginBottom: 12 }}>
           <TouchableOpacity
-                    style={[styles.uploadButton, { marginHorizontal: 0, marginTop: 0 }]}
+                    style={[styles.uploadButton, { marginHorizontal: 0, marginTop: 0, height: 52, minHeight: 52, paddingVertical: 14, borderRadius: 12, justifyContent: 'center' }]}
                     onPress={handleUploadPress}
                     disabled={uploading || invalidPeriod}
                   >
@@ -677,7 +678,7 @@ export default function ProofOfPaymentsScreen() {
               setExpandedPaymentsMenu(opening ? 'contributions' : null);
               if (opening && !clubScoped) void fetchClubs();
             }}
-            style={{ backgroundColor: Colors.clementine, borderColor: Colors.clementineDark, borderWidth: 1, borderRadius: 12, padding: 14, marginBottom: expandedPaymentsMenu === 'contributions' ? 0 : 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
+            style={{ backgroundColor: Colors.clementine, borderColor: Colors.clementineDark, borderWidth: 1, borderRadius: 12, height: 52, minHeight: 52, paddingVertical: 14, paddingHorizontal: 16, marginBottom: expandedPaymentsMenu === 'contributions' ? 0 : 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
           >
             <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
               <Ionicons name="wallet-outline" size={21} color={Colors.white} />
@@ -769,7 +770,7 @@ export default function ProofOfPaymentsScreen() {
             accessibilityLabel="My Proof of Payments"
             accessibilityState={{ expanded: expandedPaymentsMenu === 'proofs' }}
             onPress={() => setExpandedPaymentsMenu(value => value === 'proofs' ? null : 'proofs')}
-            style={{ backgroundColor: Colors.primary, borderRadius: 12, padding: 14, marginBottom: expandedPaymentsMenu === 'proofs' ? 0 : 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
+            style={{ backgroundColor: Colors.primary, borderRadius: 12, height: 52, minHeight: 52, paddingVertical: 14, paddingHorizontal: 16, marginBottom: expandedPaymentsMenu === 'proofs' ? 0 : 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
           >
             <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
               <Ionicons name="document-text-outline" size={21} color={Colors.white} />
@@ -904,6 +905,7 @@ export default function ProofOfPaymentsScreen() {
 
         <View style={{ marginHorizontal: 24, marginTop: 16, marginBottom: 16 }}>
           <AdBanner size="banner" />
+        <ClubvelSpotlight />
         </View>
 
       </ScrollView>
@@ -1183,7 +1185,7 @@ const styles = StyleSheet.create({
     color: Colors.gold,
   },
   section: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 16,
     paddingTop: 24,
   },
   sectionTitle: {

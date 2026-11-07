@@ -20,6 +20,7 @@ import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Colors } from '../../constants/Colors';
 import { AdBanner } from '../../components/AdBanner';
+import ClubvelSpotlight from '../../components/ClubvelSpotlight';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePersonalClaims, PersonalClaim } from '../../hooks/usePersonalClaims';
 
@@ -415,6 +416,7 @@ export default function ClaimsScreen() {
         )}
 
         <AdBanner size="banner" style={{ marginTop: 12 }} />
+        <ClubvelSpotlight />
       </ScrollView>
 
       <Modal
@@ -534,7 +536,7 @@ const styles = StyleSheet.create({
     borderBottomLeftRadius: 22,
     borderBottomRightRadius: 22,
     paddingTop: 60,
-    paddingBottom: 20,
+    paddingBottom: 22,
     paddingHorizontal: 24,
     flexDirection: 'row',
     justifyContent: 'space-between',
@@ -563,11 +565,14 @@ const styles = StyleSheet.create({
 },
   content: {
     flexGrow: 1,
-    padding: 24,
+    paddingHorizontal: 16,
+    paddingTop: 24,
     paddingBottom: 40,
   },
   submitButton: {
-    minHeight: 50,
+    height: 52,
+    minHeight: 52,
+    paddingVertical: 14,
     borderRadius: 12,
     backgroundColor: Colors.coralAction, borderColor: Colors.coralRed, borderWidth: 1,
     flexDirection: 'row',
@@ -575,7 +580,7 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     gap: 8,
     paddingHorizontal: 18,
-    marginBottom: 26,
+    marginBottom: 16,
   },
   submitButtonText: {
     color: Colors.white,
@@ -593,14 +598,17 @@ const styles = StyleSheet.create({
     marginBottom: 14,
   },
   myClaimsDropdownLabel: {
+    flex: 1,
     flexDirection: 'row',
     alignItems: 'center',
+    justifyContent: 'center',
     gap: 10,
   },
   myClaimsDropdownText: {
     color: Colors.white,
     fontSize: 16,
     fontWeight: '700',
+    textAlign: 'center',
   },
   sectionTitle: {
     fontSize: 18,
@@ -829,7 +837,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.coralAction, borderColor: Colors.coralRed, borderWidth: 1,
     alignItems: 'center',
     justifyContent: 'center',
-    marginTop: 22,
+    marginTop: 16,
   },
   disabledButton: {
     opacity: 0.65,

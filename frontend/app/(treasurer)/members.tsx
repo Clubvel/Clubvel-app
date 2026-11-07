@@ -9,6 +9,7 @@ import { useRouter, useLocalSearchParams, useFocusEffect } from 'expo-router';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
 import { AdBanner } from '../../components/AdBanner';
+import ClubvelSpotlight from '../../components/ClubvelSpotlight';
 import axios from 'axios';
 
 interface Member {
@@ -290,6 +291,7 @@ export default function MembersScreen() {
 
         {/* Ad Banner */}
         <AdBanner size="banner" />
+        <ClubvelSpotlight />
 
         <View style={{ height: 32 }} />
       </ScrollView>

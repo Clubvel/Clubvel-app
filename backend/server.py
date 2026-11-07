@@ -8,8 +8,14 @@ from slowapi import Limiter, _rate_limit_exceeded_handler
 from slowapi.util import get_remote_address
 from slowapi.errors import RateLimitExceeded
 import os
+import asyncio
+import json
+import time
+import urllib.request
+from urllib.parse import parse_qs
 import re
 import logging
+import hmac
 import math
 import unicodedata
 from decimal import Decimal
@@ -17,7 +23,7 @@ from pathlib import Path
 from pydantic import BaseModel, Field, StrictBool
 from typing import Literal, List, Optional
 import uuid
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta, timezone
 from zoneinfo import ZoneInfo
 from passlib.context import CryptContext
 from jose import JWTError, jwt
@@ -25,6 +31,8 @@ import random
 import base64
 from cryptography.fernet import Fernet
 from cryptography.hazmat.primitives import hashes
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 from cryptography.hazmat.primitives.kdf.pbkdf2 import PBKDF2HMAC
 
 # Import notification service
@@ -875,6 +883,39 @@ async def record_flexible_contribution(
     }
 
 
+def fixed_monthly_contribution_amount(group):
+    if group.get('contribution_mode', 'fixed_monthly') != 'fixed_monthly' or group.get('group_type') == 'travel':
+        return None
+    amount = group.get('monthly_contribution')
+    if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not math.isfinite(amount) or amount <= 0:
+        return None
+    return amount
+
+
+async def ensure_monthly_contribution(group, member, now=None):
+    """Idempotently create the current fixed-monthly obligation for an active member."""
+    if group.get('status') != 'active' or member.get('status') != 'active':
+        return None
+    amount = fixed_monthly_contribution_amount(group)
+    if amount is None:
+        return None
+    now = now or datetime.now(BUSINESS_TIMEZONE)
+    period = {'member_id': member['id'], 'group_id': group['id'], 'month': now.month, 'year': now.year}
+    existing = await db.contributions.find_one(period)
+    if existing:
+        return existing
+    record = Contribution(**period, amount_due=amount).dict()
+    record['_id'] = f"monthly:{group['id']}:{member['id']}:{now.year}:{now.month}"
+    try:
+        await db.contributions.update_one(period, {'$setOnInsert': record}, upsert=True)
+    except DuplicateKeyError:
+        pass
+    recorded = await db.contributions.find_one(period)
+    if not recorded:
+        raise HTTPException(status_code=409, detail='Could not record this contribution. Please retry.')
+    return recorded
+
+
 @api_router.post('/treasurer/contributions/{group_id}/current')
 async def record_monthly_contribution(group_id: str, data: RecordMonthlyContribution,
                                       authorization: Optional[str] = Header(None)):
@@ -886,24 +927,11 @@ async def record_monthly_contribution(group_id: str, data: RecordMonthlyContribu
     member = await db.members.find_one({'id': data.member_id, 'group_id': group_id, 'status': 'active'})
     if not group or not member:
         raise HTTPException(status_code=404, detail='Active group membership not found')
-    amount = group.get('monthly_contribution')
     if group.get('contribution_mode', 'fixed_monthly') != 'fixed_monthly' or group.get('group_type') == 'travel':
         raise HTTPException(status_code=409, detail='Flexible or Travel groups do not create automatic monthly obligations')
-    if isinstance(amount, bool) or not isinstance(amount, (int, float)) or not math.isfinite(amount) or amount <= 0:
+    if fixed_monthly_contribution_amount(group) is None:
         raise HTTPException(status_code=409, detail='No valid monthly contribution amount is configured')
-    now = datetime.utcnow()
-    period = {'member_id': member['id'], 'group_id': group_id, 'month': now.month, 'year': now.year}
-    existing = await db.contributions.find_one(period)
-    if existing:
-        return {'contribution_id': existing['id']}
-    record = Contribution(**period, amount_due=amount).dict()
-    # A deterministic key also prevents duplicate inserts from concurrent requests.
-    record['_id'] = f"monthly:{group_id}:{member['id']}:{now.year}:{now.month}"
-    try:
-        await db.contributions.update_one(period, {'$setOnInsert': record}, upsert=True)
-    except DuplicateKeyError:
-        pass
-    recorded = await db.contributions.find_one(period)
+    recorded = await ensure_monthly_contribution(group, member)
     if not recorded:
         raise HTTPException(status_code=409, detail='Could not record this contribution. Please retry.')
     return {'contribution_id': recorded['id']}
@@ -1776,6 +1804,8 @@ async def create_group(data: CreateGroupRequest, authorization: Optional[str] = 
         }
     )
     
+    await ensure_monthly_contribution(group, member)
+
     logging.info(f"Group created: {data.group_name} by user {data.admin_user_id}")
     
     return {
@@ -3614,6 +3644,7 @@ async def accept_invitation(request: AcceptInvitationRequest, authorization: Opt
                       "accepted_by": request.user_id},
              "$unset": {"accepting_by": ""}}
         )
+        await ensure_monthly_contribution(group, member_document)
     except Exception as error:
         await db.invitations.update_one(
             {"id": invitation['id'], "status": "accepting",
@@ -3728,6 +3759,7 @@ async def accept_admin_invitation(invitation, user):
     active = bool(membership and membership.get('status') == 'active' and
                   membership.get('role_in_group') == 'admin' and membership.get('admin_grant_applied') == invitation['id'])
     if active:
+        await ensure_monthly_contribution(group, membership)
         await db.groups.update_one({'id': group['id'], 'status': 'active'}, {'$addToSet': {'admin_user_ids': user['id']}})
         for _ in range(20):
             current = await db.users.find_one({'id': user['id']})
@@ -4159,6 +4191,396 @@ async def seed_demo_data():
             {"phone": "0829876543", "password": "Pass&Word76", "name": "Sipho Dlamini"}
         ]
     }
+
+
+
+# ==================== ADMOB REWARDED REWARDS - SSV ====================
+# Rewards are only recorded after Google's signed server-side callback.
+# Actual airtime/data fulfilment requires a separately configured provider.
+ADMOB_SSV_KEYS_URL = "https://www.gstatic.com/admob/reward/verifier-keys.json"
+_admob_keys_cache = {"expires": 0, "keys": {}}
+
+
+class AdMobRewardIntentRequest(BaseModel):
+    reward_kind: Literal["airtime", "data"]
+
+
+def _admob_reward_units():
+    if os.getenv("ADMOB_SSV_ENABLED", "").lower() != "true":
+        return {}
+    units = {
+        "airtime": os.getenv("ADMOB_AIRTIME_REWARDED_AD_UNIT_ID", ""),
+        "data": os.getenv("ADMOB_DATA_REWARDED_AD_UNIT_ID", ""),
+    }
+    if any(
+        not value.startswith("ca-app-pub-")
+        or "~" in value
+        or value.startswith("ca-app-pub-3940256099942544")
+        for value in units.values()
+    ):
+        return {}
+    return units
+
+
+def _load_admob_keys():
+    now = time.time()
+    if _admob_keys_cache["expires"] > now and _admob_keys_cache["keys"]:
+        return _admob_keys_cache["keys"]
+    request = urllib.request.Request(
+        ADMOB_SSV_KEYS_URL,
+        headers={"User-Agent": "Clubvel-AdMob-SSV/1.0"},
+    )
+    with urllib.request.urlopen(request, timeout=8) as response:
+        payload = json.loads(response.read().decode("utf-8"))
+    keys = {}
+    for item in payload.get("keys", []):
+        try:
+            key_id = int(item["keyId"])
+            pem = item["pem"].encode("utf-8")
+            keys[key_id] = serialization.load_pem_public_key(pem)
+        except (KeyError, TypeError, ValueError):
+            continue
+    if not keys:
+        raise ValueError("Google AdMob verifier keys unavailable")
+    _admob_keys_cache.update(expires=now + 86400, keys=keys)
+    return keys
+
+
+def _verify_admob_ssv(raw_query: str):
+    # Google signs the original query bytes before the signature parameter.
+    marker = "&signature="
+    if raw_query.count(marker) != 1:
+        raise ValueError("Missing or duplicate signature")
+    parts = raw_query.rsplit("&", 2)
+    if (len(parts) != 3
+            or not parts[1].startswith("signature=")
+            or not parts[2].startswith("key_id=")
+            or not parts[1][len("signature="):]
+            or not parts[2][len("key_id="):]
+            or "&" in parts[2]):
+        raise ValueError("Invalid signature parameter order")
+    signed_text = parts[0]
+    params = parse_qs(raw_query, keep_blank_values=True, strict_parsing=True)
+    def one(name):
+        values = params.get(name, [])
+        if len(values) != 1 or not values[0]:
+            raise ValueError(f"Invalid {name}")
+        return values[0]
+
+    signature = base64.urlsafe_b64decode(one("signature") + "===")
+    key_id = int(one("key_id"))
+    key = _load_admob_keys().get(key_id)
+    if key is None:
+        raise ValueError("Unknown key")
+    key.verify(signature, signed_text.encode("utf-8"), ec.ECDSA(hashes.SHA256()))
+    return {
+        "ad_unit": one("ad_unit"),
+        "custom_data": one("custom_data"),
+        "reward_amount": int(one("reward_amount")),
+        "reward_item": one("reward_item"),
+        "timestamp": int(one("timestamp")),
+        "transaction_id": one("transaction_id"),
+        "key_id": key_id,
+    }
+
+
+@api_router.post("/rewards/admob/intent")
+async def create_admob_reward_intent(
+    data: AdMobRewardIntentRequest,
+    authorization: Optional[str] = Header(None),
+):
+    user_id = authenticated_user_id(authorization)
+    units = _admob_reward_units()
+    if data.reward_kind not in units:
+        raise HTTPException(status_code=503, detail="Rewarded airtime/data is not configured yet")
+
+    # Configurable anti-abuse limits. Count recorded rewards and recent intent requests.
+    now = datetime.now(timezone.utc)
+    daily_limit = max(1, min(20, int(os.getenv("REWARD_MAX_DAILY_PER_USER", "3"))))
+    hourly_intent_limit = max(1, min(30, int(os.getenv("REWARD_MAX_INTENTS_PER_HOUR", "10"))))
+    day_start = now.replace(hour=0, minute=0, second=0, microsecond=0)
+    recent_hour = now - timedelta(hours=1)
+
+    earned_today = await db.reward_fulfilments.count_documents({
+        "user_id": user_id,
+        "created_at": {"$gte": day_start},
+    })
+    if earned_today >= daily_limit:
+        raise HTTPException(status_code=429, detail="Daily reward limit reached. Please try again tomorrow.")
+
+    recent_intents = await db.admob_reward_intents.count_documents({
+        "user_id": user_id,
+        "created_at": {"$gte": recent_hour},
+    })
+    if recent_intents >= hourly_intent_limit:
+        raise HTTPException(status_code=429, detail="Too many reward requests. Please try again later.")
+
+    # Idempotently enforce database-level uniqueness before issuing reward intents.
+    await db.admob_reward_intents.create_index("reference", unique=True)
+    await db.admob_reward_events.create_index("transaction_id", unique=True)
+
+    now = datetime.now(timezone.utc)
+    reference = str(uuid.uuid4())
+    await db.admob_reward_intents.insert_one({
+        "reference": reference,
+        "user_id": user_id,
+        "reward_kind": data.reward_kind,
+        "ad_unit": units[data.reward_kind],
+        "status": "pending",
+        "created_at": now,
+        "expires_at": now + timedelta(minutes=30),
+    })
+    return {
+        "custom_data": reference,
+        "ad_unit_id": units[data.reward_kind],
+        "reward_kind": data.reward_kind,
+    }
+
+
+def _reward_fulfilment_mode() -> str:
+    # Simulated is the safe default. "live" does not itself enable payouts.
+    mode = os.getenv("REWARD_FULFILMENT_MODE", "simulated").strip().lower()
+    return mode if mode in {"simulated", "live"} else "simulated"
+
+
+class RewardProviderAdapter:
+    """Provider contract. Implementations must use idempotency keys and verify delivery."""
+
+    name = "unconfigured"
+
+    async def fulfil(self, reward: dict) -> dict:
+        raise NotImplementedError
+
+
+class SimulatedRewardProvider(RewardProviderAdapter):
+    """Safe local/staging adapter: records simulation and never sends airtime or data."""
+
+    name = "simulated"
+
+    async def fulfil(self, reward: dict) -> dict:
+        return {
+            "status": "simulation_only",
+            "provider_reference": None,
+            "delivered": False,
+        }
+
+
+def _get_reward_provider() -> Optional[RewardProviderAdapter]:
+    if _reward_fulfilment_mode() == "simulated":
+        return SimulatedRewardProvider()
+    # Live mode remains blocked until a real provider adapter is implemented,
+    # configured with credentials, and reviewed for idempotent delivery.
+    return None
+
+
+def _reward_retry_time(attempt_count: int, now: Optional[datetime] = None) -> datetime:
+    """Exponential retry delay capped at six hours; callers must persist the result."""
+    base = now or datetime.now(timezone.utc)
+    delay_seconds = min(6 * 60 * 60, 30 * (2 ** min(max(attempt_count, 0), 10)))
+    return base + timedelta(seconds=delay_seconds)
+
+
+@api_router.get("/rewards/admob/ssv")
+async def admob_ssv_callback(request: Request):
+    raw_query = request.scope.get("query_string", b"").decode("ascii", errors="strict")
+    try:
+        event = await asyncio.to_thread(_verify_admob_ssv, raw_query)
+    except Exception:
+        logging.warning("Rejected invalid AdMob SSV callback", exc_info=True)
+        raise HTTPException(status_code=400, detail="Invalid AdMob callback")
+
+    if event["reward_amount"] < 1 or event["reward_amount"] > 100:
+        raise HTTPException(status_code=400, detail="Invalid reward amount")
+    if event["timestamp"] > int(time.time()) + 300:
+        raise HTTPException(status_code=400, detail="Invalid callback timestamp")
+
+    intent = await db.admob_reward_intents.find_one({
+        "reference": event["custom_data"],
+        "ad_unit": event["ad_unit"],
+    })
+    if not intent or event["reward_item"].lower() != intent["reward_kind"]:
+        raise HTTPException(status_code=400, detail="Unknown reward intent")
+
+    existing = await db.admob_reward_events.find_one({
+        "transaction_id": event["transaction_id"]
+    })
+    if existing:
+        return {"status": "already_processed"}
+
+    now = datetime.now(timezone.utc)
+    earned_at = datetime.fromtimestamp(event["timestamp"] / 1000, timezone.utc)
+    if earned_at > now + timedelta(minutes=5):
+        raise HTTPException(status_code=400, detail="Invalid callback timestamp")
+
+    result = await db.admob_reward_intents.update_one(
+        {
+            "_id": intent["_id"],
+            "status": "pending",
+            "expires_at": {"$gte": earned_at},
+            "created_at": {"$lte": earned_at},
+        },
+        {"$set": {
+            "status": "verified_pending_fulfilment",
+            "verified_at": now,
+            "transaction_id": event["transaction_id"],
+            "reward_amount": event["reward_amount"],
+            "reward_item": event["reward_item"],
+            "admob_timestamp": event["timestamp"],
+        }},
+    )
+    if result.modified_count != 1:
+        # A concurrent callback may already have claimed this exact transaction.
+        claimed = await db.admob_reward_intents.find_one({
+            "_id": intent["_id"],
+            "status": "verified_pending_fulfilment",
+            "transaction_id": event["transaction_id"],
+        })
+        if claimed:
+            return {"status": "already_processed"}
+
+        await db.admob_reward_events.update_one(
+            {"transaction_id": event["transaction_id"]},
+            {"$setOnInsert": {
+                "transaction_id": event["transaction_id"],
+                "custom_data": event["custom_data"],
+                "status": "rejected_expired_or_already_claimed",
+                "received_at": now,
+            }},
+            upsert=True,
+        )
+        return {"status": "intent_not_claimed"}
+
+    await db.admob_reward_events.update_one(
+        {"transaction_id": event["transaction_id"]},
+        {"$setOnInsert": {
+            **event,
+            "user_id": intent["user_id"],
+            "reward_kind": intent["reward_kind"],
+            "status": "verified_pending_fulfilment",
+            "received_at": now,
+        }},
+        upsert=True,
+    )
+
+    # This ledger records fulfilment state only; it never claims a real payout
+    # unless a separately reviewed provider adapter confirms delivery.
+    mode = _reward_fulfilment_mode()
+    ledger_status = (
+        "simulation_only" if mode == "simulated"
+        else "blocked_provider_unconfigured"
+    )
+    await db.reward_fulfilments.update_one(
+        {"transaction_id": event["transaction_id"]},
+        {"$setOnInsert": {
+            "transaction_id": event["transaction_id"],
+            "user_id": intent["user_id"],
+            "reward_kind": intent["reward_kind"],
+            "reward_amount": event["reward_amount"],
+            "reward_item": event["reward_item"],
+            "provider": "simulated" if mode == "simulated" else None,
+            "mode": mode,
+            "status": ledger_status,
+            "attempt_count": 0,
+            "next_attempt_at": None,
+            "created_at": now,
+            "updated_at": now,
+        }},
+        upsert=True,
+    )
+    return {"status": "verified_pending_fulfilment"}
+
+
+@api_router.get("/rewards/history")
+async def get_reward_history(
+    authorization: Optional[str] = Header(None),
+):
+    user_id = authenticated_user_id(authorization)
+    cursor = db.reward_fulfilments.find(
+        {"user_id": user_id},
+        {
+            "_id": 0,
+            "transaction_id": 1,
+            "reward_kind": 1,
+            "reward_amount": 1,
+            "reward_item": 1,
+            "mode": 1,
+            "status": 1,
+            "attempt_count": 1,
+            "created_at": 1,
+            "updated_at": 1,
+        },
+    ).sort("created_at", -1).limit(50)
+
+    records = []
+    async for item in cursor:
+        for field in ("created_at", "updated_at"):
+            if item.get(field):
+                item[field] = item[field].isoformat()
+        records.append(item)
+    return {"rewards": records}
+
+
+
+@api_router.post("/rewards/internal/reconcile")
+async def reconcile_reward_fulfilments(
+    x_reconciliation_token: Optional[str] = Header(None, alias="X-Reconciliation-Token"),
+):
+    expected = os.getenv("REWARD_RECONCILIATION_TOKEN", "")
+    if not expected:
+        raise HTTPException(status_code=503, detail="Reconciliation is not configured")
+    if not x_reconciliation_token or not hmac.compare_digest(x_reconciliation_token, expected):
+        raise HTTPException(status_code=401, detail="Invalid reconciliation credentials")
+
+    mode = _reward_fulfilment_mode()
+    ledger_status = "simulation_only" if mode == "simulated" else "blocked_provider_unconfigured"
+    cursor = db.admob_reward_events.find(
+        {"status": "verified_pending_fulfilment"}
+    ).sort("received_at", 1).limit(100)
+
+    scanned = repaired = missing_intents = 0
+    now = datetime.now(timezone.utc)
+
+    async for event in cursor:
+        scanned += 1
+        transaction_id = event.get("transaction_id")
+        custom_data = event.get("custom_data")
+        if not transaction_id or not custom_data:
+            continue
+
+        intent = await db.admob_reward_intents.find_one({"reference": custom_data})
+        if not intent:
+            missing_intents += 1
+            continue
+
+        result = await db.reward_fulfilments.update_one(
+            {"transaction_id": transaction_id},
+            {"$setOnInsert": {
+                "transaction_id": transaction_id,
+                "user_id": intent["user_id"],
+                "reward_kind": intent["reward_kind"],
+                "reward_amount": event.get("reward_amount", 0),
+                "reward_item": event.get("reward_item", intent["reward_kind"]),
+                "provider": "simulated" if mode == "simulated" else None,
+                "mode": mode,
+                "status": ledger_status,
+                "attempt_count": 0,
+                "next_attempt_at": None,
+                "created_at": event.get("received_at", now),
+                "updated_at": now,
+            }},
+            upsert=True,
+        )
+        if result.upserted_id is not None:
+            repaired += 1
+
+    return {
+        "status": "reconciliation_complete",
+        "scanned": scanned,
+        "ledger_rows_repaired": repaired,
+        "events_missing_intents": missing_intents,
+        "live_payouts_attempted": 0,
+    }
+
 
 # ==================== INCLUDE ROUTER ====================
 

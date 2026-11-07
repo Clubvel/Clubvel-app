@@ -108,7 +108,8 @@ class PaymentContractTests(unittest.IsolatedAsyncioTestCase):
         functions = lambda tree: {node.name: legacy_admin_dashboard(node) for node in tree.body if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))}
         old, new = functions(previous), functions(current)
         reads = {'get_group_payment_records', 'get_person_contribution_records', 'personal_contribution_view', 'get_personal_contributions', 'get_member_club_details', 'get_group_contributions', 'get_club_detail', 'get_member_dashboard'}
-        self.assertEqual({name for name in old if ast.dump(old[name]) != ast.dump(new[name])}, reads)
+        approved_writes = {'create_group', 'record_monthly_contribution', 'accept_invitation', 'accept_admin_invitation'}
+        self.assertEqual({name for name in old if ast.dump(old[name]) != ast.dump(new[name])}, reads | approved_writes)
         mutations = {'insert_one', 'insert_many', 'update_one', 'update_many', 'delete_one', 'delete_many', 'replace_one', 'find_one_and_update', 'find_one_and_delete'}
         for name in reads:
             self.assertFalse(any(isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr in mutations for node in ast.walk(new[name])), name)

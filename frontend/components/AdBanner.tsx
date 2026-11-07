@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, {useState, useEffect, useCallback, useRef} from 'react';
 import { View, Text, StyleSheet, TouchableOpacity } from 'react-native';
 import { Colors } from '../constants/Colors';
 
@@ -29,9 +29,10 @@ const MOCK_ADS = [
 interface AdBannerProps {
   size?: 'banner' | 'largeBanner' | 'mediumRectangle';
   style?: any;
+  fullWidth?: boolean;
 }
 
-export const AdBanner: React.FC<AdBannerProps> = ({ size = 'banner', style }) => {
+export const AdBanner: React.FC<AdBannerProps> = ({ size = 'banner', style, fullWidth = false }) => {
   const [mockAd, setMockAd] = useState(MOCK_ADS[0]);
 
   useEffect(() => {
@@ -56,7 +57,7 @@ export const AdBanner: React.FC<AdBannerProps> = ({ size = 'banner', style }) =>
   return (
     <View style={[styles.container, style]}>
       <TouchableOpacity 
-        style={styles.mockAdContainer}
+        style={[styles.mockAdContainer, fullWidth && styles.fullWidthAdContainer]}
         onPress={handleAdPress}
         activeOpacity={0.9}
       >
@@ -76,48 +77,117 @@ export const AdBanner: React.FC<AdBannerProps> = ({ size = 'banner', style }) =>
   );
 };
 
-// Hooks for future AdMob integration (interstitial and rewarded ads)
-export const useInterstitialAd = () => {
-  const [isLoaded, setIsLoaded] = useState(true); // Mock: always loaded
+// Real native AdMob rewarded-ad hook.
+// Client callbacks are for UI feedback only; never fulfil airtime/data here.
+export const useRewardedAd = (
+  token: string | null,
+  userId: string | null,
+  rewardKind: 'airtime' | 'data',
+  onReward?: (amount: number, type: string) => void,
+) => {
+  const [isLoaded, setIsLoaded] = useState(false);
+  const [adInstance, setAdInstance] = useState<any>(null);
+  const [error, setError] = useState<string | null>(null);
+  const callbackRef = useRef(onReward);
+  callbackRef.current = onReward;
+  const generation = useRef(0);
 
-  const showInterstitial = async (): Promise<boolean> => {
-    console.log('[Mock] Interstitial ad would show here');
-    return true;
-  };
+  const loadRewardedAd = useCallback(async () => {
+    const ticket = ++generation.current;
+    setIsLoaded(false);
+    setAdInstance(null);
+    setError(null);
 
-  const loadInterstitial = async () => {
-    setIsLoaded(true);
-  };
+    if (!token || !userId) {
+      setError('Sign in to access airtime and data rewards.');
+      return;
+    }
 
-  return { isLoaded, showInterstitial, loadInterstitial };
+    try {
+      if (__DEV__) {
+        throw new Error('Rewarded airtime/data is disabled in development builds.');
+      }
+      const { createRewardIntent } = require('../services/rewardService');
+      const intent = await createRewardIntent(token, rewardKind);
+      if (ticket !== generation.current) return;
+
+      const ads = require('react-native-google-mobile-ads');
+      const unitId = intent.adUnitId;
+
+      const rewarded = ads.RewardedAd.createForAdRequest(unitId, {
+        serverSideVerificationOptions: {
+          userId,
+          customData: intent.customData,
+        },
+      });
+
+      const subscriptions = [
+        rewarded.addAdEventListener(ads.RewardedAdEventType.LOADED, () => {
+          if (ticket === generation.current) {
+            setAdInstance({ ad: rewarded, subscriptions, ticket });
+            setIsLoaded(true);
+          } else {
+            subscriptions.forEach((s: { remove: () => void }) => s.remove());
+          }
+        }),
+        rewarded.addAdEventListener(ads.RewardedAdEventType.EARNED_REWARD,
+          (reward: { amount: number; type: string }) => {
+            // UI feedback only. Never fulfil a reward from this client callback.
+            if (ticket === generation.current) callbackRef.current?.(reward.amount, reward.type);
+          }),
+        rewarded.addAdEventListener(ads.AdEventType.CLOSED, () => {
+          subscriptions.forEach((s: { remove: () => void }) => s.remove());
+          if (ticket === generation.current) {
+            setIsLoaded(false);
+            setAdInstance(null);
+          }
+        }),
+        rewarded.addAdEventListener(ads.AdEventType.ERROR, () => {
+          subscriptions.forEach((s: { remove: () => void }) => s.remove());
+          if (ticket === generation.current) {
+            setIsLoaded(false);
+            setAdInstance(null);
+            setError('The ad could not be loaded. Please try again.');
+          }
+        }),
+      ];
+      rewarded.load();
+    } catch (e: any) {
+      if (ticket === generation.current) {
+        setError(e?.response?.data?.detail || e?.message || 'Unable to prepare a rewarded ad.');
+      }
+    }
+  }, [token, userId, rewardKind]);
+
+  useEffect(() => {
+    void loadRewardedAd();
+    return () => { ++generation.current; };
+  }, [loadRewardedAd]);
+
+  const showRewardedAd = useCallback(async (): Promise<boolean> => {
+    if (!adInstance || !isLoaded) return false;
+    try {
+      setIsLoaded(false);
+      await adInstance.ad.show();
+      return true;
+    } catch (e: any) {
+      setError(e?.message || 'Unable to show the ad.');
+      return false;
+    }
+  }, [adInstance, isLoaded]);
+
+  return { isLoaded, error, showRewardedAd, loadRewardedAd };
 };
-
-export const useRewardedAd = (onReward?: (amount: number, type: string) => void) => {
-  const [isLoaded, setIsLoaded] = useState(true); // Mock: always loaded
-
-  const showRewardedAd = async (): Promise<boolean> => {
-    console.log('[Mock] Rewarded ad would show here - granting mock reward');
-    onReward?.(10, 'coins');
-    return true;
-  };
-
-  const loadRewardedAd = async () => {
-    setIsLoaded(true);
-  };
-
-  return { isLoaded, showRewardedAd, loadRewardedAd };
-};
-
 const styles = StyleSheet.create({
   container: {
     alignItems: 'center',
     width: '100%',
-    paddingHorizontal: 16,
+    paddingHorizontal: 8,
     paddingVertical: 8,
   },
   mockAdContainer: {
     width: '100%',
-    maxWidth: 340,
+    maxWidth: 400,
     backgroundColor: Colors.white,
     borderRadius: 8,
     borderWidth: 1,
@@ -126,6 +196,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
   },
+  fullWidthAdContainer: { maxWidth: '100%' },
   adLabelContainer: {
     position: 'absolute',
     top: 4,
@@ -148,6 +219,7 @@ const styles = StyleSheet.create({
   },
   adContent: {
     flex: 1,
+    minWidth: 0,
     paddingTop: 12,
   },
   adTitle: {
@@ -167,6 +239,7 @@ const styles = StyleSheet.create({
     paddingVertical: 6,
     borderRadius: 4,
     marginLeft: 8,
+    flexShrink: 0,
   },
   ctaText: {
     fontSize: 11,

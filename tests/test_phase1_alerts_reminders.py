@@ -1,10 +1,16 @@
 """Offline execution of Phase 1 handlers; never connect to live data/delivery."""
 import ast
 import copy
+import logging
+import math
 import unittest
+import uuid
+from datetime import datetime
 from types import SimpleNamespace as Obj
+from zoneinfo import ZoneInfo
 
 from services.phone_numbers import normalize_phone
+from test_authentication import DuplicateKeyError
 from test_payment_proof_review import (
     SOURCE,
     Collection,
@@ -21,15 +27,30 @@ class AlertsCollection(Collection):
         return super().find(query)
 
 
+class Contribution(Obj):
+    def __init__(self, **data):
+        data.setdefault('amount_paid', 0.0)
+        data.setdefault('contribution_status', 'pending')
+        super().__init__(id='contribution-' + uuid.uuid4().hex, **data)
+
+    def dict(self):
+        return vars(self).copy()
+
+
 def setup():
     ns = environment()
     ns['db'].alerts = AlertsCollection()
     ns['SendReminderRequest'] = Obj
     ns['CreateGroupRequest'] = Obj
     ns['format_phone_number'] = normalize_phone
-    names = {'get_user_alerts', 'send_payment_reminder_endpoint', 'create_group'}
+    ns['BUSINESS_TIMEZONE'] = ZoneInfo('Africa/Johannesburg')
+    ns['Contribution'] = Contribution
+    ns['DuplicateKeyError'] = DuplicateKeyError
+    ns['logging'] = logging
+    names = {'get_user_alerts', 'send_payment_reminder_endpoint', 'create_group',
+             'fixed_monthly_contribution_amount', 'ensure_monthly_contribution'}
     nodes = [n for n in ast.parse(SOURCE.read_text()).body
-             if isinstance(n, ast.AsyncFunctionDef) and n.name in names]
+             if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef)) and n.name in names]
     for node in nodes:
         node.decorator_list = []
     exec(compile(ast.Module(body=nodes, type_ignores=[]), 'phase1-handlers', 'exec'), ns)  # noqa: S102 - Execute actual handlers offline.
@@ -43,6 +64,18 @@ def pending(ns, identity='contribution-a'):
     row.update(contribution_status='pending', amount_due=600, amount_paid=100, month=8, year=2025)
     row.pop('proof_of_payment', None)
     return row
+
+
+def group_request(**changes):
+    return Obj(**{
+        'group_name': 'New Savings Club', 'group_type': 'savings',
+        'contribution_mode': 'fixed_monthly', 'monthly_contribution': 300,
+        'destination': None, 'target_amount_per_member': None, 'target_date': None,
+        'payment_due_date': 25, 'bank_name': None, 'bank_account_number': None,
+        'bank_account_holder': None, 'admin_user_id': 'admin-user',
+        'payment_reference_prefix': 'CLB', 'start_date': None,
+        'description': None, **changes,
+    })
 
 
 class Phase1Tests(unittest.IsolatedAsyncioTestCase):
@@ -173,6 +206,43 @@ class Phase1Tests(unittest.IsolatedAsyncioTestCase):
                 await ns['create_group'](Obj(admin_user_id='admin-user'), token)
             self.assertEqual(caught.exception.status_code, status)
         self.assertEqual(len(ns['db'].groups.records), 2)
+
+    async def test_create_group_records_fixed_monthly_contribution_for_creator(self):
+        ns = setup()
+        result = await ns['create_group'](group_request(), 'Bearer admin-user')
+        group = next(row for row in ns['db'].groups.records if row['id'] == result['group_id'])
+        member = next(row for row in ns['db'].members.records if row['group_id'] == group['id'])
+        records = [row for row in ns['db'].contributions.records if row['group_id'] == group['id']]
+        now = datetime.now(ZoneInfo('Africa/Johannesburg'))
+        self.assertEqual(len(records), 1)
+        self.assertEqual(records[0]['member_id'], member['id'])
+        self.assertEqual(records[0]['amount_due'], 300)
+        self.assertEqual((records[0]['month'], records[0]['year']), (now.month, now.year))
+        self.assertEqual(records[0]['contribution_status'], 'pending')
+        repeated = await ns['ensure_monthly_contribution'](group, member)
+        self.assertEqual(repeated['id'], records[0]['id'])
+        self.assertEqual(len([row for row in ns['db'].contributions.records
+                              if row['group_id'] == group['id']]), 1)
+
+    async def test_fixed_monthly_contribution_skips_flexible_travel_and_invalid_amounts(self):
+        ns = setup()
+        now = datetime.now(ZoneInfo('Africa/Johannesburg'))
+        created_group_ids = set()
+        for index, changes in enumerate([
+            {'contribution_mode': 'flexible_goal'},
+            {'group_type': 'travel'},
+            {'monthly_contribution': 0},
+            {'monthly_contribution': float('nan')},
+        ]):
+            group = {'id': f'group-{index}', 'status': 'active',
+                     'group_type': 'savings', 'contribution_mode': 'fixed_monthly',
+                     'monthly_contribution': 300, **changes}
+            member = {'id': f'member-{index}', 'group_id': group['id'], 'status': 'active'}
+            created_group_ids.add(group['id'])
+            ns['db'].groups.records.append(group)
+            ns['db'].members.records.append(member)
+            self.assertIsNone(await ns['ensure_monthly_contribution'](group, member, now))
+        self.assertFalse(any(row['group_id'] in created_group_ids for row in ns['db'].contributions.records))
 
     async def test_payment_rows_expose_person_identity_separately_from_membership(self):
         ns = setup(); result = await ns['get_club_detail']('group-a', 'admin-user', authorization='Bearer admin-user')

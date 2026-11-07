@@ -171,8 +171,9 @@ class MonthlyReportTests(unittest.TestCase):
         original = {n.name: ast.get_source_segment(previous, n) for n in ast.parse(previous).body if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))}
         # Approved Stage 3A financial reads have dedicated read-only contract tests.
         approved_reads = {'get_group_payment_records', 'get_person_contribution_records', 'personal_contribution_view', 'get_personal_contributions', 'get_member_club_details', 'get_group_contributions', 'get_club_detail', 'get_member_dashboard'}
+        approved_writes = {'create_group', 'record_monthly_contribution', 'accept_invitation', 'accept_admin_invitation'}
         for node in ast.parse(current).body:
-            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in original and node.name not in approved_reads:
+            if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)) and node.name in original and node.name not in approved_reads | approved_writes:
                 if node.name == "get_admin_dashboard":
                     self.assertEqual(ast.dump(legacy_admin_dashboard(ast.parse(ast.get_source_segment(current, node)).body[0])), ast.dump(ast.parse(original[node.name]).body[0]), node.name)
                 else:

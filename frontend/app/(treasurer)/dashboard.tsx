@@ -10,6 +10,7 @@ import { ClubWelcomeHeader, ClubNavigationTiles, ClubOverviewCard } from '../../
 import PendingConfirmations from '../../components/PendingConfirmations';
 import ClubMemberDirectory from '../../components/ClubMemberDirectory';
 import { AdBanner } from '../../components/AdBanner';
+import ClubvelSpotlight from '../../components/ClubvelSpotlight';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
@@ -624,6 +625,7 @@ export default function AdminDashboardScreen() {
 
       {/* Advertisement Banner */}
       <AdBanner size="banner" />
+        <ClubvelSpotlight />
      </>)}
     </ScrollView>
 
@@ -964,7 +966,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 8,
-    backgroundColor: '#FEE2E2',
+    backgroundColor: Colors.errorSurface,
     padding: 12,
     borderRadius: 12,
     marginBottom: 12,
@@ -1350,7 +1352,7 @@ backgroundColor: Colors.primary,
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#FEE2E2',
+    backgroundColor: Colors.errorSurface,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 20,

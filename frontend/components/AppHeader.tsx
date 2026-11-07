@@ -4,6 +4,7 @@ import ProfilePhotoViewer from './ProfilePhotoViewer';
 import { View, Text, StyleSheet, TouchableOpacity, Image } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 import { Colors } from '../constants/Colors';
+import { Typography } from '../constants/Typography';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -106,12 +107,14 @@ const styles = StyleSheet.create({
     flex: 1,
   },
   title: {
-    fontSize: 24,
-    fontWeight: '400',
+    ...Typography.screenTitle,
+    fontSize: 23,
+    lineHeight: 30,
   },
   subtitle: {
-    fontSize: 14,
-    marginTop: 2,
+    ...Typography.body,
+    fontSize: 13,
+    marginTop: 3,
   },
   profileButton: {
     padding: 4,

@@ -8,6 +8,7 @@ import { useAuth } from '../../contexts/AuthContext';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import MonthlyReport from '../../components/MonthlyReport';
 import { AdBanner } from '../../components/AdBanner';
+import ClubvelSpotlight from '../../components/ClubvelSpotlight';
 import axios, { isAxiosError } from 'axios';
 import { 
   generatePDFReport, 
@@ -411,6 +412,7 @@ export default function ReportsScreen() {
         </>)}
         {/* Ad Banner */}
         <AdBanner size="banner" />
+        <ClubvelSpotlight />
       </ScrollView>
     </View>
   );

@@ -6,7 +6,8 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
 import { clubGreeting } from '../../services/clubGreeting';
-import { AdBanner } from '../../components/AdBanner';
+import HomeSponsoredCard from '../../components/HomeSponsoredCard';
+import ClubvelSpotlight from '../../components/ClubvelSpotlight';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
 import axios from 'axios';
@@ -503,7 +504,8 @@ export default function MemberHomeScreen() {
       </View>
 
       {/* Advertisement Banner */}
-      <AdBanner size="banner" />
+      <HomeSponsoredCard />
+        <ClubvelSpotlight />
      </>)}
     </ScrollView>
 
@@ -855,7 +857,7 @@ const styles = StyleSheet.create({
   },
   summaryContainer: {
     flexDirection: 'row',
-    paddingHorizontal: 24,
+    paddingHorizontal: 16,
     paddingTop: 16,
     gap: 16,
   },
@@ -881,7 +883,7 @@ const styles = StyleSheet.create({
     color: Colors.statusLate,
   },
   section: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 16,
     paddingTop: 24,
   },
   sectionTitle: {
@@ -1100,7 +1102,7 @@ backgroundColor: Colors.primary,
     width: 80,
     height: 80,
     borderRadius: 40,
-    backgroundColor: '#FEE2E2',
+    backgroundColor: Colors.errorSurface,
     justifyContent: 'center',
     alignItems: 'center',
     marginBottom: 20,
@@ -1176,13 +1178,13 @@ backgroundColor: Colors.primary,
   acceptButtonText: { color: Colors.white, fontSize: 14, fontWeight: '700' },
   primaryActions: { flexDirection: 'row', gap: 12, marginTop: 16 },
   createButton: {
-    flex: 1, minWidth: 0, minHeight: 104, borderWidth: 1, borderColor: Colors.cardBorder, alignItems: 'center', backgroundColor: Colors.white, borderRadius: 18,
+    flex: 1, minWidth: 0, minHeight: 104, borderWidth: 1, borderColor: Colors.cardBorder, alignItems: 'center', backgroundColor: Colors.white, borderRadius: 12,
     flexDirection: 'column', gap: 8, justifyContent: 'center', paddingVertical: 14,
   },
   createButtonText: { color: Colors.primary, fontSize: 15, fontWeight: '400' },
   inviteButton: {
     flex: 1, minWidth: 0, minHeight: 104, alignItems: 'center', backgroundColor: Colors.white, borderColor: Colors.cardBorder,
-    borderRadius: 18, borderWidth: 1, flexDirection: 'column', gap: 8,
+    borderRadius: 12, borderWidth: 1, flexDirection: 'column', gap: 8,
     justifyContent: 'center', paddingVertical: 14,
   },
   inviteButtonText: { color: Colors.primary, fontSize: 15, fontWeight: '400' },
