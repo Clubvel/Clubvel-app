@@ -61,6 +61,7 @@ export default function MemberHomeScreen() {
   const { user, token, logout } = useAuth();
   const accountInsets = useSafeAreaInsets();
   const [administrationExpanded, setAdministrationExpanded] = useState(false);
+  const [quickActionsExpanded, setQuickActionsExpanded] = useState(false);
   const router = useRouter();
   const [photoExpanded, setPhotoExpanded] = useState(false);
   const [storedDashboardData, setDashboardData] = useState<DashboardData | null>(null);
@@ -408,28 +409,32 @@ export default function MemberHomeScreen() {
         {/* Header */}
         <View style={[styles.header, { paddingTop: Math.max(accountInsets.top, 16) }]}>
           <View style={styles.headerTitleRow}>
-            <View style={styles.headerSide} />
             <Text accessibilityRole="header" style={styles.brandName}>Clubvel</Text>
             <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open profile menu" onPress={() => setShowProfileMenu(true)} style={styles.headerSide}>
-              <Ionicons name="menu" size={22} color={Colors.white} />
+              <Ionicons name="apps" size={24} color={Colors.primary} />
             </TouchableOpacity>
           </View>
           <View style={styles.welcomeRow}>
-          <TouchableOpacity 
-            style={styles.avatarButton}
-            accessibilityRole="button"
-            accessibilityLabel="Expand profile photo"
-            onPress={() => user?.profile_photo ? setPhotoExpanded(true) : setShowProfileMenu(true)}
-          >
-            <ProfilePhotoFrame>{user?.profile_photo ? (
-              <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
-            ) : (
-              <View style={styles.avatar}>
-                <Ionicons name="person" size={32} color={Colors.white} />
-              </View>
-            )}</ProfilePhotoFrame>
-          </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.avatarButton}
+              accessibilityRole="button"
+              accessibilityLabel="Expand profile photo"
+              onPress={() => user?.profile_photo ? setPhotoExpanded(true) : setShowProfileMenu(true)}
+            >
+              <ProfilePhotoFrame>{user?.profile_photo ? (
+                <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
+              ) : (
+                <View style={styles.avatar}>
+                  <Ionicons name="person" size={32} color={Colors.white} />
+                </View>
+              )}</ProfilePhotoFrame>
+            </TouchableOpacity>
             <Text style={styles.greeting}>{clubGreeting(user?.full_name)}</Text>
+          </View>
+          <View style={styles.headerDivider} />
+          <View style={styles.headerDateRow}>
+            <Text style={styles.headerDate}>{new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })}</Text>
+            <Text style={styles.headerClubsLabel}>Your Clubs</Text>
           </View>
         </View>
 
@@ -491,15 +496,28 @@ export default function MemberHomeScreen() {
             </View>}
           </View>) : <View style={styles.emptyState}><Text style={styles.emptyStateText}>No clubs yet</Text><Text style={styles.emptyStateSubtext}>Create a Stokvel, Social Club or Society Group, or join one through an invitation.</Text></View>}
         </ScrollView>}
-        <View style={styles.primaryActions}>
-          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Create a Club" style={styles.createButton} onPress={() => setShowCreateGroup(true)}>
-            <Ionicons name="add-circle" size={32} color={Colors.primary} />
-            <Text style={styles.createButtonText}>Create a Club</Text>
+        <View style={{ marginTop: 16, alignItems: 'flex-start' }}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel={quickActionsExpanded ? 'Close quick actions' : 'Open quick actions'}
+            accessibilityState={{ expanded: quickActionsExpanded }}
+            onPress={() => setQuickActionsExpanded(value => !value)}
+            style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: Colors.signInAction, alignItems: 'center', justifyContent: 'center' }}
+          >
+            <Ionicons name={quickActionsExpanded ? 'close' : 'add'} size={30} color={Colors.primary} />
           </TouchableOpacity>
-          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Join a Club" style={styles.inviteButton} onPress={openInvitations}>
-            <Ionicons name="people-circle" size={32} color={Colors.primary} />
-            <Text style={styles.inviteButtonText}>Join a Club</Text>
-          </TouchableOpacity>
+          {quickActionsExpanded && (
+            <View style={styles.primaryActions}>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Create a Club" style={styles.createButton} onPress={() => { setQuickActionsExpanded(false); setShowCreateGroup(true); }}>
+                <Ionicons name="add-circle" size={32} color={Colors.primary} />
+                <Text style={styles.createButtonText}>Create a Club</Text>
+              </TouchableOpacity>
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Join a Club" style={styles.inviteButton} onPress={() => { setQuickActionsExpanded(false); openInvitations(); }}>
+                <Ionicons name="people-circle" size={32} color={Colors.primary} />
+                <Text style={styles.inviteButtonText}>Join a Club</Text>
+              </TouchableOpacity>
+            </View>
+          )}
         </View>
       </View>
 
@@ -831,17 +849,19 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.primary,
-    borderBottomLeftRadius: 22,
-    borderBottomRightRadius: 22,
-    paddingBottom: 22,
+    backgroundColor: Colors.softSage,
+    paddingBottom: 18,
     paddingHorizontal: 20,
   },
-  headerTitleRow: { flexDirection: 'row', alignItems: 'center', minHeight: 44 },
+  headerTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
   headerSide: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
   welcomeRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 16 },
-  brandName: { flex: 1, minWidth: 0, fontSize: 26, fontWeight: '400', color: Colors.white, textAlign: 'center' },
-  greeting: { flex: 1, minWidth: 0, flexShrink: 1, fontSize: 21, lineHeight: 29, fontWeight: '400', color: Colors.white },
+  brandName: { flex: 1, minWidth: 0, fontSize: 26, fontWeight: '700', color: Colors.primary, textAlign: 'left' },
+  greeting: { flex: 1, minWidth: 0, flexShrink: 1, fontSize: 21, lineHeight: 29, fontWeight: '500', color: Colors.primary },
+  headerDivider: { height: 1, backgroundColor: '#B8C9BE', marginTop: 18 },
+  headerDateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12 },
+  headerDate: { fontSize: 13, color: Colors.textPrimary, fontWeight: '500' },
+  headerClubsLabel: { fontSize: 16, color: Colors.primary, fontWeight: '700' },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -902,8 +922,8 @@ const styles = StyleSheet.create({
     borderColor: Colors.cardBorder,
     marginBottom: 12,
   },
-  clubListHeader: { backgroundColor: Colors.coralAction, borderColor: Colors.coralRed, borderWidth: 1, borderRadius: 14, padding: 16, minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 12 },
-  clubListTitle: { color: Colors.white, fontSize: 18, fontWeight: '400', flex: 1, minWidth: 0 },
+  clubListHeader: { backgroundColor: Colors.signInAction, borderColor: Colors.signInAction, borderWidth: 1, borderRadius: 12, padding: 16, minHeight: 56, flexDirection: 'row', alignItems: 'center', gap: 12 },
+  clubListTitle: { color: Colors.primary, fontSize: 18, fontWeight: '600', flex: 1, minWidth: 0 },
   clubList: { maxHeight: 360, marginTop: 8 }, clubListItem: { borderBottomWidth: 1, borderBottomColor: Colors.cardBorder, paddingVertical: 8 },
   clubListEntry: { flexDirection: 'row', alignItems: 'center', gap: 12, minHeight: 64, paddingVertical: 8 },
   clubListImage: { width: 40, height: 40, borderRadius: 20, backgroundColor: Colors.iceBlue, alignItems: 'center', justifyContent: 'center' },
