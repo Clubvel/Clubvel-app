@@ -105,10 +105,12 @@ android {
             keyPassword 'android'
         }
         release {
-            storeFile file(findProperty('CLUBVEL_RELEASE_STORE_FILE'))
-            storePassword findProperty('CLUBVEL_RELEASE_STORE_PASSWORD')
-            keyAlias findProperty('CLUBVEL_RELEASE_KEY_ALIAS')
-            keyPassword findProperty('CLUBVEL_RELEASE_KEY_PASSWORD')
+            if (project.hasProperty('CLUBVEL_RELEASE_STORE_FILE')) {
+                storeFile file(findProperty('CLUBVEL_RELEASE_STORE_FILE'))
+                storePassword findProperty('CLUBVEL_RELEASE_STORE_PASSWORD')
+                keyAlias findProperty('CLUBVEL_RELEASE_KEY_ALIAS')
+                keyPassword findProperty('CLUBVEL_RELEASE_KEY_PASSWORD')
+            }
         }
     }
     buildTypes {
@@ -186,3 +188,7 @@ dependencies {
 }
 
 apply plugin: 'com.google.gms.google-services'
+
+if (file("./eas-build.gradle").exists()) {
+    apply from: "./eas-build.gradle"
+}
