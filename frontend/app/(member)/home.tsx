@@ -441,84 +441,70 @@ export default function MemberHomeScreen() {
         {!!dashboardError && !!dashboardData && <Text accessibilityRole="alert">{dashboardError} Pull down to refresh.</Text>}
       {loading ? <View style={styles.loadingContainer}><ActivityIndicator size="large" color={Colors.primary} /><Text>Loading clubs…</Text></View> : dashboardError && !dashboardData ?
         <View style={styles.loadingContainer}><Text>{dashboardError}</Text><TouchableOpacity onPress={() => { setLoading(true); void fetchDashboard(); }}><Text>Retry</Text></TouchableOpacity></View> : (<>
-      {/* My Clubs Section */}
-      <View style={styles.section}>
-        <TouchableOpacity accessibilityRole="button" accessibilityLabel="My Clubs & Stokvels" accessibilityState={{ expanded: clubsExpanded }} style={styles.clubListHeader} onPress={() => { if (latestSession.current === sessionKey) setClubList({ owner: sessionKey, expanded: !clubsExpanded }); }}>
-          <Text style={styles.clubListTitle}>My Clubs &amp; Stokvels</Text><Ionicons name={clubsExpanded ? 'chevron-up' : 'chevron-down'} size={20} color={Colors.white} />
+      {/* Clubs & Stokvels — full-width feature panel */}
+      <View style={{ backgroundColor: '#E4C447', paddingHorizontal: 20, paddingTop: 17, paddingBottom: 15 }}>
+        <Text style={{ color: '#17221D', fontSize: 11, fontWeight: '700', letterSpacing: 1.1 }}>CLUBS &amp; STOKVELS</Text>
+        <TouchableOpacity
+          accessibilityRole="button"
+          accessibilityLabel={quickActionsExpanded ? 'Close club actions' : 'Create or join a club'}
+          accessibilityState={{ expanded: quickActionsExpanded }}
+          onPress={() => setQuickActionsExpanded(value => !value)}
+          style={{ height: 126, alignItems: 'center', justifyContent: 'center' }}
+        >
+          <Ionicons name={quickActionsExpanded ? 'close' : 'add'} size={82} color="#26352D" />
         </TouchableOpacity>
-
-        {clubsExpanded && pendingInvitations.length > 0 && (
-          <View style={styles.invitationsSection}>
-            <Text style={styles.invitationsTitle}>Pending Invitations</Text>
-            {pendingInvitations.map((invitation) => (
-              <View key={invitation.id} style={styles.invitationCard}>
-                <View style={styles.invitationInfo}>
-                  <Text style={styles.invitationGroup}>
-                    {invitation.intended_role === 'admin' ? 'Invitation to become an Admin of ' : 'Invitation to join '}{invitation.group_name}
-                  </Text>
-                  <Text style={styles.invitationFrom}>
-                    {invitation.invited_by_name
-                      ? `Invited by ${invitation.invited_by_name}`
-                      : 'Group invitation'}
-                  </Text>
-                </View>
-                <TouchableOpacity
-                  style={styles.acceptButton}
-                  onPress={() => declineInvitation(invitation)}
-                  disabled={acceptingInvitation === invitation.id || invitation.status === 'accepting'}
-                >
-                  <Text style={styles.acceptButtonText}>Decline</Text>
-                </TouchableOpacity>
-                <TouchableOpacity
-                  style={styles.acceptButton}
-                  onPress={() => acceptInvitation(invitation)}
-                  disabled={acceptingInvitation === invitation.id}
-                >
-                  {acceptingInvitation === invitation.id
-                    ? <ActivityIndicator size="small" color={Colors.white} />
-                    : <Text style={styles.acceptButtonText}>Accept</Text>}
-                </TouchableOpacity>
-              </View>
-            ))}
+        {quickActionsExpanded && (
+          <View style={{ flexDirection: 'row', gap: 10, marginBottom: 14 }}>
+            <TouchableOpacity accessibilityRole="button" style={{ flex: 1, minHeight: 42, backgroundColor: '#26352D', alignItems: 'center', justifyContent: 'center' }} onPress={() => { setQuickActionsExpanded(false); setShowCreateGroup(true); }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>CREATE A CLUB</Text>
+            </TouchableOpacity>
+            <TouchableOpacity accessibilityRole="button" style={{ flex: 1, minHeight: 42, backgroundColor: '#26352D', alignItems: 'center', justifyContent: 'center' }} onPress={() => { setQuickActionsExpanded(false); openInvitations(); }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 11, fontWeight: '700' }}>JOIN A CLUB</Text>
+            </TouchableOpacity>
           </View>
         )}
-
-        {clubsExpanded && <ScrollView nestedScrollEnabled style={styles.clubList} accessibilityLabel="Your clubs and stokvels">
-          {dashboardData?.clubs?.length ? dashboardData.clubs.map(club => <View key={club.id} style={styles.clubListItem}>
-            <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${club.name}`} style={styles.clubListEntry} onPress={() => { if (latestSession.current !== sessionKey) return; setClubList({ owner: sessionKey, expanded: false }); if (['admin', 'treasurer'].includes(club.role)) openAdministration(club); else openClub(club); }}>
-              <View style={styles.clubListImage}>{club.group_photo ? <Image source={{ uri: club.group_photo }} resizeMode="cover" style={styles.clubListImage} /> : <Text style={{ color: Colors.primary }}>{club.name.trim().charAt(0).toUpperCase()}</Text>}</View>
-              <View style={{ flex: 1, minWidth: 0 }}><Text style={styles.clubListName}>{club.name}</Text><Text style={styles.clubMetaText}>{club.role === 'admin' ? 'Admin' : club.role === 'treasurer' ? 'Treasurer' : 'Member'}</Text><Text style={styles.clubMetaText}>{typeof club.member_count === 'number' && Number.isInteger(club.member_count) && club.member_count > 0 ? `${club.member_count} ${club.member_count === 1 ? 'member' : 'members'}` : 'Member count unavailable'}</Text></View>
-              <Ionicons name="chevron-forward" size={18} color={Colors.primary} />
-            </TouchableOpacity>
-            {(club.role === 'admin' || club.role === 'treasurer') && <View style={styles.clubActions}>
-              <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${club.name} administration`} style={styles.clubAdministration} onPress={() => { if (latestSession.current !== sessionKey) return; setClubList({ owner: sessionKey, expanded: false }); openAdministration(club); }}><Text style={styles.clubAdministrationText}>Admin dashboard</Text></TouchableOpacity>
-              <TouchableOpacity accessibilityRole="button" accessibilityLabel={`View ${club.name} as member`} style={styles.clubMemberAction} onPress={() => { if (latestSession.current !== sessionKey) return; setClubList({ owner: sessionKey, expanded: false }); openClub(club); }}><Text style={styles.clubMemberText}>View as member</Text></TouchableOpacity>
-            </View>}
-          </View>) : <View style={styles.emptyState}><Text style={styles.emptyStateText}>No clubs yet</Text><Text style={styles.emptyStateSubtext}>Create a Stokvel, Social Club or Society Group, or join one through an invitation.</Text></View>}
-        </ScrollView>}
-        <View style={{ marginTop: 16, alignItems: 'flex-start' }}>
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel={quickActionsExpanded ? 'Close quick actions' : 'Open quick actions'}
-            accessibilityState={{ expanded: quickActionsExpanded }}
-            onPress={() => setQuickActionsExpanded(value => !value)}
-            style={{ width: 52, height: 52, borderRadius: 26, backgroundColor: Colors.signInAction, alignItems: 'center', justifyContent: 'center' }}
-          >
-            <Ionicons name={quickActionsExpanded ? 'close' : 'add'} size={30} color={Colors.primary} />
+        <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 3 }}>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Tap to manage your clubs" accessibilityState={{ expanded: clubsExpanded }} onPress={() => { if (latestSession.current === sessionKey) setClubList({ owner: sessionKey, expanded: !clubsExpanded }); }}>
+            <Text style={{ color: '#26352D', fontSize: 10, fontWeight: '700', letterSpacing: 1 }}>TAP TO MANAGE</Text>
           </TouchableOpacity>
-          {quickActionsExpanded && (
-            <View style={styles.primaryActions}>
-              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Create a Club" style={styles.createButton} onPress={() => { setQuickActionsExpanded(false); setShowCreateGroup(true); }}>
-                <Ionicons name="add-circle" size={32} color={Colors.primary} />
-                <Text style={styles.createButtonText}>Create a Club</Text>
-              </TouchableOpacity>
-              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Join a Club" style={styles.inviteButton} onPress={() => { setQuickActionsExpanded(false); openInvitations(); }}>
-                <Ionicons name="people-circle" size={32} color={Colors.primary} />
-                <Text style={styles.inviteButtonText}>Join a Club</Text>
-              </TouchableOpacity>
-            </View>
-          )}
+          <Text style={{ color: '#26352D', fontSize: 10, fontWeight: '700', letterSpacing: 1 }}>3 OPTIONS</Text>
         </View>
+        {clubsExpanded && (
+          <View style={{ marginTop: 14, backgroundColor: 'rgba(255,255,255,0.22)', paddingHorizontal: 10 }}>
+            {pendingInvitations.length > 0 && (
+              <View style={styles.invitationsSection}>
+                <Text style={styles.invitationsTitle}>Pending Invitations</Text>
+                {pendingInvitations.map(invitation => (
+                  <View key={invitation.id} style={styles.invitationCard}>
+                    <View style={styles.invitationInfo}>
+                      <Text style={styles.invitationGroup}>{invitation.intended_role === 'admin' ? 'Invitation to become an Admin of ' : 'Invitation to join '}{invitation.group_name}</Text>
+                      <Text style={styles.invitationFrom}>{invitation.invited_by_name ? `Invited by ${invitation.invited_by_name}` : 'Group invitation'}</Text>
+                    </View>
+                    <TouchableOpacity style={styles.acceptButton} onPress={() => declineInvitation(invitation)} disabled={acceptingInvitation === invitation.id}><Text style={styles.acceptButtonText}>Decline</Text></TouchableOpacity>
+                    <TouchableOpacity style={styles.acceptButton} onPress={() => acceptInvitation(invitation)} disabled={acceptingInvitation === invitation.id}>
+                      {acceptingInvitation === invitation.id ? <ActivityIndicator size="small" color={Colors.white} /> : <Text style={styles.acceptButtonText}>Accept</Text>}
+                    </TouchableOpacity>
+                  </View>
+                ))}
+              </View>
+            )}
+            <View style={{ maxHeight: 280 }}>
+              {dashboardData?.clubs?.length ? dashboardData.clubs.map(club => (
+                <View key={club.id} style={{ borderBottomWidth: 1, borderBottomColor: 'rgba(38,53,45,0.2)', paddingVertical: 8 }}>
+                  <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${club.name}`} style={styles.clubListEntry} onPress={() => { if (latestSession.current !== sessionKey) return; setClubList({ owner: sessionKey, expanded: false }); if (['admin', 'treasurer'].includes(club.role)) openAdministration(club); else openClub(club); }}>
+                    <View style={styles.clubListImage}>{club.group_photo ? <Image source={{ uri: club.group_photo }} resizeMode="cover" style={styles.clubListImage} /> : <Text style={{ color: Colors.primary }}>{club.name.trim().charAt(0).toUpperCase()}</Text>}</View>
+                    <View style={{ flex: 1, minWidth: 0 }}><Text style={styles.clubListName}>{club.name}</Text><Text style={styles.clubMetaText}>{club.role === 'admin' ? 'Admin' : club.role === 'treasurer' ? 'Treasurer' : 'Member'} · {typeof club.member_count === 'number' && Number.isInteger(club.member_count) && club.member_count > 0 ? `${club.member_count} members` : 'Member count unavailable'}</Text></View>
+                    <Ionicons name="chevron-forward" size={18} color="#26352D" />
+                  </TouchableOpacity>
+                  {(club.role === 'admin' || club.role === 'treasurer') && <View style={styles.clubActions}>
+                    <TouchableOpacity style={styles.clubAdministration} onPress={() => { setClubList({ owner: sessionKey, expanded: false }); openAdministration(club); }}><Text style={styles.clubAdministrationText}>Admin dashboard</Text></TouchableOpacity>
+                    <TouchableOpacity style={styles.clubMemberAction} onPress={() => { setClubList({ owner: sessionKey, expanded: false }); openClub(club); }}><Text style={styles.clubMemberText}>View as member</Text></TouchableOpacity>
+                  </View>}
+                </View>
+              )) : <View style={styles.emptyState}><Text style={styles.emptyStateText}>No clubs yet</Text><Text style={styles.emptyStateSubtext}>Create a Stokvel, Social Club or Society Group, or join one through an invitation.</Text></View>}
+            </View>
+          </View>
+        )}
       </View>
 
       {/* Advertisement Banner */}
