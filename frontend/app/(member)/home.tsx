@@ -421,7 +421,7 @@ export default function MemberHomeScreen() {
               accessibilityLabel="Expand profile photo"
               onPress={() => user?.profile_photo ? setPhotoExpanded(true) : setShowProfileMenu(true)}
             >
-              <ProfilePhotoFrame>{user?.profile_photo ? (
+              <ProfilePhotoFrame size={96}>{user?.profile_photo ? (
                 <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
               ) : (
                 <View style={styles.avatar}>
@@ -835,19 +835,19 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.softSage,
+    backgroundColor: '#A5AD9B',
     paddingBottom: 18,
     paddingHorizontal: 20,
   },
   headerTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
   headerSide: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  welcomeRow: { flexDirection: 'row', alignItems: 'center', gap: 16, marginTop: 16 },
-  brandName: { flex: 1, minWidth: 0, fontSize: 26, fontWeight: '700', color: Colors.primary, textAlign: 'left' },
-  greeting: { flex: 1, minWidth: 0, flexShrink: 1, fontSize: 21, lineHeight: 29, fontWeight: '500', color: Colors.primary },
-  headerDivider: { height: 1, backgroundColor: '#B8C9BE', marginTop: 18 },
+  welcomeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
+  brandName: { flex: 1, minWidth: 0, fontSize: 16, fontWeight: '700', color: '#26352D', textAlign: 'left' },
+  greeting: { flex: 1, minWidth: 0, flexShrink: 1, fontSize: 20, lineHeight: 25, fontWeight: '500', color: '#65715F' },
+  headerDivider: { height: 1, backgroundColor: 'rgba(38,53,45,0.16)', marginTop: 16 },
   headerDateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12 },
-  headerDate: { fontSize: 13, color: Colors.textPrimary, fontWeight: '500' },
-  headerClubsLabel: { fontSize: 16, color: Colors.primary, fontWeight: '700' },
+  headerDate: { fontSize: 10, color: '#26352D', fontWeight: '700', letterSpacing: 1 },
+  headerClubsLabel: { fontSize: 10, color: '#26352D', fontWeight: '700', letterSpacing: 1 },
   headerRight: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1024,16 +1024,16 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   avatar: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
+    width: 96,
+    height: 96,
+    borderRadius: 48,
     backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center', },
   avatarImage: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
+    width: 96,
+    height: 96,
+    borderRadius: 48,
   },
   modalOverlay: {
     flex: 1,
