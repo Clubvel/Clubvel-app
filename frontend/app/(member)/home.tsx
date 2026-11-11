@@ -440,7 +440,7 @@ export default function MemberHomeScreen() {
         {!!dashboardError && !!dashboardData && <Text accessibilityRole="alert">{dashboardError} Pull down to refresh.</Text>}
       {loading ? <View style={styles.loadingContainer}><ActivityIndicator size="large" color={Colors.primary} /><Text>Loading clubs…</Text></View> : dashboardError && !dashboardData ?
         <View style={styles.loadingContainer}><Text>{dashboardError}</Text><TouchableOpacity onPress={() => { setLoading(true); void fetchDashboard(); }}><Text>Retry</Text></TouchableOpacity></View> : (<>
-      {/* Clubs & Stokvels — fixed-size panel with compact expanded actions */}
+      {/* Clubs & Stokvels — preserve the full mustard panel in both states */}
       <View style={{ backgroundColor: '#E4C447', paddingHorizontal: 20, paddingTop: 17, paddingBottom: 15 }}>
         <Text style={{ color: '#26352D', fontSize: 11, fontWeight: '400', letterSpacing: 1.1 }}>CLUBS &amp; STOKVELS</Text>
         <View style={{ height: 126, alignItems: 'center', justifyContent: 'center' }}>
@@ -453,26 +453,28 @@ export default function MemberHomeScreen() {
           >
             <Text style={{ color: '#26352D', fontSize: 64, lineHeight: 70, fontWeight: '200', includeFontPadding: false }}>{quickActionsExpanded ? '×' : '+'}</Text>
           </TouchableOpacity>
-          {quickActionsExpanded && (
-            <View style={{ width: '100%', flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 2 }}>
-              <TouchableOpacity accessibilityRole="button" style={{ flex: 1, alignItems: 'center', paddingVertical: 5 }} onPress={() => { setQuickActionsExpanded(false); if (latestSession.current === sessionKey) setClubList({ owner: sessionKey, expanded: true }); }}>
-                <Text style={{ color: '#26352D', fontSize: 9, lineHeight: 12, fontWeight: '400', textAlign: 'center' }}>My Clubs &amp;{ '\n' }Stokvels</Text>
-              </TouchableOpacity>
-              <TouchableOpacity accessibilityRole="button" style={{ flex: 1, alignItems: 'center', paddingVertical: 5 }} onPress={() => { setQuickActionsExpanded(false); setShowCreateGroup(true); }}>
-                <Text style={{ color: '#26352D', fontSize: 9, lineHeight: 12, fontWeight: '400', textAlign: 'center' }}>Create a Club</Text>
-              </TouchableOpacity>
-              <TouchableOpacity accessibilityRole="button" style={{ flex: 1, alignItems: 'center', paddingVertical: 5 }} onPress={() => { setQuickActionsExpanded(false); openInvitations(); }}>
-                <Text style={{ color: '#26352D', fontSize: 9, lineHeight: 12, fontWeight: '400', textAlign: 'center' }}>Join a Club</Text>
-              </TouchableOpacity>
-            </View>
-          )}
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 3 }}>
-          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Tap to manage your clubs" accessibilityState={{ expanded: clubsExpanded }} onPress={() => { if (latestSession.current === sessionKey) setClubList({ owner: sessionKey, expanded: !clubsExpanded }); }}>
-            <Text style={{ color: '#26352D', fontSize: 10, fontWeight: '400', letterSpacing: 1 }}>{quickActionsExpanded ? 'SELECT AN OPTION' : 'TAP TO MANAGE'}</Text>
-          </TouchableOpacity>
+          <Text style={{ color: '#26352D', fontSize: 10, fontWeight: '400', letterSpacing: 1 }}>{quickActionsExpanded ? 'SELECT AN OPTION' : 'TAP TO MANAGE'}</Text>
           <Text style={{ color: '#26352D', fontSize: 10, fontWeight: '400', letterSpacing: 1 }}>{quickActionsExpanded ? 'CLOSE MENU' : '3 OPTIONS'}</Text>
         </View>
+      </View>
+      {quickActionsExpanded && (
+        <View style={{ backgroundColor: '#586A55' }}>
+          <TouchableOpacity accessibilityRole="button" style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.18)' }} onPress={() => { setQuickActionsExpanded(false); if (latestSession.current === sessionKey) setClubList({ owner: sessionKey, expanded: true }); }}>
+            <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>My Clubs &amp; Stokvels</Text>
+            <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+          </TouchableOpacity>
+          <TouchableOpacity accessibilityRole="button" style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.18)' }} onPress={() => { setQuickActionsExpanded(false); setShowCreateGroup(true); }}>
+            <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>Create a Club</Text>
+            <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+          </TouchableOpacity>
+          <TouchableOpacity accessibilityRole="button" style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }} onPress={() => { setQuickActionsExpanded(false); openInvitations(); }}>
+            <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>Join a Club</Text>
+            <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+          </TouchableOpacity>
+        </View>
+      )}
         {clubsExpanded && (
           <View style={{ marginTop: 14, backgroundColor: 'rgba(255,255,255,0.22)', paddingHorizontal: 10 }}>
             {pendingInvitations.length > 0 && (
