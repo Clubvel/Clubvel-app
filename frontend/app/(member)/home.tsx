@@ -247,8 +247,7 @@ export default function MemberHomeScreen() {
     router.push('/(member)/profile');
   };
 
-  const navigateToSupport = () => {
-    setShowProfileMenu(false);
+  const navigateToSupport = () => {    setShowProfileMenu(false);
     router.push('/(member)/support');
   };
 
@@ -470,9 +469,9 @@ export default function MemberHomeScreen() {
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 3 }}>
           <TouchableOpacity accessibilityRole="button" accessibilityLabel="Tap to manage your clubs" accessibilityState={{ expanded: clubsExpanded }} onPress={() => { if (latestSession.current === sessionKey) setClubList({ owner: sessionKey, expanded: !clubsExpanded }); }}>
-            <Text style={{ color: '#26352D', fontSize: 10, fontWeight: '400', letterSpacing: 1 }}>TAP TO MANAGE</Text>
+            <Text style={{ color: '#26352D', fontSize: 10, fontWeight: '400', letterSpacing: 1 }}>{quickActionsExpanded ? 'SELECT AN OPTION' : 'TAP TO MANAGE'}</Text>
           </TouchableOpacity>
-          <Text style={{ color: '#26352D', fontSize: 10, fontWeight: '400', letterSpacing: 1 }}>3 OPTIONS</Text>
+          <Text style={{ color: '#26352D', fontSize: 10, fontWeight: '400', letterSpacing: 1 }}>{quickActionsExpanded ? 'CLOSE MENU' : '3 OPTIONS'}</Text>
         </View>
         {clubsExpanded && (
           <View style={{ marginTop: 14, backgroundColor: 'rgba(255,255,255,0.22)', paddingHorizontal: 10 }}>
@@ -497,8 +496,7 @@ export default function MemberHomeScreen() {
               {dashboardData?.clubs?.length ? dashboardData.clubs.map(club => (
                 <View key={club.id} style={{ borderBottomWidth: 1, borderBottomColor: 'rgba(38,53,45,0.2)', paddingVertical: 8 }}>
                   <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${club.name}`} style={styles.clubListEntry} onPress={() => { if (latestSession.current !== sessionKey) return; setClubList({ owner: sessionKey, expanded: false }); if (['admin', 'treasurer'].includes(club.role)) openAdministration(club); else openClub(club); }}>
-                    <View style={styles.clubListImage}>{club.group_photo ? <Image source={{ uri: club.group_photo }} resizeMode="cover" style={styles.clubListImage} /> : <Text style={{ color: Colors.primary }}>{club.name.trim().charAt(0).toUpperCase()}</Text>}</View>
-                    <View style={{ flex: 1, minWidth: 0 }}><Text style={styles.clubListName}>{club.name}</Text><Text style={styles.clubMetaText}>{club.role === 'admin' ? 'Admin' : club.role === 'treasurer' ? 'Treasurer' : 'Member'} · {typeof club.member_count === 'number' && Number.isInteger(club.member_count) && club.member_count > 0 ? `${club.member_count} members` : 'Member count unavailable'}</Text></View>
+                    <View style={styles.clubListImage}>{club.group_photo ? <Image source={{ uri: club.group_photo }} resizeMode="cover" style={styles.clubListImage} /> : <Text style={{ color: Colors.primary }}>{club.name.trim().charAt(0).toUpperCase()}</Text>}</View>                    <View style={{ flex: 1, minWidth: 0 }}><Text style={styles.clubListName}>{club.name}</Text><Text style={styles.clubMetaText}>{club.role === 'admin' ? 'Admin' : club.role === 'treasurer' ? 'Treasurer' : 'Member'} · {typeof club.member_count === 'number' && Number.isInteger(club.member_count) && club.member_count > 0 ? `${club.member_count} members` : 'Member count unavailable'}</Text></View>
                     <Ionicons name="chevron-forward" size={18} color="#26352D" />
                   </TouchableOpacity>
                   {(club.role === 'admin' || club.role === 'treasurer') && <View style={styles.clubActions}>
@@ -747,8 +745,7 @@ export default function MemberHomeScreen() {
           <View style={styles.formActions}>
             <TouchableOpacity style={styles.cancelButton} onPress={() => setShowCreateGroup(false)} disabled={creatingGroup}>
               <Text style={styles.cancelButtonText}>Cancel</Text>
-            </TouchableOpacity>
-            <TouchableOpacity style={styles.submitButton} onPress={createGroup} disabled={creatingGroup}>
+            </TouchableOpacity>            <TouchableOpacity style={styles.submitButton} onPress={createGroup} disabled={creatingGroup}>
               {creatingGroup ? <ActivityIndicator color={Colors.white} /> : <Text style={styles.submitButtonText}>Create</Text>}
             </TouchableOpacity>
           </View>
@@ -997,8 +994,7 @@ const styles = StyleSheet.create({
     marginBottom: 8,
     textTransform: 'uppercase',
   },
-  adCard: {
-    backgroundColor: Colors.iceBlue,
+  adCard: {    backgroundColor: Colors.iceBlue,
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
