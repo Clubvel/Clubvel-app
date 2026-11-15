@@ -128,6 +128,32 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleRemovePhoto = () => {
+    Alert.alert(
+      "Remove profile photo?",
+      "Your profile will return to the default avatar.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove photo",
+          style: "destructive",
+          onPress: async () => {
+            setUploading(true);
+            try {
+              await updateProfilePhoto(null);
+              setPhotoExpanded(false);
+              Alert.alert("Success", "Profile photo removed.");
+            } catch (error: any) {
+              Alert.alert("Error", error.message || "Failed to remove profile photo");
+            } finally {
+              setUploading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <View style={styles.container}>
       <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
@@ -152,6 +178,11 @@ export default function ProfileScreen() {
         <TouchableOpacity onPress={handleChangePhoto} disabled={uploading} accessibilityRole="button">
           <Text style={styles.photoActionText}>{uploading ? "Updating photo…" : "Change photo"}</Text>
         </TouchableOpacity>
+        {user?.profile_photo && (
+          <TouchableOpacity onPress={handleRemovePhoto} disabled={uploading} accessibilityRole="button">
+            <Text style={styles.photoActionText}>Remove photo</Text>
+          </TouchableOpacity>
+        )}
         <Text style={styles.name}>{user?.full_name}</Text>
         <EditProfile />
         <View style={styles.roleBadge}>

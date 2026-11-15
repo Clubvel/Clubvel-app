@@ -399,18 +399,11 @@ export default function MemberHomeScreen() {
   return (
     <View style={{ flex: 1 }}>
       <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
-      <ScrollView
-        style={styles.container}
-        refreshControl={
-          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
-        }
-      >
         {/* Header */}
         <View style={[styles.header, { paddingTop: Math.max(accountInsets.top, 16) }]}>
           <View style={styles.headerTitleRow}>
-            <Text accessibilityRole="header" style={styles.brandName}>Clubvel</Text>
             <TouchableOpacity accessibilityRole="button" accessibilityLabel="Open profile menu" onPress={() => setShowProfileMenu(true)} style={styles.headerSide}>
-              <Ionicons name="apps" size={24} color={Colors.primary} />
+              <Ionicons name="menu-outline" size={32} color={Colors.primary} />
             </TouchableOpacity>
           </View>
           <View style={styles.welcomeRow}>
@@ -420,15 +413,21 @@ export default function MemberHomeScreen() {
               accessibilityLabel="Expand profile photo"
               onPress={() => user?.profile_photo ? setPhotoExpanded(true) : setShowProfileMenu(true)}
             >
-              <ProfilePhotoFrame size={96}>{user?.profile_photo ? (
+              <ProfilePhotoFrame size={148}>{user?.profile_photo ? (
                 <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
               ) : (
                 <View style={styles.avatar}>
-                  <Ionicons name="person" size={32} color={Colors.white} />
+                  <Ionicons name="person" size={44} color={Colors.white} />
                 </View>
               )}</ProfilePhotoFrame>
             </TouchableOpacity>
-            <Text style={styles.greeting}>{clubGreeting(user?.full_name)}</Text>
+            <View style={styles.greetingBlock}>
+              <Text style={styles.greeting}>{clubGreeting().replace(/!$/, ',')}</Text>
+              <Text style={styles.greetingName}>{(user?.full_name?.trim() || '').split(/\s+/).filter(Boolean)[0] || ''}</Text>
+              {!!(user?.full_name?.trim() || '').split(/\s+/).filter(Boolean).slice(1).join(' ') && (
+                <Text style={styles.greetingName}>{(user?.full_name?.trim() || '').split(/\s+/).filter(Boolean).slice(1).join(' ')}</Text>
+              )}
+            </View>
           </View>
           <View style={styles.headerDivider} />
           <View style={styles.headerDateRow}>
@@ -436,31 +435,46 @@ export default function MemberHomeScreen() {
             <Text style={styles.headerClubsLabel}>Your Clubs</Text>
           </View>
         </View>
-
+      <ScrollView
+        style={styles.container}
+        refreshControl={
+          <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
+        }
+      >
         {!!dashboardError && !!dashboardData && <Text accessibilityRole="alert">{dashboardError} Pull down to refresh.</Text>}
       {loading ? <View style={styles.loadingContainer}><ActivityIndicator size="large" color={Colors.primary} /><Text>Loading clubs…</Text></View> : dashboardError && !dashboardData ?
         <View style={styles.loadingContainer}><Text>{dashboardError}</Text><TouchableOpacity onPress={() => { setLoading(true); void fetchDashboard(); }}><Text>Retry</Text></TouchableOpacity></View> : (<>
       {/* Clubs & Stokvels — preserve the full mustard panel in both states */}
-      <View style={{ backgroundColor: '#E4C447', paddingHorizontal: 20, paddingTop: 17, paddingBottom: 15 }}>
-        <Text style={{ color: '#26352D', fontSize: 11, fontWeight: '400', letterSpacing: 1.1 }}>CLUBS &amp; STOKVELS</Text>
-        <View style={{ height: 126, alignItems: 'center', justifyContent: 'center' }}>
+      <View style={{ backgroundColor: '#E4C447', paddingHorizontal: 20, paddingTop: 8, paddingBottom: 2 }}>
+        <Text accessibilityRole="button" onPress={() => setQuickActionsExpanded(value => !value)} style={{ color: '#26352D', fontSize: 15, fontWeight: '400', letterSpacing: 1.1 }}>CLUBS &amp; STOKVELS</Text>
+        <View style={{ height: 180, alignItems: 'center', justifyContent: 'center' }}>
           <TouchableOpacity
             accessibilityRole="button"
             accessibilityLabel={quickActionsExpanded ? 'Close club actions' : 'Open club actions'}
             accessibilityState={{ expanded: quickActionsExpanded }}
             onPress={() => setQuickActionsExpanded(value => !value)}
-            style={{ height: 70, width: 90, alignItems: 'center', justifyContent: 'center' }}
+            style={{ height: 170, width: 170, alignItems: 'center', justifyContent: 'center' }}
           >
-            <Text style={{ color: '#26352D', fontSize: 64, lineHeight: 70, fontWeight: '200', includeFontPadding: false }}>{quickActionsExpanded ? '×' : '+'}</Text>
+            {quickActionsExpanded ? (
+              <>
+                <View style={{ position: 'absolute', width: 70, height: 6, backgroundColor: '#26352D', transform: [{ rotate: '45deg' }] }} />
+                <View style={{ position: 'absolute', width: 70, height: 6, backgroundColor: '#26352D', transform: [{ rotate: '-45deg' }] }} />
+              </>
+            ) : (
+              <>
+                <View style={{ position: 'absolute', width: 70, height: 6, backgroundColor: '#26352D' }} />
+                <View style={{ position: 'absolute', width: 6, height: 70, backgroundColor: '#26352D' }} />
+              </>
+            )}
           </TouchableOpacity>
         </View>
         <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 3 }}>
-          <Text style={{ color: '#26352D', fontSize: 10, fontWeight: '400', letterSpacing: 1 }}>{quickActionsExpanded ? 'SELECT AN OPTION' : 'TAP TO MANAGE'}</Text>
-          <Text style={{ color: '#26352D', fontSize: 10, fontWeight: '400', letterSpacing: 1 }}>{quickActionsExpanded ? 'CLOSE MENU' : '3 OPTIONS'}</Text>
+          <Text accessibilityRole="button" onPress={() => setQuickActionsExpanded(value => !value)} style={{ color: '#26352D', fontSize: 14, fontWeight: '400', letterSpacing: 1 }}>{quickActionsExpanded ? 'SELECT AN OPTION' : 'TAP TO MANAGE'}</Text>
+          <Text accessibilityRole="button" onPress={() => setQuickActionsExpanded(value => !value)} style={{ color: '#26352D', fontSize: 14, fontWeight: '400', letterSpacing: 1 }}>{quickActionsExpanded ? 'CLOSE MENU' : '3 OPTIONS'}</Text>
         </View>
       </View>
       {quickActionsExpanded && (
-        <View style={{ backgroundColor: '#586A55' }}>
+        <View style={{ backgroundColor: '#343A40' }}>
           <TouchableOpacity accessibilityRole="button" style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.18)' }} onPress={() => { setQuickActionsExpanded(false); if (latestSession.current === sessionKey) setClubList({ owner: sessionKey, expanded: true }); }}>
             <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>My Clubs &amp; Stokvels</Text>
             <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
@@ -510,11 +524,10 @@ export default function MemberHomeScreen() {
             </View>
           </View>
         )}
-      </View>
 
       {/* Advertisement Banner */}
       <HomeSponsoredCard />
-        <ClubvelSpotlight />
+        <ClubvelSpotlight homeBackgroundColor="#343A40" />
      </>)}
     </ScrollView>
 
@@ -839,17 +852,19 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: '#A5AD9B',
-    paddingBottom: 18,
+    backgroundColor: '#D9D9D9',
+    paddingBottom: 8,
     paddingHorizontal: 20,
   },
-  headerTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', minHeight: 44 },
+  headerTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', minHeight: 44 },
   headerSide: { width: 44, minHeight: 44, alignItems: 'center', justifyContent: 'center' },
-  welcomeRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 12 },
+  welcomeRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 12 },
   brandName: { flex: 1, minWidth: 0, fontSize: 16, fontWeight: '700', color: '#26352D', textAlign: 'left' },
-  greeting: { flex: 1, minWidth: 0, flexShrink: 1, fontSize: 20, lineHeight: 25, fontWeight: '500', color: '#65715F' },
-  headerDivider: { height: 1, backgroundColor: 'rgba(38,53,45,0.16)', marginTop: 16 },
-  headerDateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 12 },
+  greetingBlock: { flex: 1, minWidth: 0, justifyContent: 'center' },
+  greeting: { fontSize: 25, lineHeight: 31, fontWeight: '400', color: '#4A4A4A' },
+  greetingName: { fontSize: 18, lineHeight: 23, fontWeight: '700', color: '#000000', marginTop: 2 },
+  headerDivider: { height: 1, backgroundColor: 'rgba(38,53,45,0.16)', marginTop: 10 },
+  headerDateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8 },
   headerDate: { fontSize: 10, color: '#26352D', fontWeight: '700', letterSpacing: 1 },
   headerClubsLabel: { fontSize: 10, color: '#26352D', fontWeight: '700', letterSpacing: 1 },
   headerRight: {
@@ -1027,16 +1042,16 @@ const styles = StyleSheet.create({
     flexShrink: 0,
   },
   avatar: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 148,
+    height: 148,
+    borderRadius: 74,
     backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center', },
   avatarImage: {
-    width: 96,
-    height: 96,
-    borderRadius: 48,
+    width: 148,
+    height: 148,
+    borderRadius: 74,
   },
   modalOverlay: {
     flex: 1,

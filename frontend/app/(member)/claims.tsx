@@ -1,3 +1,4 @@
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
@@ -43,12 +44,12 @@ const getStatusColor = (status: string) => {
     case 'approved':
     case 'paid':
     case 'confirmed':
-      return '#16A34A'; // Green for positive statuses
+      return '#343A40'; // Charcoal for positive statuses
     case 'rejected':
-      return '#DC2626'; // Red for rejected
+      return '#D96540'; // Terracotta for rejected
     case 'pending_review':
     case 'processing':
-      return Colors.accent; // Orange for pending
+      return '#D96540'; // Terracotta for pending
     default:
       return Colors.textSecondary;
   }
@@ -65,10 +66,12 @@ const formatDate = (value: string | null) => {
 export default function ClaimsScreen() {
   const [photoExpanded, setPhotoExpanded] = React.useState(false);
   const { user, token } = useAuth();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const { claim_id: selectedClaimId, view } = useLocalSearchParams<{ claim_id?: string; view?: string }>();
   const [showAllClaims, setShowAllClaims] = useState(false);
   const [myClaimsExpanded, setMyClaimsExpanded] = useState(false);
+  const [claimsMenuExpanded, setClaimsMenuExpanded] = useState(false);
   useFocusEffect(useCallback(() => { if (view === 'payouts') setShowAllClaims(false); }, [view]));
   const [activeGroups, setActiveGroups] = useState<Array<{
     id: string;
@@ -265,59 +268,113 @@ export default function ClaimsScreen() {
   return (
     <View style={styles.container}>
       <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
-      <View style={styles.header}>
-        <TouchableOpacity
-          accessibilityRole="button"
-          accessibilityLabel="Expand profile photo"
-          style={styles.profileButton}
-          onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(member)/profile')}
-        >
-          <ProfilePhotoFrame>{user?.profile_photo ? (
-            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
-          ) : (
-            <View style={styles.profilePlaceholder}>
-              <Ionicons name="person" size={32} color={Colors.white} />
-            </View>
-          )}</ProfilePhotoFrame>
-        </TouchableOpacity>
-        <Text style={styles.headerTitle}>Claims</Text>
-      
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 16) }]}>
+        <View style={styles.headerTitleRow} />
+        <View style={styles.welcomeRow}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Expand profile photo"
+            style={styles.profileButton}
+            onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(member)/profile')}
+          >
+            <ProfilePhotoFrame size={148}>{user?.profile_photo ? (
+              <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
+            ) : (
+              <View style={styles.profilePlaceholder}>
+                <Ionicons name="person" size={44} color="#FFFFFF" />
+              </View>
+            )}</ProfilePhotoFrame>
+          </TouchableOpacity>
+          <View style={styles.greetingBlock}>
+            <Text style={styles.greeting}>Claims</Text>
+          </View>
+        </View>
+        <View style={styles.headerDivider} />
+        <View style={styles.headerDateRow}>
+          <Text style={styles.headerDate}>{new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })}</Text>
+          <Text style={styles.headerClubsLabel}>YOUR CLAIMS</Text>
+        </View>
       </View>
 
       <ScrollView contentContainerStyle={styles.content}>
-        <TouchableOpacity
-          style={styles.submitButton}
-          accessibilityRole="button"
-          onPress={() => void openForm()}
-        >
-          <Ionicons name="add-circle-outline" size={21} color={Colors.white} />
-          <Text style={styles.submitButtonText}>Submit a Claim</Text>
-        </TouchableOpacity>
-
-        {payoutsOnly ? (
-          <Text style={styles.sectionTitle}>Upcoming Payouts</Text>
-        ) : (
-          <TouchableOpacity
-            style={styles.myClaimsDropdown}
+        <View style={{ backgroundColor: '#E4C447', marginHorizontal: -16, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 2 }}>
+          <Text
             accessibilityRole="button"
-            accessibilityLabel="My Claims"
-            accessibilityState={{ expanded: myClaimsExpanded }}
-            onPress={() => setMyClaimsExpanded(value => !value)}
-          >
-            <View style={styles.myClaimsDropdownLabel}>
-              <Ionicons name="document-text-outline" size={20} color={Colors.white} />
-              <Text style={styles.myClaimsDropdownText}>My Claims</Text>
-            </View>
-            <Ionicons name={myClaimsExpanded ? 'chevron-up' : 'chevron-down'} size={20} color={Colors.white} />
-          </TouchableOpacity>
+            onPress={() => setClaimsMenuExpanded(value => !value)}
+            style={{ color: '#26352D', fontSize: 15, fontWeight: '400', letterSpacing: 1.1 }}
+          >CLAIMS & PAYOUTS</Text>
+          <View style={{ height: 180, alignItems: 'center', justifyContent: 'center' }}>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={claimsMenuExpanded ? 'Close claim actions' : 'Open claim actions'}
+              accessibilityState={{ expanded: claimsMenuExpanded }}
+              onPress={() => setClaimsMenuExpanded(value => !value)}
+              style={{ height: 170, width: 170, alignItems: 'center', justifyContent: 'center' }}
+            >
+              {claimsMenuExpanded ? (
+                <>
+                  <View style={{ position: 'absolute', width: 70, height: 6, backgroundColor: '#26352D', transform: [{ rotate: '45deg' }] }} />
+                  <View style={{ position: 'absolute', width: 70, height: 6, backgroundColor: '#26352D', transform: [{ rotate: '-45deg' }] }} />
+                </>
+              ) : (
+                <>
+                  <View style={{ position: 'absolute', width: 70, height: 6, backgroundColor: '#26352D' }} />
+                  <View style={{ position: 'absolute', width: 6, height: 70, backgroundColor: '#26352D' }} />
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 3 }}>
+            <Text accessibilityRole="button" onPress={() => setClaimsMenuExpanded(value => !value)} style={{ color: '#26352D', fontSize: 14, fontWeight: '400', letterSpacing: 1 }}>
+              {claimsMenuExpanded ? 'SELECT AN OPTION' : 'TAP TO MANAGE'}
+            </Text>
+            <Text accessibilityRole="button" onPress={() => setClaimsMenuExpanded(value => !value)} style={{ color: '#26352D', fontSize: 14, fontWeight: '400', letterSpacing: 1 }}>
+              {claimsMenuExpanded ? 'CLOSE MENU' : '2 OPTIONS'}
+            </Text>
+          </View>
+        </View>
+        {claimsMenuExpanded && (
+          <View style={{ backgroundColor: '#343A40' }}>
+            <TouchableOpacity
+              accessibilityRole="button"
+              onPress={() => {
+                setClaimsMenuExpanded(false);
+                void openForm();
+              }}
+              style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.18)' }}
+            >
+              <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>Submit a Claim</Text>
+              <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityState={{ expanded: payoutsOnly ? showAllClaims : myClaimsExpanded }}
+              onPress={() => {
+                if (payoutsOnly) {
+                  setShowAllClaims(true);
+                } else {
+                  setMyClaimsExpanded(value => !value);
+                }
+                setClaimsMenuExpanded(false);
+              }}
+              style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+            >
+              <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>
+                {payoutsOnly ? 'Show all claims' : 'My Claims'}
+              </Text>
+              <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
         )}
+
+        {payoutsOnly && <Text style={styles.sectionTitle}>Upcoming Payouts</Text>}
         {payoutsOnly && <View>
           <Text style={styles.helperText}>Approved claims with a remaining balance in your active Clubvels. Figures reflect the latest claim records.</Text>
           {(phase === 'ready' || phase === 'empty') && <Text style={styles.meta}>Remaining total: R{remainingPayout.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>}
           <TouchableOpacity accessibilityRole="button" accessibilityLabel="Show all claims" onPress={() => setShowAllClaims(true)}><Text style={styles.retryText}>Show all claims</Text></TouchableOpacity>
         </View>}
 
-        {(payoutsOnly || myClaimsExpanded) && (
+        {(payoutsOnly || myClaimsExpanded || showAllClaims) && (
           <>
         {refreshing && phase !== 'loading' && (
           <Text accessibilityLiveRegion="polite" style={styles.helperText}>
@@ -355,7 +412,7 @@ export default function ClaimsScreen() {
               <View key={claim.claim_id} style={[styles.card, claim.claim_id === selectedClaimId && { borderColor: Colors.accent }]}>
                 <View style={styles.cardHeader}>
                   <View style={styles.claimIcon}>
-                    <Ionicons name="document-text-outline" size={20} color={Colors.accent} />
+                    <Ionicons name="document-text-outline" size={20} color="#343A40" />
                   </View>
                   <View style={styles.cardHeading}>
                     <Text style={styles.groupName}>{claim.group_name}</Text>
@@ -415,7 +472,7 @@ export default function ClaimsScreen() {
           </>
         )}
 
-        <AdBanner size="banner" style={{ marginTop: 12 }} />
+        <AdBanner size="banner" terracotta style={{ marginTop: 12 }} />
         <ClubvelSpotlight />
       </ScrollView>
 
@@ -532,34 +589,36 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.primary,
-    borderBottomLeftRadius: 22,
-    borderBottomRightRadius: 22,
-    paddingTop: 60,
-    paddingBottom: 22,
-    paddingHorizontal: 24,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 16,
+    backgroundColor: '#D9D9D9',
+    paddingBottom: 8,
+    paddingHorizontal: 20,
   },
   headerTitle: {
     flex: 1,
     fontSize: 24,
     fontWeight: '400',
-    color: Colors.white,
+    color: '#343A40',
   },
-  profileButton: { padding: 4, flexShrink: 0 },
+  headerTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', minHeight: 44 },
+  welcomeRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 12 },
+  greetingBlock: { flex: 1, minWidth: 0, justifyContent: 'center' },
+  greeting: { fontSize: 25, lineHeight: 31, fontWeight: '400', color: '#4A4A4A' },
+  greetingName: { fontSize: 30, lineHeight: 36, fontWeight: '400', color: '#000000', marginTop: 2 },
+  headerDivider: { height: 1, backgroundColor: 'rgba(38,53,45,0.16)', marginTop: 10 },
+  headerDateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8 },
+  headerDate: { fontSize: 10, color: '#26352D', fontWeight: '700', letterSpacing: 1 },
+  headerClubsLabel: { fontSize: 10, color: '#26352D', fontWeight: '700', letterSpacing: 1 },
+  profileButton: { padding: 0, flexShrink: 0 },
   profileImage: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
+    width: 148,
+    height: 148,
+    borderRadius: 74,
 },
   profilePlaceholder: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
-    backgroundColor: Colors.accent,
+    width: 148,
+    height: 148,
+    borderRadius: 74,
+    backgroundColor: '#343A40',
     justifyContent: 'center',
     alignItems: 'center',
 },
@@ -574,7 +633,7 @@ const styles = StyleSheet.create({
     minHeight: 52,
     paddingVertical: 14,
     borderRadius: 12,
-    backgroundColor: Colors.coralAction, borderColor: Colors.coralRed, borderWidth: 1,
+    backgroundColor: '#343A40',
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'center',
@@ -590,7 +649,7 @@ const styles = StyleSheet.create({
   myClaimsDropdown: {
     minHeight: 52,
     borderRadius: 12,
-    backgroundColor: Colors.accent,
+    backgroundColor: '#E4C447',
     paddingHorizontal: 16,
     flexDirection: 'row',
     alignItems: 'center',
@@ -649,8 +708,8 @@ const styles = StyleSheet.create({
   },
   card: {
     backgroundColor: Colors.white,
-    padding: 18,
-    borderRadius: 14,
+    padding: 16,
+    borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.cardBorder,
     marginBottom: 12,
@@ -664,7 +723,7 @@ const styles = StyleSheet.create({
     width: 38,
     height: 38,
     borderRadius: 19,
-    backgroundColor: Colors.accentLight,
+    backgroundColor: '#F8EDC2',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 11,
@@ -704,12 +763,12 @@ const styles = StyleSheet.create({
     marginTop: 12,
     padding: 12,
     borderRadius: 10,
-    backgroundColor: Colors.errorSurface,
+    backgroundColor: '#FBE5DF',
   },
   rejectionLabel: {
     fontSize: 12,
     fontWeight: '700',
-    color: Colors.statusLate,
+    color: '#D96540',
     marginBottom: 4,
   },
   rejectionText: {
@@ -834,7 +893,7 @@ const styles = StyleSheet.create({
   confirmButton: {
     minHeight: 52,
     borderRadius: 12,
-    backgroundColor: Colors.coralAction, borderColor: Colors.coralRed, borderWidth: 1,
+    backgroundColor: '#343A40',
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 16,

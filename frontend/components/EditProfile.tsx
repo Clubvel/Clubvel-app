@@ -27,9 +27,9 @@ export default function EditProfile() {
   const save = async () => {
     if (pending.current) return;
     const first = firstName.trim(), last = surname.trim();
-    const name = `${first} ${last}`.replace(/\s+/g, ' ');
-    if (!first || !last || name.length > 100 || !/\p{L}/u.test(first) || !/\p{L}/u.test(last) || !/^[\p{L}\p{M} .'‘’-]+$/u.test(name)) {
-      setError('Enter your first name and surname (100 characters maximum).'); return;
+    const name = [first, last].filter(Boolean).join(' ');
+    if (!first || name.length > 100 || !/\p{L}/u.test(first) || (last && !/\p{L}/u.test(last)) || !/^[\p{L}\p{M} .'‘’-]+$/u.test(name)) {
+      setError('Enter a valid first name (100 characters maximum).'); return;
     }
     pending.current = true; setSaving(true); setError(null);
     try {

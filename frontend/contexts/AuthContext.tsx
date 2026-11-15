@@ -11,7 +11,7 @@ interface User {
   id: string;
   full_name: string;
   phone_number: string;
-  profile_photo?: string;
+  profile_photo?: string | null;
 }
 
 interface AuthContextType {
@@ -23,7 +23,7 @@ interface AuthContextType {
   verifyOTP: (phone: string, otp: string) => Promise<void>;
   sendOTP: (phone: string) => Promise<OTPResult>;
   logout: () => Promise<void>;
-  updateProfilePhoto: (photoBase64: string) => Promise<void>;
+  updateProfilePhoto: (photoBase64: string | null) => Promise<void>;
   updateProfile: (fullName: string) => Promise<void>;
   refreshSession: () => void;
 }
@@ -178,7 +178,7 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (error) { throw authenticationError(error); }
   };
 
-  const updateProfilePhoto = async (photoBase64: string) => {
+  const updateProfilePhoto = async (photoBase64: string | null) => {
     if (!user?.id || !token) throw new Error('Please sign in again.');
     const revision = sessionRevision.current;
     const accountId = user.id;

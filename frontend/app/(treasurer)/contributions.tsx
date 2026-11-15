@@ -208,7 +208,7 @@ export default function ContributionsScreen() {
       {/* Header with Month Navigation and Profile */}
       <View style={styles.header}>
         <TouchableOpacity onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(treasurer)/profile')} style={styles.profileButton}>
-          <ProfilePhotoFrame>{user?.profile_photo ? (
+          <ProfilePhotoFrame size={148}>{user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
           ) : (
             <View style={styles.profilePlaceholder}>
@@ -236,7 +236,7 @@ export default function ContributionsScreen() {
 
       <TouchableOpacity style={styles.summaryContainer} onPress={() => setShowClubs(true)}>
         <Text>{clubs.find(club => club.id === groupId)?.name || 'Select Club'}</Text>
-        <Ionicons name="chevron-down" size={20} color={Colors.mediumGreen} />
+        <Ionicons name="chevron-down" size={20} color={Colors.textPrimary} />
       </TouchableOpacity>
       {error && <View style={styles.summaryContainer}><Text>{error}</Text><TouchableOpacity onPress={() => { void fetchClubs(); void fetchContributions(); }}><Text>Retry</Text></TouchableOpacity></View>}
       {loadedKey === context && <>
@@ -262,7 +262,7 @@ export default function ContributionsScreen() {
       </>}
       {/* Contributions List */}
       <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={loading && loadedKey === context} onRefresh={() => void fetchContributions()} />}>
-        {loading && loadedKey !== context && <ActivityIndicator size="large" color={Colors.mediumGreen} />}
+        {loading && loadedKey !== context && <ActivityIndicator size="large" color={Colors.textPrimary} />}
         {!loading && !groupId && !error && <Text>No managed clubs yet.</Text>}
         {loadedKey === context && effectiveFilter && <View style={styles.contributionCard}>
           <Text accessibilityLiveRegion="polite">Showing {effectiveFilter === 'collected' ? 'confirmed payments contributing to Confirmed Collected' : 'remaining balances contributing to Outstanding'} — {paymentMoney(summary[effectiveFilter])}</Text>
@@ -299,7 +299,7 @@ export default function ContributionsScreen() {
                   style={styles.viewProofButton}
                   onPress={() => handleViewProof(contribution.id!)}
                 >
-                  <Ionicons name="eye" size={18} color={Colors.mediumGreen} />
+                  <Ionicons name="eye" size={18} color={Colors.textPrimary} />
                   <Text style={styles.viewProofText}>View Proof</Text>
                 </TouchableOpacity>
 
@@ -328,7 +328,7 @@ export default function ContributionsScreen() {
 
             {contribution.status === 'confirmed' && contribution.payment_date && (
               <View style={styles.confirmedInfo}>
-                <Ionicons name="checkmark-circle" size={16} color={Colors.statusPaid} />
+                <Ionicons name="checkmark-circle" size={16} color={Colors.textPrimary} />
                 <Text style={styles.confirmedText}>Confirmed on {new Date(contribution.payment_date).toLocaleDateString()}</Text>
               </View>
             )}
@@ -398,7 +398,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.primary,
+    backgroundColor: '#E4C447',
     borderBottomLeftRadius: 22,
     borderBottomRightRadius: 22,
     paddingTop: 60,
@@ -415,27 +415,27 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 24,
     fontWeight: '400',
-    color: Colors.white,
+    color: '#26352D',
   },
   profileButton: {
     padding: 4,
     flexShrink: 0,
   },
   profileImage: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
-},
+    width: 148,
+    height: 148,
+    borderRadius: 74,
+  },
   profilePlaceholder: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
-    backgroundColor: Colors.primary,
+    width: 148,
+    height: 148,
+    borderRadius: 74,
+    backgroundColor: '#343A40',
     justifyContent: 'center',
     alignItems: 'center',
-},
+  },
   monthNav: {
-    backgroundColor: Colors.coralAction,
+    backgroundColor: '#D96540',
     marginTop: 16,
     marginHorizontal: 24,
     paddingHorizontal: 24,
@@ -489,10 +489,10 @@ const styles = StyleSheet.create({
     textAlign: 'center',
   },
   collectedValue: {
-    color: Colors.statusPaid,
+    color: Colors.textPrimary,
   },
   outstandingValue: {
-    color: Colors.statusLate,
+    color: Colors.textPrimary,
   },
   content: {
     flex: 1,
@@ -553,13 +553,13 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: Colors.mediumGreen,
+    borderColor: Colors.textPrimary,
     backgroundColor: Colors.white,
   },
   viewProofText: {
     fontSize: 14,
     fontWeight: '600',
-    color: Colors.mediumGreen,
+    color: Colors.textPrimary,
   },
   confirmButton: {
     flex: 0,
@@ -569,7 +569,7 @@ const styles = StyleSheet.create({
     gap: 6,
     paddingVertical: 10,
     borderRadius: 8,
-    backgroundColor: Colors.mediumGreen,
+    backgroundColor: Colors.textPrimary,
   },
   confirmButtonDisabled: {
     opacity: 0.6,
@@ -583,13 +583,13 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     gap: 6,
-    backgroundColor: '#F0FDF4',
+    backgroundColor: '#F3F4F6',
     padding: 8,
     borderRadius: 8,
   },
   confirmedText: {
     fontSize: 12,
-    color: Colors.statusPaid,
+    color: Colors.textPrimary,
     fontWeight: '600',
   },
   modalOverlay: {

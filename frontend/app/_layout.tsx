@@ -55,7 +55,7 @@ export function StartupSplash() {
 }
 
 const launchStyles = StyleSheet.create({
-  screen: { ...StyleSheet.absoluteFillObject, backgroundColor: '#06285B', alignItems: 'center', justifyContent: 'center', zIndex: 100 },
+  screen: { ...StyleSheet.absoluteFillObject, backgroundColor: '#D96540', alignItems: 'center', justifyContent: 'center', zIndex: 100 },
   logo: { width: 200, maxWidth: '80%', aspectRatio: 1 },
 });
 

@@ -425,14 +425,14 @@ export default function AuthScreen() {
               
               <TextInput
                 style={[styles.input, styles.authInput]}
-                accessibilityLabel="Full name" placeholder="Full name" placeholderTextColor="#D5E1F2"
+                accessibilityLabel="Full name" placeholder="Full name" placeholderTextColor="#FCE5DC"
                 value={fullName}
                 onChangeText={setFullName}
               />
 
               <TextInput
                 style={[styles.input, styles.authInput]}
-                accessibilityLabel="Phone number" placeholder="Phone number" placeholderTextColor="#D5E1F2"
+                accessibilityLabel="Phone number" placeholder="Phone number" placeholderTextColor="#FCE5DC"
                 value={phoneNumber}
                 onChangeText={setPhoneNumber}
                 keyboardType="phone-pad"
@@ -441,7 +441,7 @@ export default function AuthScreen() {
               <View style={{ position: 'relative' }}>
                 <TextInput
                   style={[styles.input, styles.authInput]}
-                  accessibilityLabel="Password" placeholder="Password" placeholderTextColor="#D5E1F2"
+                  accessibilityLabel="Password" placeholder="Password" placeholderTextColor="#FCE5DC"
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
@@ -484,7 +484,7 @@ export default function AuthScreen() {
               
               <TextInput
                 style={[styles.input, styles.authInput]}
-                accessibilityLabel="Phone number" placeholder="Phone number" placeholderTextColor="#D5E1F2"
+                accessibilityLabel="Phone number" placeholder="Phone number" placeholderTextColor="#FCE5DC"
                 value={phoneNumber}
                 onChangeText={setPhoneNumber}
                 keyboardType="phone-pad"
@@ -493,7 +493,7 @@ export default function AuthScreen() {
               <View style={{ position: 'relative' }}>
                 <TextInput
                 style={[styles.input, styles.authInput]}
-                accessibilityLabel="Password" placeholder="Password" placeholderTextColor="#D5E1F2"
+                accessibilityLabel="Password" placeholder="Password" placeholderTextColor="#FCE5DC"
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
@@ -681,13 +681,13 @@ export default function AuthScreen() {
 }
 
 const styles = StyleSheet.create({
-  authPage: { backgroundColor: Colors.primary },
+  authPage: { backgroundColor: '#D96540' },
   authLogo: { width: 108, height: 108, marginBottom: 8 },
   authTitle: { color: Colors.white, fontWeight: '400', fontSize: 27, marginBottom: 8 },
-  authSubtitle: { color: '#D5E1F2', fontSize: 16, marginBottom: 24 },
-  authInput: { backgroundColor: '#123C70', borderColor: '#7F9BBD', color: Colors.white, minHeight: 54, borderRadius: 18, paddingRight: 52 },
+  authSubtitle: { color: '#FCE5DC', fontSize: 16, marginBottom: 24 },
+  authInput: { backgroundColor: '#B94F32', borderColor: '#F0A18A', color: Colors.white, minHeight: 54, borderRadius: 18, paddingRight: 52 },
   authSignIn: { backgroundColor: Colors.signInAction, minHeight: 54, borderRadius: 18 },
-  authLink: { color: '#C3E3FF', fontWeight: '400', minHeight: 44, paddingVertical: 10 },
+  authLink: { color: '#FFE4D8', fontWeight: '400', minHeight: 44, paddingVertical: 10 },
   container: {
     flex: 1,
     backgroundColor: Colors.lightBackground,

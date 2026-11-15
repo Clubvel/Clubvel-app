@@ -2142,7 +2142,7 @@ async def update_contact_visibility(user_id: str, data: ContactVisibilityUpdate,
 
 class ProfilePhotoUpdate(BaseModel):
     user_id: str
-    profile_photo: str  # base64 encoded image
+    profile_photo: Optional[str] = None  # null removes the profile photo
 
 @api_router.post("/user/profile-photo")
 async def update_profile_photo(data: ProfilePhotoUpdate, authorization: Optional[str] = Header(None)):
@@ -2153,13 +2153,18 @@ async def update_profile_photo(data: ProfilePhotoUpdate, authorization: Optional
     if not user:
         raise HTTPException(status_code=404, detail="User not found")
     
-    # Update profile photo
+    if data.profile_photo:
+        await db.users.update_one(
+            {"id": data.user_id},
+            {"$set": {"profile_photo": data.profile_photo}}
+        )
+        return {"message": "Profile photo updated successfully"}
+
     await db.users.update_one(
         {"id": data.user_id},
-        {"$set": {"profile_photo": data.profile_photo}}
+        {"$unset": {"profile_photo": ""}}
     )
-    
-    return {"message": "Profile photo updated successfully"}
+    return {"message": "Profile photo removed successfully"}
 
 
 @api_router.get("/alerts/{user_id}")

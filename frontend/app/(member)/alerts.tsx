@@ -1,3 +1,4 @@
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
 import React, { useCallback, useRef, useState } from 'react';
@@ -26,10 +27,12 @@ interface Alert {
 export default function AlertsScreen() {
   const [photoExpanded, setPhotoExpanded] = React.useState(false);
   const { user, token } = useAuth();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [clubNames, setClubNames] = useState<Record<string, string>>({});
   const [myAlertsExpanded, setMyAlertsExpanded] = useState(false);
+  const [alertsMenuExpanded, setAlertsMenuExpanded] = useState(false);
   const [expandedClubs, setExpandedClubs] = useState<Record<string, boolean>>({});
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
@@ -115,16 +118,16 @@ export default function AlertsScreen() {
   const getAlertIcon = (type: string) => {
     switch (type) {
       case 'payment_due':
-        return { name: 'calendar' as const, color: Colors.gold };
+        return { name: 'calendar' as const, color: '#343A40' };
       case 'payment_late':
-        return { name: 'alert-circle' as const, color: Colors.statusLate };
+        return { name: 'alert-circle' as const, color: '#D96540' };
       case 'payment_confirmed':
-        return { name: 'checkmark-circle' as const, color: Colors.statusPaid };
+        return { name: 'checkmark-circle' as const, color: '#343A40' };
       case 'claim_upcoming':
       case 'claim_paid':
-        return { name: 'trophy' as const, color: Colors.gold };
+        return { name: 'trophy' as const, color: '#E4C447' };
       default:
-        return { name: 'information-circle' as const, color: Colors.mediumGreen };
+        return { name: 'information-circle' as const, color: '#343A40' };
     }
   };
 
@@ -146,7 +149,7 @@ export default function AlertsScreen() {
   if ((loading || loadedContext !== context) && !error) {
     return (
       <View style={styles.loadingContainer}>
-        <ActivityIndicator size="large" color={Colors.mediumGreen} />
+        <ActivityIndicator size="large" color="#343A40" />
       </View>
     );
   }
@@ -178,21 +181,32 @@ export default function AlertsScreen() {
   return (
     <View style={styles.container}>
       <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
-      {/* Header with Profile Photo */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(member)/profile')} style={styles.profileButton}>
-          <ProfilePhotoFrame>{user?.profile_photo ? (
-            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
-          ) : (
-            <View style={styles.profilePlaceholder}>
-              <Ionicons name="person" size={32} color={Colors.white} />
-            </View>
-          )}</ProfilePhotoFrame>
-        </TouchableOpacity>
-        <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle}>Alerts</Text>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 16) }]}>
+        <View style={styles.headerTitleRow} />
+        <View style={styles.welcomeRow}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Expand profile photo"
+            style={styles.profileButton}
+            onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(member)/profile')}
+          >
+            <ProfilePhotoFrame size={148}>{user?.profile_photo ? (
+              <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
+            ) : (
+              <View style={styles.profilePlaceholder}>
+                <Ionicons name="person" size={44} color={Colors.white} />
+              </View>
+            )}</ProfilePhotoFrame>
+          </TouchableOpacity>
+          <View style={styles.greetingBlock}>
+            <Text style={styles.greeting}>Alerts</Text>
+          </View>
         </View>
-      
+        <View style={styles.headerDivider} />
+        <View style={styles.headerDateRow}>
+          <Text style={styles.headerDate}>{new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })}</Text>
+          <Text style={styles.headerClubsLabel}>YOUR ALERTS</Text>
+        </View>
       </View>
 
       <ScrollView
@@ -212,17 +226,58 @@ export default function AlertsScreen() {
 
         {!error && (
           <View style={styles.section}>
-            <TouchableOpacity
-              accessibilityRole="button"
-              accessibilityState={{ expanded: myAlertsExpanded }}
-              onPress={() => setMyAlertsExpanded(v => !v)}
-              style={styles.myAlertsHeader}
-            >
-              <Ionicons name="notifications" size={22} color={Colors.white} style={styles.sideIcon} />
-              <Text style={styles.myAlertsTitle}>My Alerts</Text>
-              <Ionicons name={myAlertsExpanded ? 'chevron-up' : 'chevron-down'}
-                size={21} color={Colors.white} style={styles.sideIcon} />
-            </TouchableOpacity>
+            <View style={{ backgroundColor: '#E4C447', marginHorizontal: -16, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 2 }}>
+              <Text
+                accessibilityRole="button"
+                onPress={() => setAlertsMenuExpanded(value => !value)}
+                style={{ color: '#26352D', fontSize: 15, fontWeight: '400', letterSpacing: 1.1 }}
+              >MY ALERTS</Text>
+              <View style={{ height: 180, alignItems: 'center', justifyContent: 'center' }}>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityLabel={alertsMenuExpanded ? 'Close alert actions' : 'Open alert actions'}
+                  accessibilityState={{ expanded: alertsMenuExpanded }}
+                  onPress={() => setAlertsMenuExpanded(value => !value)}
+                  style={{ height: 170, width: 170, alignItems: 'center', justifyContent: 'center' }}
+                >
+                  {alertsMenuExpanded ? (
+                    <>
+                      <View style={{ position: 'absolute', width: 70, height: 6, backgroundColor: '#26352D', transform: [{ rotate: '45deg' }] }} />
+                      <View style={{ position: 'absolute', width: 70, height: 6, backgroundColor: '#26352D', transform: [{ rotate: '-45deg' }] }} />
+                    </>
+                  ) : (
+                    <>
+                      <View style={{ position: 'absolute', width: 70, height: 6, backgroundColor: '#26352D' }} />
+                      <View style={{ position: 'absolute', width: 6, height: 70, backgroundColor: '#26352D' }} />
+                    </>
+                  )}
+                </TouchableOpacity>
+              </View>
+              <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 3 }}>
+                <Text accessibilityRole="button" onPress={() => setAlertsMenuExpanded(value => !value)} style={{ color: '#26352D', fontSize: 14, fontWeight: '400', letterSpacing: 1 }}>
+                  {alertsMenuExpanded ? 'SELECT AN OPTION' : 'TAP TO VIEW'}
+                </Text>
+                <Text accessibilityRole="button" onPress={() => setAlertsMenuExpanded(value => !value)} style={{ color: '#26352D', fontSize: 14, fontWeight: '400', letterSpacing: 1 }}>
+                  {alertsMenuExpanded ? 'CLOSE MENU' : '1 OPTION'}
+                </Text>
+              </View>
+            </View>
+            {alertsMenuExpanded && (
+              <View style={{ backgroundColor: '#343A40' }}>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: myAlertsExpanded }}
+                  onPress={() => {
+                    setMyAlertsExpanded(value => !value);
+                    setAlertsMenuExpanded(false);
+                  }}
+                  style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+                >
+                  <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>My Alerts</Text>
+                  <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+            )}
 
             {myAlertsExpanded && (
               <View style={styles.alertsDropdown}>
@@ -250,7 +305,7 @@ export default function AlertsScreen() {
                 })}
                 {clubGroups.length === 0 && (
                   <View style={styles.emptyState}>
-                    <Ionicons name="notifications-outline" size={56} color={Colors.accent} />
+                    <Ionicons name="notifications-outline" size={56} color="#343A40" />
                     <Text style={styles.emptyStateText}>No alerts</Text>
                     <Text style={styles.emptyStateSubtext}>You&apos;re all caught up!</Text>
                   </View>
@@ -261,9 +316,9 @@ export default function AlertsScreen() {
         )}
 
         <View style={styles.adBannerContainer}>
-          <AdBanner size="banner" />
-        <ClubvelSpotlight />
+          <AdBanner size="banner" terracotta />
         </View>
+        <ClubvelSpotlight />
       </ScrollView>
     </View>
   );
@@ -281,16 +336,9 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.primary,
-    borderBottomLeftRadius: 22,
-    borderBottomRightRadius: 22,
-    paddingTop: 60,
-    paddingBottom: 22,
-    paddingHorizontal: 24,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 16,
+    backgroundColor: '#D9D9D9',
+    paddingBottom: 8,
+    paddingHorizontal: 20,
   },
   headerLeft: {
     flex: 1,
@@ -298,22 +346,28 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 24,
     fontWeight: '400',
-    color: Colors.white,
+    color: '#343A40',
   },
-  profileButton: {
-    padding: 4,
-    flexShrink: 0,
-  },
+  headerTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', minHeight: 44 },
+  welcomeRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 12 },
+  greetingBlock: { flex: 1, minWidth: 0, justifyContent: 'center' },
+  greeting: { fontSize: 25, lineHeight: 31, fontWeight: '400', color: '#4A4A4A' },
+  greetingName: { fontSize: 30, lineHeight: 36, fontWeight: '400', color: '#000000', marginTop: 2 },
+  headerDivider: { height: 1, backgroundColor: 'rgba(38,53,45,0.16)', marginTop: 10 },
+  headerDateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8 },
+  headerDate: { fontSize: 10, color: '#26352D', fontWeight: '700', letterSpacing: 1 },
+  headerClubsLabel: { fontSize: 10, color: '#26352D', fontWeight: '700', letterSpacing: 1 },
+  profileButton: { padding: 0, flexShrink: 0 },
   profileImage: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
+    width: 148,
+    height: 148,
+    borderRadius: 74,
   },
   profilePlaceholder: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
-    backgroundColor: Colors.primary,
+    width: 148,
+    height: 148,
+    borderRadius: 74,
+    backgroundColor: '#343A40',
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -325,12 +379,12 @@ const styles = StyleSheet.create({
     paddingTop: 24,
   },
   myAlertsHeader: {
-    minHeight: 58, backgroundColor: Colors.coralAction, borderRadius: 12,
+    minHeight: 58, backgroundColor: '#E4C447', borderRadius: 12,
     paddingHorizontal: 14, flexDirection: 'row', alignItems: 'center',
   },
   sideIcon: { width: 22, textAlign: 'center' },
   myAlertsTitle: {
-    flex: 1, textAlign: 'center', color: Colors.white,
+    flex: 1, textAlign: 'center', color: '#343A40',
     fontSize: 18, fontWeight: '700',
   },
   alertsDropdown: { paddingTop: 12 },
@@ -339,7 +393,7 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
   },
   clubHeader: {
-    minHeight: 50, backgroundColor: Colors.primary, padding: 14,
+    minHeight: 50, backgroundColor: '#343A40', padding: 14,
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
   },
   clubHeaderTitle: {
@@ -348,7 +402,7 @@ const styles = StyleSheet.create({
   },
   clubAlerts: { padding: 10 },
   adBannerContainer: {
-    marginHorizontal: 24, marginTop: 12, marginBottom: 20,
+    marginHorizontal: 16, marginTop: 12, marginBottom: 20,
     alignItems: 'center',
   },
   sectionTitle: {
@@ -369,7 +423,7 @@ const styles = StyleSheet.create({
   },
   alertCardUnread: {
     backgroundColor: Colors.lightBackground,
-    borderColor: Colors.mediumGreen,
+    borderColor: '#E4C447',
   },
   alertDot: {
     width: 8,

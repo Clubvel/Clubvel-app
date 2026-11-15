@@ -2,12 +2,12 @@ import React, { useState } from 'react';
 import { View, Text, StyleSheet, TouchableOpacity, Modal, StatusBar, Alert } from 'react-native';
 import { Ionicons } from '@expo/vector-icons';
 
-export default function ClubvelSpotlight() {
+export default function ClubvelSpotlight({ homeBackgroundColor }: { homeBackgroundColor?: string }) {
   const [showPreview, setShowPreview] = useState(false);
   const [showEarnDetails, setShowEarnDetails] = useState(false);
   return (
     <>
-      <View style={styles.card} accessibilityLabel="Clubvel Spotlight video advertising preview">
+      <View style={[styles.card, homeBackgroundColor ? { backgroundColor: homeBackgroundColor } : null]} accessibilityLabel="Clubvel Spotlight video advertising preview">
         <View style={styles.topRow}>
           <Text style={styles.sectionTitle}>CLUBVEL SPOTLIGHT</Text>
           <Text style={styles.preview}>PREVIEW</Text>
@@ -40,7 +40,7 @@ export default function ClubvelSpotlight() {
           </View>
           <View style={styles.bottomPanel}>
             <Text style={styles.bottomTitle}>Discover something useful</Text>
-            <Text style={styles.bottomDescription}>Sponsored offers may open an advertiser's page when live campaigns are connected.</Text>
+            <Text style={styles.bottomDescription}>Sponsored offers may open an advertiser&apos;s page when live campaigns are connected.</Text>
             <TouchableOpacity style={styles.ctaButton} onPress={() => Alert.alert('Preview only', 'Advertiser links are not connected yet.')} accessibilityRole="button"><Text style={styles.ctaText}>LEARN MORE</Text><Ionicons name="arrow-forward" size={19} color="#FFFFFF" /></TouchableOpacity>
             <TouchableOpacity style={styles.closePreviewButton} onPress={() => setShowPreview(false)} accessibilityRole="button"><Text style={styles.closePreviewText}>Close preview</Text></TouchableOpacity>
           </View>

@@ -30,9 +30,10 @@ interface AdBannerProps {
   size?: 'banner' | 'largeBanner' | 'mediumRectangle';
   style?: any;
   fullWidth?: boolean;
+  terracotta?: boolean;
 }
 
-export const AdBanner: React.FC<AdBannerProps> = ({ size = 'banner', style, fullWidth = false }) => {
+export const AdBanner: React.FC<AdBannerProps> = ({ size = 'banner', style, fullWidth = false, terracotta = false }) => {
   const [mockAd, setMockAd] = useState(MOCK_ADS[0]);
 
   useEffect(() => {
@@ -57,20 +58,20 @@ export const AdBanner: React.FC<AdBannerProps> = ({ size = 'banner', style, full
   return (
     <View style={[styles.container, style]}>
       <TouchableOpacity 
-        style={[styles.mockAdContainer, fullWidth && styles.fullWidthAdContainer]}
+        style={[styles.mockAdContainer, fullWidth && styles.fullWidthAdContainer, terracotta && styles.terracottaAdContainer]}
         onPress={handleAdPress}
         activeOpacity={0.9}
       >
         <View style={styles.adLabelContainer}>
-          <Text style={styles.adLabel}>Ad</Text>
-          <Text style={styles.mockLabel}> (Demo)</Text>
+          <Text style={[styles.adLabel, terracotta && styles.terracottaAdLabel]}>Ad</Text>
+          <Text style={[styles.mockLabel, terracotta && styles.terracottaText]}> (Demo)</Text>
         </View>
         <View style={styles.adContent}>
-          <Text style={styles.adTitle} numberOfLines={1}>{mockAd.title}</Text>
-          <Text style={styles.adBody} numberOfLines={2}>{mockAd.body}</Text>
+          <Text style={[styles.adTitle, terracotta && styles.terracottaText]} numberOfLines={1}>{mockAd.title}</Text>
+          <Text style={[styles.adBody, terracotta && styles.terracottaText]} numberOfLines={2}>{mockAd.body}</Text>
         </View>
-        <View style={styles.ctaContainer}>
-          <Text style={styles.ctaText}>Learn More</Text>
+        <View style={[styles.ctaContainer, terracotta && styles.terracottaCta]}>
+          <Text style={[styles.ctaText, terracotta && styles.terracottaCtaText]}>Learn More</Text>
         </View>
       </TouchableOpacity>
     </View>
@@ -197,6 +198,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
   },
   fullWidthAdContainer: { maxWidth: '100%' },
+  terracottaAdContainer: { backgroundColor: '#D96540', borderColor: '#D96540' },
+  terracottaAdLabel: { backgroundColor: '#FFF0E8', color: '#8C351F' },
+  terracottaText: { color: '#FFFFFF' },
+  terracottaCta: { backgroundColor: '#FFFFFF' },
+  terracottaCtaText: { color: '#8C351F' },
   adLabelContainer: {
     position: 'absolute',
     top: 4,

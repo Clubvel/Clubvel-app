@@ -157,6 +157,32 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleRemovePhoto = () => {
+    Alert.alert(
+      "Remove profile photo?",
+      "Your profile will return to the default avatar.",
+      [
+        { text: "Cancel", style: "cancel" },
+        {
+          text: "Remove photo",
+          style: "destructive",
+          onPress: async () => {
+            setUploading(true);
+            try {
+              await updateProfilePhoto(null);
+              setPhotoExpanded(false);
+              Alert.alert("Success", "Profile photo removed.");
+            } catch (error: any) {
+              Alert.alert("Error", error.message || "Failed to remove profile photo");
+            } finally {
+              setUploading(false);
+            }
+          },
+        },
+      ]
+    );
+  };
+
   return (
     <View style={styles.container}>
       <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
@@ -164,7 +190,7 @@ export default function ProfileScreen() {
       <View style={styles.header}>
         <TouchableOpacity style={styles.avatarContainer} onPress={() => user?.profile_photo ? setPhotoExpanded(true) : handleChangePhoto()} disabled={uploading}
           accessibilityRole="button" accessibilityLabel={user?.profile_photo ? "View full-size profile photo" : "Add profile photo"}>
-          <ProfilePhotoFrame>{user?.profile_photo ? (
+          <ProfilePhotoFrame size={148}>{user?.profile_photo ? (
             <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
           ) : (
             <View style={styles.avatar}>
@@ -182,6 +208,11 @@ export default function ProfileScreen() {
         <TouchableOpacity onPress={handleChangePhoto} disabled={uploading} accessibilityRole="button">
           <Text style={styles.photoActionText}>{uploading ? 'Updating photo…' : 'Change photo'}</Text>
         </TouchableOpacity>
+        {user?.profile_photo && (
+          <TouchableOpacity onPress={handleRemovePhoto} disabled={uploading} accessibilityRole="button">
+            <Text style={styles.photoActionText}>Remove photo</Text>
+          </TouchableOpacity>
+        )}
         <Text style={styles.name}>{user?.full_name}</Text>
         <EditProfile />
         {stats.date_joined && (
@@ -394,9 +425,9 @@ const styles = StyleSheet.create({
     paddingVertical: 8,
   },
   avatar: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
+    width: 148,
+    height: 148,
+    borderRadius: 74,
     backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center', },
@@ -405,9 +436,9 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   avatarImage: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
+    width: 148,
+    height: 148,
+    borderRadius: 74,
   },
   editBadge: {
     position: 'absolute',

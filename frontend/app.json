@@ -39,7 +39,7 @@
       "versionCode": 13,
       "adaptiveIcon": {
         "foregroundImage": "./assets/images/clubvel-midnight-symbol.png",
-        "backgroundColor": "#06285B"
+        "backgroundColor": "#D96540"
       },
       "edgeToEdgeEnabled": true,
       "permissions": [
@@ -60,11 +60,11 @@
           "image": "./assets/images/clubvel-midnight-symbol.png",
           "imageWidth": 200,
           "resizeMode": "contain",
-          "backgroundColor": "#06285B",
+          "backgroundColor": "#D96540",
           "android": {
             "image": "./assets/images/clubvel-midnight-symbol.png",
             "imageWidth": 200,
-            "backgroundColor": "#06285B",
+            "backgroundColor": "#D96540",
             "resizeMode": "contain"
           }
         }

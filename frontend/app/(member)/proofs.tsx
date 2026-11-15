@@ -1,3 +1,4 @@
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { contributionStatusCounts } from '../../services/contributionStatusCounts';
 import { paymentStateLabel, paymentMoney } from '../../services/paymentSummaryRecords';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
@@ -51,6 +52,7 @@ interface Proof {
 export default function ProofOfPaymentsScreen() {
   const [photoExpanded, setPhotoExpanded] = React.useState(false);
   const { user, token } = useAuth();
+  const insets = useSafeAreaInsets();
   const router = useRouter();
   const params = useLocalSearchParams<{ group_id?: string; month?: string; year?: string; contribution_id?: string; scope?: string; from?: string }>();
   const clubScoped = params.scope === 'club';
@@ -613,22 +615,32 @@ export default function ProofOfPaymentsScreen() {
   return (
     <View style={styles.container}>
       <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
-      {/* Header with Profile Photo */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(member)/profile')} style={styles.profileButton}>
-          <ProfilePhotoFrame>{user?.profile_photo ? (
-            <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
-          ) : (
-            <View style={styles.profilePlaceholder}>
-              <Ionicons name="person" size={32} color={Colors.white} />
-            </View>
-          )}</ProfilePhotoFrame>
-        </TouchableOpacity>
-        <View style={styles.headerLeft}>
-          <Text style={styles.headerTitle}>Proof of Payments</Text>
-
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 16) }]}>
+        <View style={styles.headerTitleRow} />
+        <View style={styles.welcomeRow}>
+          <TouchableOpacity
+            accessibilityRole="button"
+            accessibilityLabel="Expand profile photo"
+            style={styles.profileButton}
+            onPress={() => user?.profile_photo ? setPhotoExpanded(true) : router.push('/(member)/profile')}
+          >
+            <ProfilePhotoFrame size={148}>{user?.profile_photo ? (
+              <Image source={{ uri: user.profile_photo }} style={styles.profileImage} resizeMode="cover" />
+            ) : (
+              <View style={styles.profilePlaceholder}>
+                <Ionicons name="person" size={44} color={Colors.white} />
+              </View>
+            )}</ProfilePhotoFrame>
+          </TouchableOpacity>
+          <View style={styles.greetingBlock}>
+            <Text style={styles.greeting}>Proof of Payments</Text>
+          </View>
         </View>
-
+        <View style={styles.headerDivider} />
+        <View style={styles.headerDateRow}>
+          <Text style={styles.headerDate}>{new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })}</Text>
+          <Text style={styles.headerClubsLabel}>YOUR PAYMENTS</Text>
+        </View>
       </View>
 
           {clubScoped && <TouchableOpacity style={{ backgroundColor: Colors.primary, paddingHorizontal: 24, paddingBottom: 12 }} accessibilityLabel="Back to Club Home" onPress={() => router.replace({ pathname: '/club/[id]', params: { id: params.group_id || '', month: String(period.month), year: String(period.year), contribution_id: selectedContributionId, from: params.from || 'member' } })}><Text style={styles.headerSubtitle}>Back to Club Home</Text></TouchableOpacity>}
@@ -651,43 +663,79 @@ export default function ProofOfPaymentsScreen() {
             setFlexibleAmount('');
           } catch { if (screenActive.current && latestAction.current === context && operationTicket.current === ticket) Alert.alert('Unable to continue', 'Refresh your club and try again.'); } finally { if (flexibleLookup.current?.ticket === ticket) flexibleLookup.current = null; }
         }}><Text>Record current-period contribution</Text></TouchableOpacity>}
-        <View style={{ marginHorizontal: 16, marginTop: 16, marginBottom: 12 }}>
-          <TouchableOpacity
-                    style={[styles.uploadButton, { marginHorizontal: 0, marginTop: 0, height: 52, minHeight: 52, paddingVertical: 14, borderRadius: 12, justifyContent: 'center' }]}
-                    onPress={handleUploadPress}
-                    disabled={uploading || invalidPeriod}
-                  >
-                    {uploading ? (
-                      <ActivityIndicator color={Colors.white} />
-                    ) : (
-                      <>
-                        <Ionicons name="cloud-upload" size={24} color={Colors.white} />
-                        <Text style={styles.uploadButtonText}>Upload Proof of Payment</Text>
-                      </>
-                    )}
-                  </TouchableOpacity>
+        <View style={{ backgroundColor: '#E4C447', paddingHorizontal: 20, paddingTop: 8, paddingBottom: 2 }}>
+          <Text
+            accessibilityRole="button"
+            onPress={() => setExpandedPaymentsMenu(value => value === 'upload' ? null : 'upload')}
+            style={{ color: '#26352D', fontSize: 15, fontWeight: '400', letterSpacing: 1.1 }}
+          >PAYMENTS</Text>
+          <View style={{ height: 180, alignItems: 'center', justifyContent: 'center' }}>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel={expandedPaymentsMenu === 'upload' ? 'Close payment actions' : 'Open payment actions'}
+              accessibilityState={{ expanded: expandedPaymentsMenu === 'upload' }}
+              onPress={() => setExpandedPaymentsMenu(value => value === 'upload' ? null : 'upload')}
+              style={{ height: 170, width: 170, alignItems: 'center', justifyContent: 'center' }}
+            >
+              {expandedPaymentsMenu === 'upload' ? (
+                <>
+                  <View style={{ position: 'absolute', width: 70, height: 6, backgroundColor: '#26352D', transform: [{ rotate: '45deg' }] }} />
+                  <View style={{ position: 'absolute', width: 70, height: 6, backgroundColor: '#26352D', transform: [{ rotate: '-45deg' }] }} />
+                </>
+              ) : (
+                <>
+                  <View style={{ position: 'absolute', width: 70, height: 6, backgroundColor: '#26352D' }} />
+                  <View style={{ position: 'absolute', width: 6, height: 70, backgroundColor: '#26352D' }} />
+                </>
+              )}
+            </TouchableOpacity>
+          </View>
+          <View style={{ flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 3 }}>
+            <Text accessibilityRole="button" onPress={() => setExpandedPaymentsMenu(value => value === 'upload' ? null : 'upload')} style={{ color: '#26352D', fontSize: 14, fontWeight: '400', letterSpacing: 1 }}>
+              {expandedPaymentsMenu === 'upload' ? 'SELECT AN OPTION' : 'TAP TO MANAGE'}
+            </Text>
+            <Text accessibilityRole="button" onPress={() => setExpandedPaymentsMenu(value => value === 'upload' ? null : 'upload')} style={{ color: '#26352D', fontSize: 14, fontWeight: '400', letterSpacing: 1 }}>
+              {expandedPaymentsMenu === 'upload' ? 'CLOSE MENU' : '3 OPTIONS'}
+            </Text>
+          </View>
         </View>
+        {expandedPaymentsMenu === 'upload' && (
+          <View style={{ backgroundColor: '#343A40' }}>
+            <TouchableOpacity
+              accessibilityRole="button"
+              disabled={uploading || invalidPeriod}
+              onPress={() => {
+                setExpandedPaymentsMenu(null);
+                handleUploadPress();
+              }}
+              style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.18)' }}
+            >
+              <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>Upload Proof of Payment</Text>
+              <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              onPress={() => {
+                setExpandedPaymentsMenu('contributions');
+                if (!clubScoped) void fetchClubs();
+              }}
+              style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.18)' }}
+            >
+              <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>My Contributions</Text>
+              <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+            </TouchableOpacity>
+            <TouchableOpacity
+              accessibilityRole="button"
+              onPress={() => setExpandedPaymentsMenu('proofs')}
+              style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
+            >
+              <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>My Proof of Payments</Text>
+              <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+            </TouchableOpacity>
+          </View>
+        )}
 
         <View style={styles.section}>
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel="My Contributions"
-            accessibilityState={{ expanded: expandedPaymentsMenu === 'contributions' }}
-            onPress={() => {
-              const opening = expandedPaymentsMenu !== 'contributions';
-              setExpandedPaymentsMenu(opening ? 'contributions' : null);
-              if (opening && !clubScoped) void fetchClubs();
-            }}
-            style={{ backgroundColor: Colors.clementine, borderColor: Colors.clementineDark, borderWidth: 1, borderRadius: 12, height: 52, minHeight: 52, paddingVertical: 14, paddingHorizontal: 16, marginBottom: expandedPaymentsMenu === 'contributions' ? 0 : 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
-          >
-            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-              <Ionicons name="wallet-outline" size={21} color={Colors.white} />
-              <Text style={{ color: Colors.white, fontSize: 16, fontWeight: '600', textAlign: 'center' }}>My Contributions</Text>
-            </View>
-            <View style={{ position: 'absolute', right: 14, alignItems: 'flex-end' }}>
-              <Ionicons name={expandedPaymentsMenu === 'contributions' ? 'chevron-up' : 'chevron-down'} size={20} color={Colors.white} />
-            </View>
-          </TouchableOpacity>
           {expandedPaymentsMenu === 'contributions' && <View>
           {!clubScoped && <View style={{ marginBottom: 14 }}>
             <Text style={{ fontWeight: '700', marginBottom: 8, color: Colors.primary }}>My Clubs</Text>
@@ -765,21 +813,6 @@ export default function ProofOfPaymentsScreen() {
         </View>
 
         <View style={styles.section}>
-          <TouchableOpacity
-            accessibilityRole="button"
-            accessibilityLabel="My Proof of Payments"
-            accessibilityState={{ expanded: expandedPaymentsMenu === 'proofs' }}
-            onPress={() => setExpandedPaymentsMenu(value => value === 'proofs' ? null : 'proofs')}
-            style={{ backgroundColor: Colors.primary, borderRadius: 12, height: 52, minHeight: 52, paddingVertical: 14, paddingHorizontal: 16, marginBottom: expandedPaymentsMenu === 'proofs' ? 0 : 12, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', position: 'relative' }}
-          >
-            <View style={{ flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 }}>
-              <Ionicons name="document-text-outline" size={21} color={Colors.white} />
-              <Text style={{ color: Colors.white, fontSize: 16, fontWeight: '600', textAlign: 'center' }}>My Proof of Payments</Text>
-            </View>
-            <View style={{ position: 'absolute', right: 14, alignItems: 'flex-end' }}>
-              <Ionicons name={expandedPaymentsMenu === 'proofs' ? 'chevron-up' : 'chevron-down'} size={20} color={Colors.white} />
-            </View>
-          </TouchableOpacity>
           {expandedPaymentsMenu === 'proofs' && <View>
         {/* Summary Card */}
         {loadedProofContext === requestContext && !proofsError && <>
@@ -903,8 +936,8 @@ export default function ProofOfPaymentsScreen() {
         </View>}
         </View>
 
-        <View style={{ marginHorizontal: 24, marginTop: 16, marginBottom: 16 }}>
-          <AdBanner size="banner" />
+        <View style={{ marginHorizontal: 16, marginTop: 16, marginBottom: 16 }}>
+          <AdBanner size="banner" terracotta />
         <ClubvelSpotlight />
         </View>
 
@@ -1082,9 +1115,9 @@ export default function ProofOfPaymentsScreen() {
 
 const styles = StyleSheet.create({
   clubSection: { borderWidth: 1, borderColor: Colors.cardBorder, borderRadius: 12, overflow: 'hidden', marginBottom: 12 },
-  clubRibbon: { backgroundColor: Colors.clementine, borderColor: Colors.clementineDark, borderWidth: 1, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  clubRibbonTitle: { color: Colors.primary, fontWeight: '600', fontSize: 16, flex: 1, minWidth: 0 },
-  clubOverview: { padding: 12, gap: 8, backgroundColor: Colors.iceBlue },
+  clubRibbon: { backgroundColor: '#E4C447', borderColor: '#D2B13A', borderWidth: 1, padding: 14, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  clubRibbonTitle: { color: '#26352D', fontWeight: '600', fontSize: 16, flex: 1, minWidth: 0 },
+  clubOverview: { padding: 12, gap: 8, backgroundColor: '#FFF8E8' },
   contributionCounts: { flexDirection: 'row', flexWrap: 'wrap', gap: 12 },
   contributionDetailsAction: { minHeight: 44, justifyContent: 'center', alignSelf: 'flex-start' },
   contributionDetailsLabel: { color: Colors.primary, fontSize: 15, fontWeight: '500' },
@@ -1095,16 +1128,9 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.lightBackground,
   },
   header: {
-    backgroundColor: Colors.primary,
-    borderBottomLeftRadius: 22,
-    borderBottomRightRadius: 22,
-    paddingTop: 60,
-    paddingBottom: 22,
-    paddingHorizontal: 24,
-    flexDirection: 'row',
-    justifyContent: 'space-between',
-    alignItems: 'center',
-    gap: 16,
+    backgroundColor: '#D9D9D9',
+    paddingBottom: 8,
+    paddingHorizontal: 20,
   },
   headerLeft: {
     flex: 1,
@@ -1112,27 +1138,33 @@ const styles = StyleSheet.create({
   headerTitle: {
     fontSize: 24,
     fontWeight: '400',
-    color: Colors.white,
+    color: '#26352D',
   },
   headerSubtitle: {
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: 'rgba(38, 53, 45, 0.8)',
     marginTop: 4,
   },
-  profileButton: {
-    padding: 4,
-    flexShrink: 0,
-  },
+  headerTitleRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'flex-end', minHeight: 44 },
+  welcomeRow: { flexDirection: 'row', alignItems: 'center', gap: 12, marginTop: 12 },
+  greetingBlock: { flex: 1, minWidth: 0, justifyContent: 'center' },
+  greeting: { fontSize: 25, lineHeight: 31, fontWeight: '400', color: '#4A4A4A' },
+  greetingName: { fontSize: 30, lineHeight: 36, fontWeight: '400', color: '#000000', marginTop: 2 },
+  headerDivider: { height: 1, backgroundColor: 'rgba(38,53,45,0.16)', marginTop: 10 },
+  headerDateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8 },
+  headerDate: { fontSize: 10, color: '#26352D', fontWeight: '700', letterSpacing: 1 },
+  headerClubsLabel: { fontSize: 10, color: '#26352D', fontWeight: '700', letterSpacing: 1 },
+  profileButton: { padding: 0, flexShrink: 0 },
   profileImage: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
+    width: 148,
+    height: 148,
+    borderRadius: 74,
 },
   profilePlaceholder: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
-    backgroundColor: Colors.primary,
+    width: 148,
+    height: 148,
+    borderRadius: 74,
+    backgroundColor: '#343A40',
     justifyContent: 'center',
     alignItems: 'center',
 },
@@ -1141,14 +1173,14 @@ const styles = StyleSheet.create({
   },
   summaryCard: {
     backgroundColor: Colors.white,
-    marginHorizontal: 24,
+    marginHorizontal: 16,
     marginTop: 16,
     padding: 16,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.cardBorder,
   },
-  monthHeading: { backgroundColor: Colors.coralAction, paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
+  monthHeading: { backgroundColor: '#D96540', paddingHorizontal: 12, paddingVertical: 8, borderRadius: 8, alignItems: 'center' },
   monthHeadingText: { color: Colors.white, fontWeight: '700', fontSize: 16 },
   summaryRow: {
     flexDirection: 'row',
@@ -1191,7 +1223,7 @@ const styles = StyleSheet.create({
   sectionTitle: {
     fontSize: 18,
     fontWeight: 'bold',
-    color: Colors.textPrimary,
+    color: '#26352D',
     marginBottom: 12,
   },
   emptyState: {
@@ -1274,13 +1306,13 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     borderRadius: 8,
     borderWidth: 1,
-    borderColor: Colors.mediumGreen,
+    borderColor: '#343A40',
     backgroundColor: Colors.white,
   },
   viewProofText: {
     fontSize: 14,
     fontWeight: '600',
-    color: Colors.mediumGreen,
+    color: '#343A40',
   },
   infoBox: {
     flexDirection: 'row',
@@ -1300,7 +1332,7 @@ const styles = StyleSheet.create({
   infoTitle: {
     fontSize: 14,
     fontWeight: 'bold',
-    color: Colors.mediumGreen,
+    color: '#26352D',
     marginBottom: 6,
   },
   infoBody: {

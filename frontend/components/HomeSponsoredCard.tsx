@@ -15,7 +15,7 @@ export default function HomeSponsoredCard() {
       <View style={styles.bottomRow}>
         <Text style={styles.description}>Products and services from{ '\n' }participating advertisers</Text>
         <TouchableOpacity style={styles.action} onPress={openInfo} accessibilityRole="button" accessibilityLabel="Learn more about sponsored content">
-          <Ionicons name="arrow-up-right" size={21} color="#FFFFFF" />
+          <Ionicons name="arrow-up-right-box" size={21} color="#FFFFFF" />
         </TouchableOpacity>
       </View>
     </View>
