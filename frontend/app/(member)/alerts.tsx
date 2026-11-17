@@ -264,6 +264,7 @@ export default function AlertsScreen() {
               </View>
             </View>
             {alertsMenuExpanded && (
+              <View style={{ marginHorizontal: -16 }}>
               <View style={{ backgroundColor: '#343A40' }}>
                 <TouchableOpacity
                   accessibilityRole="button"
@@ -277,6 +278,7 @@ export default function AlertsScreen() {
                   <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>My Alerts</Text>
                   <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
                 </TouchableOpacity>
+              </View>
               </View>
             )}
 
