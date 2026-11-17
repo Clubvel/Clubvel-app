@@ -120,6 +120,7 @@ export default function MemberHomeScreen() {
     setShowCreateGroup(false);
     setPhotoExpanded(false);
   }, [sessionKey]);
+  const homeScrollRef = useRef<ScrollView | null>(null);
   const dashboardRequest = useRef(0);
   const dashboardInFlight = useRef<{ key: string; promise: Promise<void> } | null>(null);
 
@@ -234,6 +235,13 @@ export default function MemberHomeScreen() {
 
   useFocusEffect(useCallback(() => {
     void fetchDashboard();
+    return () => {
+      homeScrollRef.current?.scrollTo({ y: 0, animated: false });
+      setQuickActionsExpanded(false);
+      setClubList({ owner: latestSession.current, expanded: false });
+      setAdministrationExpanded(false);
+      setShowProfileMenu(false);
+    };
   }, [fetchDashboard]));
 
   const onRefresh = () => {
@@ -436,6 +444,7 @@ export default function MemberHomeScreen() {
           </View>
         </View>
       <ScrollView
+        ref={homeScrollRef}
         style={styles.container}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
@@ -565,8 +574,8 @@ export default function MemberHomeScreen() {
               )}</ProfilePhotoFrame>
               </TouchableOpacity>
               <View style={styles.dropdownUserInfo}>
-                <Text style={styles.dropdownUserName}>{user?.full_name}</Text>
-
+                <Text style={styles.dropdownHello}>Hello</Text>
+                <Text style={styles.dropdownUserName}>Brown</Text>
               </View>
             </View>
             {administrationExpanded ? <>
@@ -1090,7 +1099,8 @@ const styles = StyleSheet.create({
   },
   dropdownAvatarText: { fontSize: 40, fontWeight: 'bold', color: Colors.white },
   dropdownUserInfo: { flex: 1, minWidth: 0, justifyContent: 'center' },
-  dropdownUserName: { fontSize: 26, fontWeight: 'bold', color: '#000000', textAlign: 'left' },
+  dropdownHello: { fontSize: 23, lineHeight: 29, fontWeight: '400', color: '#4A4A4A', textAlign: 'left' },
+  dropdownUserName: { fontSize: 30, lineHeight: 36, fontWeight: '700', color: '#000000', textAlign: 'left' },
   dropdownUserRole: { fontSize: 15, color: '#4A4A4A', marginTop: 6, textAlign: 'left' },
   dropdownDivider: { height: 1, backgroundColor: Colors.cardBorder, marginHorizontal: 24 },
   dropdownItem: {
