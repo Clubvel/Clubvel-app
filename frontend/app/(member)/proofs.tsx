@@ -10,7 +10,6 @@ import { Ionicons } from '@expo/vector-icons';
 import { StatusPill } from '../../components/StatusPill';
 import { useAuth } from '../../contexts/AuthContext';
 import { useRouter, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { AdBanner } from '../../components/AdBanner';
 import ClubvelSpotlight from '../../components/ClubvelSpotlight';
 import * as DocumentPicker from 'expo-document-picker';
 import * as FileSystem from 'expo-file-system/legacy';
@@ -938,11 +937,6 @@ export default function ProofOfPaymentsScreen() {
         </View>
 
         </View>}
-        </View>
-
-        <View style={{ marginHorizontal: 16, marginTop: 16, marginBottom: 16 }}>
-          <AdBanner size="banner" terracotta />
-        <ClubvelSpotlight />
         </View>
 
       </ScrollView>
