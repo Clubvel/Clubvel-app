@@ -334,6 +334,7 @@ export default function ClaimsScreen() {
           </View>
         </View>
         {claimsMenuExpanded && (
+          <View style={{ marginHorizontal: -16 }}>
           <View style={{ backgroundColor: '#343A40' }}>
             <TouchableOpacity
               accessibilityRole="button"
@@ -364,6 +365,7 @@ export default function ClaimsScreen() {
               </Text>
               <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
             </TouchableOpacity>
+          </View>
           </View>
         )}
 
