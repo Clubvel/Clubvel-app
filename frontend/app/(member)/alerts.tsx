@@ -94,7 +94,14 @@ export default function AlertsScreen() {
     }
   }, [API_URL, user?.id, token]);
 
-  useFocusEffect(useCallback(() => { void fetchAlerts(); }, [fetchAlerts]));
+  useFocusEffect(useCallback(() => {
+    void fetchAlerts();
+    return () => {
+      setAlertsMenuExpanded(false);
+      setMyAlertsExpanded(false);
+      setExpandedClubs({});
+    };
+  }, [fetchAlerts]));
 
   const dismissing = useRef(new Set<string>());
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(new Set());
