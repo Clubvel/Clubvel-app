@@ -628,8 +628,8 @@ const styles = StyleSheet.create({
   content: {
     flexGrow: 1,
     paddingHorizontal: 16,
-    paddingTop: 24,
-    paddingBottom: 40,
+    paddingTop: 0,
+    paddingBottom: 0,
   },
   submitButton: {
     height: 52,
