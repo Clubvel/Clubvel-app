@@ -548,15 +548,15 @@ export default function MemberHomeScreen() {
         />
         <View style={styles.dropdownMenu} accessibilityViewIsModal>
           <View style={[styles.accountToolbar, { paddingTop: Math.max(accountInsets.top, 8) }]}>
-            <Text style={styles.accountTitle}>Clubvel</Text>
+            <View style={{ flex: 1 }} />
             <TouchableOpacity style={styles.accountClose} onPress={() => setShowProfileMenu(false)} accessibilityRole="button" accessibilityLabel="Close account panel">
-              <Ionicons name="close" size={26} color={Colors.white} />
+              <Ionicons name="close" size={26} color="#26352D" />
             </TouchableOpacity>
           </View>
           <ScrollView key={administrationExpanded ? "administration" : "account"} style={styles.accountScroll} contentContainerStyle={styles.accountContent}>
             <View style={styles.dropdownHeader}>
-              <TouchableOpacity style={{ minWidth: 112, minHeight: 112 }} onPress={() => { if (user?.profile_photo) { setShowProfileMenu(false); setPhotoExpanded(true); } }} accessibilityRole="button" accessibilityLabel="View full-size profile photo">
-              <ProfilePhotoFrame>{user?.profile_photo ? (
+              <TouchableOpacity style={styles.dropdownAvatarButton} onPress={() => { if (user?.profile_photo) { setShowProfileMenu(false); setPhotoExpanded(true); } }} accessibilityRole="button" accessibilityLabel="View full-size profile photo">
+              <ProfilePhotoFrame size={148}>{user?.profile_photo ? (
                 <Image source={{ uri: user.profile_photo }} style={styles.dropdownAvatar} resizeMode="cover" />
               ) : (
                 <View style={styles.dropdownAvatar}>
@@ -1066,32 +1066,34 @@ const styles = StyleSheet.create({
   },
   accountToolbar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingLeft: 24, paddingRight: 12, paddingVertical: 8, gap: 12,
-    backgroundColor: Colors.primary,
+    paddingLeft: 16, paddingRight: 12, paddingVertical: 4, gap: 12,
+    backgroundColor: '#D9D9D9',
   },
-  accountTitle: { color: Colors.white, fontSize: 24, fontWeight: '700', flexShrink: 1 },
   accountClose: { minWidth: 48, minHeight: 48, alignItems: 'center', justifyContent: 'center' },
   accountScroll: { flex: 1, minHeight: 0 },
   accountFooter: { backgroundColor: Colors.white, borderTopWidth: 1, borderTopColor: Colors.cardBorder },
   accountContent: { paddingBottom: 24 },
   dropdownHeader: {
-    padding: 16,
-    paddingTop: 0,
-    backgroundColor: Colors.primary,
+    flexDirection: 'row',
     alignItems: 'center',
+    gap: 16,
+    paddingHorizontal: 20,
+    paddingVertical: 20,
+    backgroundColor: '#D9D9D9',
   },
+  dropdownAvatarButton: { width: 148, height: 148, flexShrink: 0 },
   dropdownAvatar: {
-    width: 112,
-    height: 112,
-    borderRadius: 56,
-backgroundColor: Colors.primary,
+    width: 148,
+    height: 148,
+    borderRadius: 74,
+    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
-  dropdownAvatarText: { fontSize: 30, fontWeight: 'bold', color: Colors.white },
-  dropdownUserInfo: { marginTop: 12, alignSelf: 'stretch' },
-  dropdownUserName: { fontSize: 20, fontWeight: 'bold', color: Colors.white, textAlign: 'center' },
-  dropdownUserRole: { fontSize: 15, color: Colors.white, marginTop: 6, textAlign: 'center' },
+  dropdownAvatarText: { fontSize: 40, fontWeight: 'bold', color: Colors.white },
+  dropdownUserInfo: { flex: 1, minWidth: 0, justifyContent: 'center' },
+  dropdownUserName: { fontSize: 20, fontWeight: 'bold', color: '#000000', textAlign: 'left' },
+  dropdownUserRole: { fontSize: 15, color: '#4A4A4A', marginTop: 6, textAlign: 'left' },
   dropdownDivider: { height: 1, backgroundColor: Colors.cardBorder, marginHorizontal: 24 },
   dropdownItem: {
     flexDirection: 'row', alignItems: 'center', minHeight: 52,
