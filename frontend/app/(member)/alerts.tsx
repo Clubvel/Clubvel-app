@@ -12,6 +12,7 @@ import { format } from 'date-fns';
 import { AdBanner } from '../../components/AdBanner';
 import ClubvelSpotlight from '../../components/ClubvelSpotlight';
 
+import HomeSponsoredCard from '../../components/HomeSponsoredCard';
 interface Alert {
   id: string;
   user_id: string;
@@ -279,6 +280,9 @@ export default function AlertsScreen() {
               </View>
             )}
 
+        <HomeSponsoredCard />
+        <ClubvelSpotlight homeBackgroundColor="#343A40" />
+
             {myAlertsExpanded && (
               <View style={styles.alertsDropdown}>
                 {clubGroups.map(group => {
@@ -315,10 +319,7 @@ export default function AlertsScreen() {
           </View>
         )}
 
-        <View style={styles.adBannerContainer}>
-          <AdBanner size="banner" terracotta />
-        </View>
-        <ClubvelSpotlight />
+
       </ScrollView>
     </View>
   );

@@ -25,6 +25,7 @@ import ClubvelSpotlight from '../../components/ClubvelSpotlight';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePersonalClaims, PersonalClaim } from '../../hooks/usePersonalClaims';
 
+import HomeSponsoredCard from '../../components/HomeSponsoredCard';
 const statusLabel = (status: string) => {
   switch (status) {
     case 'pending_review': return 'Pending Review';
@@ -366,6 +367,9 @@ export default function ClaimsScreen() {
             </TouchableOpacity>
           </View>
         )}
+
+        <HomeSponsoredCard />
+        <ClubvelSpotlight homeBackgroundColor="#343A40" />
 
         {payoutsOnly && <Text style={styles.sectionTitle}>Upcoming Payouts</Text>}
         {payoutsOnly && <View>

@@ -17,6 +17,7 @@ import * as FileSystem from 'expo-file-system/legacy';
 import * as Sharing from 'expo-sharing';
 import axios from 'axios';
 
+import HomeSponsoredCard from '../../components/HomeSponsoredCard';
 const validPeriod = (month: unknown, year: unknown) => Number.isInteger(Number(month)) && Number(month) >= 1 && Number(month) <= 12 && Number.isInteger(Number(year)) && Number(year) >= 1 && Number(year) <= 9999;
 
 interface Club {
@@ -734,6 +735,9 @@ export default function ProofOfPaymentsScreen() {
             </TouchableOpacity>
           </View>
         )}
+
+        <HomeSponsoredCard />
+        <ClubvelSpotlight homeBackgroundColor="#343A40" />
 
         <View style={styles.section}>
           {expandedPaymentsMenu === 'contributions' && <View>
