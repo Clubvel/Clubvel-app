@@ -72,7 +72,14 @@ export default function ClaimsScreen() {
   const [showAllClaims, setShowAllClaims] = useState(false);
   const [myClaimsExpanded, setMyClaimsExpanded] = useState(false);
   const [claimsMenuExpanded, setClaimsMenuExpanded] = useState(false);
-  useFocusEffect(useCallback(() => { if (view === 'payouts') setShowAllClaims(false); }, [view]));
+  useFocusEffect(useCallback(() => {
+    if (view === 'payouts') setShowAllClaims(false);
+    return () => {
+      setClaimsMenuExpanded(false);
+      setMyClaimsExpanded(false);
+      setShowAllClaims(false);
+    };
+  }, [view]));
   const [activeGroups, setActiveGroups] = useState<Array<{
     id: string;
     name: string;
