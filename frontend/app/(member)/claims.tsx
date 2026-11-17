@@ -20,7 +20,6 @@ import axios from 'axios';
 import { Ionicons } from '@expo/vector-icons';
 import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import { Colors } from '../../constants/Colors';
-import { AdBanner } from '../../components/AdBanner';
 import ClubvelSpotlight from '../../components/ClubvelSpotlight';
 import { useAuth } from '../../contexts/AuthContext';
 import { usePersonalClaims, PersonalClaim } from '../../hooks/usePersonalClaims';
@@ -368,8 +367,10 @@ export default function ClaimsScreen() {
           </View>
         )}
 
-        <HomeSponsoredCard />
-        <ClubvelSpotlight homeBackgroundColor="#343A40" />
+        <View style={{ marginHorizontal: -16 }}>
+          <HomeSponsoredCard />
+          <ClubvelSpotlight homeBackgroundColor="#343A40" />
+        </View>
 
         {payoutsOnly && <Text style={styles.sectionTitle}>Upcoming Payouts</Text>}
         {payoutsOnly && <View>
@@ -476,8 +477,6 @@ export default function ClaimsScreen() {
           </>
         )}
 
-        <AdBanner size="banner" terracotta style={{ marginTop: 12 }} />
-        <ClubvelSpotlight />
       </ScrollView>
 
       <Modal
