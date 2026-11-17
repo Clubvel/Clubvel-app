@@ -862,7 +862,7 @@ const styles = StyleSheet.create({
   brandName: { flex: 1, minWidth: 0, fontSize: 16, fontWeight: '700', color: '#26352D', textAlign: 'left' },
   greetingBlock: { flex: 1, minWidth: 0, justifyContent: 'center' },
   greeting: { fontSize: 25, lineHeight: 31, fontWeight: '400', color: '#4A4A4A' },
-  greetingName: { fontSize: 18, lineHeight: 23, fontWeight: '700', color: '#000000', marginTop: 2 },
+  greetingName: { fontSize: 25, lineHeight: 31, fontWeight: '700', color: '#000000', marginTop: 2 },
   headerDivider: { height: 1, backgroundColor: 'rgba(38,53,45,0.16)', marginTop: 10 },
   headerDateRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingTop: 8 },
   headerDate: { fontSize: 10, color: '#26352D', fontWeight: '700', letterSpacing: 1 },
