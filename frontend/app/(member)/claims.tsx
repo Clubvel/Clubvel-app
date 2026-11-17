@@ -78,6 +78,7 @@ export default function ClaimsScreen() {
       setClaimsMenuExpanded(false);
       setMyClaimsExpanded(false);
       setShowAllClaims(false);
+      panelScroll.current?.scrollTo({ y: 0, animated: false });
     };
   }, [view]));
   const [activeGroups, setActiveGroups] = useState<Array<{
@@ -106,6 +107,7 @@ export default function ClaimsScreen() {
   const [resubmittedFrom, setResubmittedFrom] = useState<string | null>(null);
   const [removing, setRemoving] = useState<string | null>(null);
   const formScroll = useRef<ScrollView>(null);
+  const panelScroll = useRef<ScrollView>(null);
   const reasonFocused = useRef(false);
   const submitInFlight = useRef(false);
   const removeInFlight = useRef(false);
@@ -303,7 +305,7 @@ export default function ClaimsScreen() {
         </View>
       </View>
 
-      <ScrollView contentContainerStyle={styles.content}>
+      <ScrollView ref={panelScroll} contentContainerStyle={styles.content}>
         <View style={{ backgroundColor: '#E4C447', marginHorizontal: -16, paddingHorizontal: 20, paddingTop: 8, paddingBottom: 2 }}>
           <Text
             accessibilityRole="button"
