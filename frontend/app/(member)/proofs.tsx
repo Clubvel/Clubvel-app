@@ -222,8 +222,9 @@ export default function ProofOfPaymentsScreen() {
       setViewingProof(null);
       setProofImage(null);
       setDeletingProof(null);
+      if (!clubScoped) setExpandedPaymentsMenu(null);
     };
-  }, [fetchProofs]));
+  }, [fetchProofs, clubScoped]));
 
   useFocusEffect(useCallback(() => {
     if (!clubScoped) return;
