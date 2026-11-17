@@ -280,8 +280,10 @@ export default function AlertsScreen() {
               </View>
             )}
 
-        <HomeSponsoredCard />
-        <ClubvelSpotlight homeBackgroundColor="#343A40" />
+            <View style={{ marginHorizontal: -16 }}>
+              <HomeSponsoredCard />
+              <ClubvelSpotlight homeBackgroundColor="#343A40" />
+            </View>
 
             {myAlertsExpanded && (
               <View style={styles.alertsDropdown}>
