@@ -35,6 +35,7 @@ export default function AlertsScreen() {
   const [myAlertsExpanded, setMyAlertsExpanded] = useState(false);
   const [alertsMenuExpanded, setAlertsMenuExpanded] = useState(false);
   const [expandedClubs, setExpandedClubs] = useState<Record<string, boolean>>({});
+  const panelScroll = useRef<ScrollView>(null);
   const [loading, setLoading] = useState(true);
   const [refreshing, setRefreshing] = useState(false);
 
@@ -100,6 +101,7 @@ export default function AlertsScreen() {
       setAlertsMenuExpanded(false);
       setMyAlertsExpanded(false);
       setExpandedClubs({});
+      panelScroll.current?.scrollTo({ y: 0, animated: false });
     };
   }, [fetchAlerts]));
 
@@ -218,6 +220,7 @@ export default function AlertsScreen() {
       </View>
 
       <ScrollView
+        ref={panelScroll}
         style={styles.content}
         refreshControl={
           <RefreshControl refreshing={refreshing} onRefresh={onRefresh} />
