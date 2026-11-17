@@ -57,6 +57,7 @@ export default function ProofOfPaymentsScreen() {
   const params = useLocalSearchParams<{ group_id?: string; month?: string; year?: string; contribution_id?: string; scope?: string; from?: string }>();
   const clubScoped = params.scope === 'club';
   const [expandedPaymentsMenu, setExpandedPaymentsMenu] = useState<'upload' | 'contributions' | 'proofs' | null>(clubScoped ? 'contributions' : null);
+  const panelScroll = useRef<ScrollView>(null);
   const routeKey = JSON.stringify([params.scope, params.group_id, params.month, params.year, params.contribution_id, params.from]);
   const [appliedRoute, setAppliedRoute] = useState(routeKey);
   const routeReady = appliedRoute === routeKey;
@@ -222,7 +223,10 @@ export default function ProofOfPaymentsScreen() {
       setViewingProof(null);
       setProofImage(null);
       setDeletingProof(null);
-      if (!clubScoped) setExpandedPaymentsMenu(null);
+      if (!clubScoped) {
+        setExpandedPaymentsMenu(null);
+        panelScroll.current?.scrollTo({ y: 0, animated: false });
+      }
     };
   }, [fetchProofs, clubScoped]));
 
@@ -645,7 +649,7 @@ export default function ProofOfPaymentsScreen() {
       </View>
 
           {clubScoped && <TouchableOpacity style={{ backgroundColor: Colors.primary, paddingHorizontal: 24, paddingBottom: 12 }} accessibilityLabel="Back to Club Home" onPress={() => router.replace({ pathname: '/club/[id]', params: { id: params.group_id || '', month: String(period.month), year: String(period.year), contribution_id: selectedContributionId, from: params.from || 'member' } })}><Text style={styles.headerSubtitle}>Back to Club Home</Text></TouchableOpacity>}
-      <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={proofsLoading} onRefresh={() => void fetchProofs()} />}>
+      <ScrollView ref={panelScroll} style={styles.content} refreshControl={<RefreshControl refreshing={proofsLoading} onRefresh={() => void fetchProofs()} />}>
         {invalidPeriod && <Text>Invalid contribution period. Return to Club Home and select a valid period.</Text>}
         {clubScoped && <TouchableOpacity accessibilityLabel="Record current-period contribution" onPress={async () => {
           const context = actionContext;
