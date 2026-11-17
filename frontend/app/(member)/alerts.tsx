@@ -379,7 +379,7 @@ const styles = StyleSheet.create({
   },
   section: {
     paddingHorizontal: 16,
-    paddingTop: 24,
+    paddingTop: 0,
   },
   myAlertsHeader: {
     minHeight: 58, backgroundColor: '#E4C447', borderRadius: 12,
