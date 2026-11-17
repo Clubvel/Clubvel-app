@@ -566,9 +566,7 @@ export default function MemberHomeScreen() {
               </TouchableOpacity>
               <View style={styles.dropdownUserInfo}>
                 <Text style={styles.dropdownUserName}>{user?.full_name}</Text>
-                <Text style={styles.dropdownUserRole}>
-                  {dashboardData ? `Member of ${dashboardData.summary.active_clubs} ${dashboardData.summary.active_clubs === 1 ? 'Group' : 'Groups'}` : 'Member'}
-                </Text>
+
               </View>
             </View>
             {administrationExpanded ? <>
@@ -1092,7 +1090,7 @@ const styles = StyleSheet.create({
   },
   dropdownAvatarText: { fontSize: 40, fontWeight: 'bold', color: Colors.white },
   dropdownUserInfo: { flex: 1, minWidth: 0, justifyContent: 'center' },
-  dropdownUserName: { fontSize: 20, fontWeight: 'bold', color: '#000000', textAlign: 'left' },
+  dropdownUserName: { fontSize: 26, fontWeight: 'bold', color: '#000000', textAlign: 'left' },
   dropdownUserRole: { fontSize: 15, color: '#4A4A4A', marginTop: 6, textAlign: 'left' },
   dropdownDivider: { height: 1, backgroundColor: Colors.cardBorder, marginHorizontal: 24 },
   dropdownItem: {
