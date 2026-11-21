@@ -186,35 +186,28 @@ export default function ProfileScreen() {
   return (
     <View style={styles.container}>
       <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
-      {/* Header */}
+      {/* Profile Header */}
       <View style={styles.header}>
-        <TouchableOpacity style={styles.avatarContainer} onPress={() => user?.profile_photo ? setPhotoExpanded(true) : handleChangePhoto()} disabled={uploading}
-          accessibilityRole="button" accessibilityLabel={user?.profile_photo ? "View full-size profile photo" : "Add profile photo"}>
-          <ProfilePhotoFrame size={148}>{user?.profile_photo ? (
-            <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
-          ) : (
-            <View style={styles.avatar}>
-              <Ionicons name="person" size={32} color={Colors.white} />
+        <View style={styles.profileHeaderRow}>
+          <TouchableOpacity style={styles.avatarContainer} onPress={() => user?.profile_photo ? setPhotoExpanded(true) : handleChangePhoto()} disabled={uploading}
+            accessibilityRole="button" accessibilityLabel={user?.profile_photo ? "View full-size profile photo" : "Add profile photo"}>
+            <ProfilePhotoFrame size={148}>
+              {user?.profile_photo ? (
+                <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
+              ) : (
+                <View style={styles.avatar}>
+                  <Ionicons name="person" size={32} color={Colors.white} />
+                </View>
+              )}
+            </ProfilePhotoFrame>
+            <View style={styles.editBadge}>
+              {uploading ? <ActivityIndicator size="small" color={Colors.white} /> : <Ionicons name="camera" size={14} color={Colors.white} />}
             </View>
-          )}</ProfilePhotoFrame>
-          <View style={styles.editBadge}>
-            {uploading ? (
-              <ActivityIndicator size="small" color={Colors.white} />
-            ) : (
-              <Ionicons name="camera" size={14} color={Colors.white} />
-            )}
-          </View>
-        </TouchableOpacity>
-        <TouchableOpacity onPress={handleChangePhoto} disabled={uploading} accessibilityRole="button">
-          <Text style={styles.photoActionText}>{uploading ? 'Updating photo…' : 'Change photo'}</Text>
-        </TouchableOpacity>
-        {user?.profile_photo && (
-          <TouchableOpacity onPress={handleRemovePhoto} disabled={uploading} accessibilityRole="button">
-            <Text style={styles.photoActionText}>Remove photo</Text>
           </TouchableOpacity>
-        )}
-        <Text style={styles.name}>{user?.full_name}</Text>
-        <EditProfile />
+          <View style={styles.profileHeaderInfo}>
+            <Text style={styles.name}>{user?.full_name}</Text>
+          </View>
+        </View>
         {stats.date_joined && (
           <Text style={styles.memberSince}>Joined {new Date(stats.date_joined).toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' })}</Text>
         )}
@@ -222,99 +215,87 @@ export default function ProfileScreen() {
 
       <ScrollView style={styles.content}>
         <ContactVisibilityPreference />
-        {/* Stats - Dynamically loaded */}
-        {loading ? (
-          <View style={styles.statsLoading}>
-            <ActivityIndicator size="small" color={Colors.mediumGreen} />
+        {/* Manage Profile Info */}
+        <View style={styles.profileSection}>
+          <Text style={styles.sectionTitle}>Manage Profile Info</Text>
+          <TouchableOpacity style={styles.menuItem} onPress={handleChangePhoto} disabled={uploading}>
+            <View style={styles.menuItemLeft}>
+              <Ionicons name="camera-outline" size={22} color={Colors.midnightNavy} />
+              <Text style={styles.menuItemText}>Change Photo</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={Colors.midnightNavy} />
+          </TouchableOpacity>
+          <View style={styles.divider} />
+          <TouchableOpacity style={styles.menuItem} onPress={handleRemovePhoto} disabled={!user?.profile_photo || uploading}>
+            <View style={styles.menuItemLeft}>
+              <Ionicons name="trash-outline" size={22} color={Colors.midnightNavy} />
+              <Text style={[styles.menuItemText, !user?.profile_photo && styles.disabledMenuText]}>Remove Photo</Text>
+            </View>
+            <Ionicons name="chevron-forward" size={20} color={Colors.midnightNavy} />
+          </TouchableOpacity>
+          <View style={styles.divider} />
+          <View style={styles.editProfileRow}>
+            <View style={styles.menuItemLeft}>
+              <Ionicons name="person-outline" size={22} color={Colors.midnightNavy} />
+              <Text style={styles.menuItemText}>Edit Profile</Text>
+            </View>
+            <EditProfile />
           </View>
-        ) : (
-          <View style={styles.statsContainer}>
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>{stats.clubs_count}</Text>
-              <Text style={styles.statLabel}>Clubs</Text>
-            </View>
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>R{stats.total_saved.toLocaleString()}</Text>
-              <Text style={styles.statLabel}>Total Saved</Text>
-            </View>
-            <View style={styles.statCard}>
-              <Text style={styles.statValue}>{stats.on_time_percentage}%</Text>
-              <Text style={styles.statLabel}>On Time</Text>
-            </View>
-          </View>
-        )}
+        </View>
 
-        {/* Menu */}
+        {/* Profile Options */}
         <View style={styles.menuSection}>
           <TouchableOpacity style={styles.menuItem} onPress={() => setShowClubsModal(true)}>
             <View style={styles.menuItemLeft}>
-              <Ionicons name="people" size={24} color={Colors.mediumGreen} />
+              <Ionicons name="people" size={22} color={Colors.midnightNavy} />
               <Text style={styles.menuItemText}>My Clubs</Text>
             </View>
             <View style={styles.menuItemRight}>
               <Text style={styles.menuItemCount}>{clubs.length}</Text>
-              <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+              <Ionicons name="chevron-forward" size={20} color={Colors.midnightNavy} />
             </View>
           </TouchableOpacity>
-
+          <View style={styles.divider} />
           <TouchableOpacity style={styles.menuItem} onPress={() => setShowPayoutModal(true)}>
             <View style={styles.menuItemLeft}>
-              <Ionicons name="calendar" size={24} color={Colors.mediumGreen} />
+              <Ionicons name="calendar" size={22} color={Colors.midnightNavy} />
               <Text style={styles.menuItemText}>Payout Schedule</Text>
             </View>
             <View style={styles.menuItemRight}>
               <Text style={styles.menuItemCount}>{payoutSchedules.length}</Text>
-              <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+              <Ionicons name="chevron-forward" size={20} color={Colors.midnightNavy} />
             </View>
           </TouchableOpacity>
-
           <View style={styles.divider} />
-
-          <TouchableOpacity 
-            style={styles.menuItem}
-            onPress={() => router.push('/(member)/notifications')}
-          >
+          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(member)/notifications')}>
             <View style={styles.menuItemLeft}>
-              <Ionicons name="notifications" size={24} color={Colors.mediumGreen} />
+              <Ionicons name="notifications" size={22} color={Colors.midnightNavy} />
               <Text style={styles.menuItemText}>Notification Settings</Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+            <Ionicons name="chevron-forward" size={20} color={Colors.midnightNavy} />
           </TouchableOpacity>
-
           <View style={styles.divider} />
-
-          <TouchableOpacity 
-            style={styles.menuItem}
-            onPress={() => router.push('/(member)/support')}
-          >
+          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(member)/privacy')}>
             <View style={styles.menuItemLeft}>
-              <Ionicons name="help-circle" size={24} color={Colors.mediumGreen} />
-              <Text style={styles.menuItemText}>Contact Us</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
-          </TouchableOpacity>
-
-          <TouchableOpacity 
-            style={styles.menuItem}
-            onPress={() => router.push('/(member)/privacy')}
-          >
-            <View style={styles.menuItemLeft}>
-              <Ionicons name="shield-checkmark" size={24} color={Colors.mediumGreen} />
+              <Ionicons name="shield-checkmark" size={22} color={Colors.midnightNavy} />
               <Text style={styles.menuItemText}>Privacy Policy</Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.textMuted} />
+            <Ionicons name="chevron-forward" size={20} color={Colors.midnightNavy} />
           </TouchableOpacity>
-
           <View style={styles.divider} />
-
-          <TouchableOpacity style={styles.menuItem} onPress={handleLogout}>
+          <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(member)/support')}>
             <View style={styles.menuItemLeft}>
-              <Ionicons name="log-out" size={24} color={Colors.statusLate} />
-              <Text style={[styles.menuItemText, styles.logoutText]}>Sign Out</Text>
+              <Ionicons name="help-circle" size={22} color={Colors.midnightNavy} />
+              <Text style={styles.menuItemText}>Contact Us</Text>
             </View>
+            <Ionicons name="chevron-forward" size={20} color={Colors.midnightNavy} />
           </TouchableOpacity>
         </View>
 
+        <TouchableOpacity style={styles.signOutButton} onPress={handleLogout}>
+          <Ionicons name="log-out" size={20} color={Colors.white} />
+          <Text style={styles.signOutText}>Sign Out</Text>
+        </TouchableOpacity>
       </ScrollView>
 
       {/* My Clubs Modal */}
@@ -407,19 +388,27 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   container: {
     flex: 1,
-    backgroundColor: Colors.lightBackground,
+    backgroundColor: Colors.white,
   },
   header: {
-    backgroundColor: Colors.primary,
-    borderBottomLeftRadius: 22,
-    borderBottomRightRadius: 22,
-    paddingTop: 50,
-    paddingBottom: 20,
-    paddingHorizontal: 24,
+    backgroundColor: Colors.lightGrey,
+    marginHorizontal: 16,
+    marginTop: 12,
+    marginBottom: 4,
+    padding: 16,
+    borderRadius: 12,
+  },
+  profileHeaderRow: {
+    flexDirection: 'row',
     alignItems: 'center',
   },
+  profileHeaderInfo: {
+    flex: 1,
+    marginLeft: 16,
+    justifyContent: 'center',
+  },
   photoActionText: {
-    color: Colors.white,
+    color: Colors.midnightNavy,
     fontSize: 14,
     fontWeight: '600',
     paddingVertical: 8,
@@ -433,7 +422,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', },
   avatarContainer: {
     position: 'relative',
-    marginBottom: 12,
+    marginBottom: 0,
   },
   avatarImage: {
     width: 148,
@@ -454,16 +443,15 @@ const styles = StyleSheet.create({
     borderColor: Colors.white,
   },
   name: {
-    alignSelf: 'stretch',
-    textAlign: 'center',
     fontSize: 20,
     fontWeight: 'bold',
-    color: Colors.white,
+    color: Colors.midnightNavy,
     marginBottom: 4,
   },
   memberSince: {
-    fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.7)',
+    fontSize: 13,
+    color: Colors.midnightNavy,
+    marginTop: 12,
   },
   content: {
     flex: 1,
@@ -501,14 +489,58 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
     textAlign: 'center',
   },
-  menuSection: {
+  profileSection: {
     backgroundColor: Colors.white,
-    marginHorizontal: 24,
-    marginTop: 16,
+    marginHorizontal: 16,
+    marginTop: 12,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.cardBorder,
     overflow: 'hidden',
+  },
+  sectionTitle: {
+    color: Colors.midnightNavy,
+    fontSize: 16,
+    fontWeight: '700',
+    paddingHorizontal: 16,
+    paddingTop: 16,
+    paddingBottom: 4,
+  },
+  editProfileRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingVertical: 12,
+    paddingHorizontal: 16,
+  },
+  disabledMenuText: {
+    opacity: 0.45,
+  },
+  menuSection: {
+    backgroundColor: Colors.white,
+    marginHorizontal: 16,
+    marginTop: 12,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    overflow: 'hidden',
+  },
+  signOutButton: {
+    backgroundColor: '#D96540',
+    marginHorizontal: 16,
+    marginTop: 16,
+    marginBottom: 24,
+    borderRadius: 12,
+    minHeight: 52,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+  },
+  signOutText: {
+    color: Colors.white,
+    fontSize: 16,
+    fontWeight: '700',
   },
   menuItem: {
     flexDirection: 'row',
@@ -529,15 +561,15 @@ const styles = StyleSheet.create({
   },
   menuItemText: {
     fontSize: 16,
-    color: Colors.textPrimary,
+    color: Colors.midnightNavy,
   },
   menuItemCount: {
     fontSize: 14,
-    color: Colors.textMuted,
+    color: Colors.midnightNavy,
     fontWeight: '500',
   },
   logoutText: {
-    color: Colors.statusLate,
+    color: Colors.white,
   },
   trustScoreBadge: {
     backgroundColor: Colors.mediumGreen,

@@ -45,6 +45,6 @@ export default function ContactVisibilityPreference() {
 
 const styles = StyleSheet.create({
   card: { margin: 16, padding: 16, borderRadius: 16, backgroundColor: Colors.white, borderWidth: 1, borderColor: Colors.cardBorder },
-  title: { color: Colors.primary, fontSize: 18, fontWeight: '400' }, description: { color: Colors.textPrimary, fontSize: 15, lineHeight: 22, marginTop: 8 },
+  title: { color: Colors.midnightNavy, fontSize: 18, fontWeight: '400' }, description: { color: Colors.textPrimary, fontSize: 15, lineHeight: 22, marginTop: 8 },
   note: { color: Colors.textSecondary, fontSize: 13, lineHeight: 19, marginVertical: 8 }, retry: { minHeight: 44, justifyContent: 'center' }, link: { color: Colors.royalBlue },
 });
