@@ -186,14 +186,26 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     try {
       await axios.post(`${API_URL}/api/user/profile-photo`, {
         user_id: user?.id,
-        profile_photo: photoBase64
+        profile_photo: photoBase64 ?? ''
       }, { headers: { Authorization: `Bearer ${token}` }, timeout: 15000 });
       
       if (revision !== sessionRevision.current) return;
       await persistProfile(revision, accountId, sessionToken, { profile_photo: photoBase64 });
     } catch (error: any) {
-      console.error('Error updating profile photo:', error);
-      throw new Error(error.response?.data?.detail || 'Failed to update profile photo');
+      const detail = error?.response?.data?.detail;
+      const message =
+        typeof detail === 'string' ? detail :
+        typeof detail?.message === 'string' ? detail.message :
+        typeof detail?.error === 'string' ? detail.error :
+        detail != null ? JSON.stringify(detail) :
+        error?.message || 'Failed to update profile photo';
+
+      console.error('Profile photo API failure:', {
+        status: error?.response?.status,
+        response: error?.response?.data,
+        message,
+      });
+      throw new Error(message);
     }
   };
 

@@ -12,13 +12,13 @@
       "policy": "appVersion"
     },
     "orientation": "portrait",
-    "icon": "./assets/images/clubvel-midnight-icon.png",
+    "icon": "./assets/images/clubvel-terracotta-white-icon-matched.png",
     "scheme": "clubvel",
     "userInterfaceStyle": "automatic",
     "newArchEnabled": true,
     "owner": "modjadji",
     "ios": {
-      "icon": "./assets/images/clubvel-midnight-icon.png",
+      "icon": "./assets/images/clubvel-terracotta-white-icon-matched.png",
       "supportsTablet": true,
       "bundleIdentifier": "com.clubvel.clubvel",
       "googleServicesFile": "./GoogleService-Info.plist",
@@ -38,8 +38,8 @@
       "googleServicesFile": "./google-services.json",
       "versionCode": 13,
       "adaptiveIcon": {
-        "foregroundImage": "./assets/images/clubvel-midnight-symbol.png",
-        "backgroundColor": "#D96540"
+        "foregroundImage": "./assets/images/clubvel-terracotta-adaptive-final.png",
+        "backgroundColor": "#FFFFFF"
       },
       "edgeToEdgeEnabled": true,
       "permissions": [
@@ -57,14 +57,14 @@
       [
         "expo-splash-screen",
         {
-          "image": "./assets/images/clubvel-midnight-symbol.png",
-          "imageWidth": 200,
+          "image": "./assets/images/clubvel-terracotta-adaptive-final.png",
+          "imageWidth": 280,
           "resizeMode": "contain",
-          "backgroundColor": "#D96540",
+          "backgroundColor": "#FFFFFF",
           "android": {
-            "image": "./assets/images/clubvel-midnight-symbol.png",
-            "imageWidth": 200,
-            "backgroundColor": "#D96540",
+            "image": "./assets/images/clubvel-terracotta-adaptive-final.png",
+            "imageWidth": 280,
+            "backgroundColor": "#FFFFFF",
             "resizeMode": "contain"
           }
         }

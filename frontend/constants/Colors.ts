@@ -6,7 +6,7 @@ export const Colors = {
   clementineDark: '#702C3B',
   clementineLight: '#FBECEF',
   avatarRing: '#C43D4D',
-  signInAction: '#E5B83F', // Preserve the existing Sign In fill independently of photo rings.
+  signInAction: '#E4C447', // Preserve the existing Sign In fill independently of photo rings.
   secondaryHighlight: '#702C3B',
   corporateBlue: '#0756C9',
   royalBlue: '#2677E8',

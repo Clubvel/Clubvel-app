@@ -114,6 +114,12 @@ export default function MemberLayout() {
           href: null,
         }}
       />
+      <Tabs.Screen
+        name="chats/[id]"
+        options={{
+          href: null,
+        }}
+      />
     </Tabs>
   );
 }

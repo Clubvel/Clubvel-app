@@ -12,7 +12,7 @@ import {
   Inter_600SemiBold,
   Inter_700Bold,
 } from '@expo-google-fonts/inter';
-import { Image, StyleSheet, View } from 'react-native';
+import { Image, StyleSheet, Text, View } from 'react-native';
 import * as SplashScreen from 'expo-splash-screen';
 
 import { Stack, usePathname } from 'expo-router';
@@ -50,13 +50,15 @@ export function StartupSplash() {
   }, [brandReady, loading, pathname]);
   if (finished) return null;
   return <View accessibilityLabel="Clubvel launch screen" style={launchStyles.screen} onLayout={() => setLayoutReady(true)}>
-    <Image source={require('../assets/images/clubvel-midnight-symbol.png')} accessibilityLabel="clubvel" onLoad={() => setImageReady(true)} resizeMode="contain" style={launchStyles.logo} />
+    <Image source={require('../assets/images/clubvel-terracotta-icon.png')} accessibilityLabel="Clubvel logo" onLoad={() => setImageReady(true)} resizeMode="contain" style={launchStyles.logo} />
+    <Text style={launchStyles.wordmark}>clubvel</Text>
   </View>;
 }
 
 const launchStyles = StyleSheet.create({
-  screen: { ...StyleSheet.absoluteFillObject, backgroundColor: '#D96540', alignItems: 'center', justifyContent: 'center', zIndex: 100 },
-  logo: { width: 200, maxWidth: '80%', aspectRatio: 1 },
+  screen: { ...StyleSheet.absoluteFillObject, backgroundColor: '#FFFFFF', alignItems: 'center', justifyContent: 'center', zIndex: 100 },
+  logo: { width: 160, height: 160 },
+  wordmark: { marginTop: 10, fontSize: 26, fontWeight: '400', color: '#344054' },
 });
 
 export default function RootLayout() {

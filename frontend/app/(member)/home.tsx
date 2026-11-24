@@ -485,21 +485,44 @@ export default function MemberHomeScreen() {
       {quickActionsExpanded && (
         <View style={{ backgroundColor: '#343A40' }}>
           <TouchableOpacity accessibilityRole="button" style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.18)' }} onPress={() => { setQuickActionsExpanded(false); if (latestSession.current === sessionKey) setClubList({ owner: sessionKey, expanded: true }); }}>
-            <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>My Clubs &amp; Stokvels</Text>
+            <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>My Clubs &amp; Stokvels</Text>
             <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
           </TouchableOpacity>
           <TouchableOpacity accessibilityRole="button" style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.18)' }} onPress={() => { setQuickActionsExpanded(false); setShowCreateGroup(true); }}>
-            <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>Create a Club</Text>
+            <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>Create a Club</Text>
             <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
           </TouchableOpacity>
           <TouchableOpacity accessibilityRole="button" style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }} onPress={() => { setQuickActionsExpanded(false); openInvitations(); }}>
-            <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>Join a Club</Text>
+            <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>Join a Club</Text>
             <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
           </TouchableOpacity>
         </View>
       )}
-        {clubsExpanded && (
-          <View style={{ marginTop: 14, backgroundColor: 'rgba(255,255,255,0.22)', paddingHorizontal: 10 }}>
+        <Modal
+          visible={clubsExpanded}
+          transparent
+          animationType="fade"
+          onRequestClose={() => setClubList({ owner: sessionKey, expanded: false })}
+        >
+          <View style={styles.clubPopupOverlay}>
+            <View style={styles.clubPopupCard}>
+              <View style={styles.clubPopupHeader}>
+                <Text style={styles.clubPopupTitle}>My Clubs & Stokvels</Text>
+                <TouchableOpacity
+                  onPress={() => setClubList({ owner: sessionKey, expanded: false })}
+                  accessibilityRole="button"
+                  accessibilityLabel="Close clubs"
+                  style={styles.clubPopupClose}
+                >
+                  <Ionicons name="close" size={24} color="#FFFFFF" />
+                </TouchableOpacity>
+              </View>
+              <ScrollView
+                style={{ flexShrink: 1 }}
+                contentContainerStyle={{ flexGrow: 1, paddingHorizontal: 10, paddingBottom: 8 }}
+                showsVerticalScrollIndicator
+                nestedScrollEnabled
+              >
             {pendingInvitations.length > 0 && (
               <View style={styles.invitationsSection}>
                 <Text style={styles.invitationsTitle}>Pending Invitations</Text>
@@ -517,7 +540,7 @@ export default function MemberHomeScreen() {
                 ))}
               </View>
             )}
-            <View style={{ maxHeight: 280 }}>
+            <View>
               {dashboardData?.clubs?.length ? dashboardData.clubs.map(club => (
                 <View key={club.id} style={{ borderBottomWidth: 1, borderBottomColor: 'rgba(38,53,45,0.2)', paddingVertical: 8 }}>
                   <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Open ${club.name}`} style={styles.clubListEntry} onPress={() => { if (latestSession.current !== sessionKey) return; setClubList({ owner: sessionKey, expanded: false }); if (['admin', 'treasurer'].includes(club.role)) openAdministration(club); else openClub(club); }}>
@@ -529,10 +552,12 @@ export default function MemberHomeScreen() {
                     <TouchableOpacity style={styles.clubMemberAction} onPress={() => { setClubList({ owner: sessionKey, expanded: false }); openClub(club); }}><Text style={styles.clubMemberText}>View as member</Text></TouchableOpacity>
                   </View>}
                 </View>
-              )) : <View style={styles.emptyState}><Text style={styles.emptyStateText}>No clubs yet</Text><Text style={styles.emptyStateSubtext}>Create a Stokvel, Social Club or Society Group, or join one through an invitation.</Text></View>}
+              )) : <View style={styles.clubPopupEmptyState}><Text style={styles.emptyStateText}>No clubs yet</Text><Text style={styles.emptyStateSubtext}>Create a Stokvel, Social Club or Society Group, or join one through an invitation.</Text></View>}
+            </View>
+              </ScrollView>
             </View>
           </View>
-        )}
+        </Modal>
 
       {/* Advertisement Banner */}
       <HomeSponsoredCard />
@@ -563,7 +588,8 @@ export default function MemberHomeScreen() {
             </TouchableOpacity>
           </View>
           <ScrollView key={administrationExpanded ? "administration" : "account"} style={styles.accountScroll} contentContainerStyle={styles.accountContent}>
-            <View style={styles.dropdownHeader}>
+            <View style={styles.dropdownHeaderBlock}>
+              <View style={styles.dropdownHeader}>
               <TouchableOpacity style={styles.dropdownAvatarButton} onPress={() => { if (user?.profile_photo) { setShowProfileMenu(false); setPhotoExpanded(true); } }} accessibilityRole="button" accessibilityLabel="View full-size profile photo">
               <ProfilePhotoFrame size={148}>{user?.profile_photo ? (
                 <Image source={{ uri: user.profile_photo }} style={styles.dropdownAvatar} resizeMode="cover" />
@@ -575,7 +601,13 @@ export default function MemberHomeScreen() {
               </TouchableOpacity>
               <View style={styles.dropdownUserInfo}>
                 <Text style={styles.dropdownHello}>Hello</Text>
-                <Text style={styles.dropdownUserName}>Brown</Text>
+                <Text style={styles.dropdownUserName}>{user?.full_name || ""}</Text>
+              </View>
+              </View>
+              <View style={styles.accountHeaderDivider} />
+              <View style={styles.accountHeaderDateRow}>
+                <Text style={styles.accountHeaderDate}>{new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })}</Text>
+                <Text style={styles.accountHeaderLabel}>ACCOUNT</Text>
               </View>
             </View>
             {administrationExpanded ? <>
@@ -710,17 +742,30 @@ export default function MemberHomeScreen() {
       </View>
     </Modal>
 
-    <Modal visible={showCreateGroup} transparent animationType="slide" onRequestClose={() => setShowCreateGroup(false)}>
+    <Modal visible={showCreateGroup} transparent animationType="fade" onRequestClose={() => setShowCreateGroup(false)}>
       <KeyboardAvoidingView
         behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        style={styles.formOverlay}
+        style={styles.createGroupOverlay}
       >
-        <View style={[styles.formCard, { maxHeight: '85%' }]}>
+        <View style={styles.createGroupCard}>
+          <View style={styles.createGroupHeader}>
+            <Text style={styles.createGroupTitle}>Create a Club</Text>
+            <TouchableOpacity
+              accessibilityRole="button"
+              accessibilityLabel="Close Create a Club"
+              style={styles.createGroupClose}
+              onPress={() => setShowCreateGroup(false)}
+              disabled={creatingGroup}
+            >
+              <Ionicons name="close" size={22} color={Colors.white} />
+            </TouchableOpacity>
+          </View>
           <ScrollView
+            style={styles.createGroupScroll}
+            contentContainerStyle={styles.createGroupScrollContent}
             keyboardShouldPersistTaps="handled"
             showsVerticalScrollIndicator={true}
           >
-          <Text style={styles.formTitle}>Create a Group</Text>
           <Text style={styles.formHelp}>You will be the admin of this group only.</Text>
           <Text style={styles.inputLabel}>Group Name *</Text>
           <TextInput
@@ -776,18 +821,29 @@ export default function MemberHomeScreen() {
       </KeyboardAvoidingView>
     </Modal>
 
-    <Modal visible={showInvitations} transparent animationType="slide" onRequestClose={() => setShowInvitations(false)}>
-      <View style={styles.formOverlay}>
-        <View style={styles.formCard}>
-          <View style={styles.invitationModalHeader}>
+    <Modal visible={showInvitations} transparent animationType="fade" onRequestClose={() => setShowInvitations(false)}>
+      <View style={styles.invitationsOverlay}>
+        <View style={styles.invitationsCard}>
+          <View style={styles.invitationsHeader}>
             <View style={styles.invitationInfo}>
-              <Text style={styles.formTitle}>Join a Group</Text>
-              <Text style={styles.formHelp}>Accept an invitation sent to your Clubvel phone number.</Text>
+              <Text style={styles.joinPopupTitle}>Join a Club</Text>
+              <Text style={styles.invitationsSubtitle}>Accept an invitation sent to your Clubvel phone number.</Text>
             </View>
-            <TouchableOpacity onPress={() => setShowInvitations(false)} accessibilityLabel="Close invitations">
-              <Ionicons name="close" size={26} color={Colors.textPrimary} />
+            <TouchableOpacity
+              onPress={() => setShowInvitations(false)}
+              accessibilityRole="button"
+              accessibilityLabel="Close invitations"
+              style={styles.invitationsClose}
+            >
+              <Ionicons name="close" size={22} color={Colors.white} />
             </TouchableOpacity>
           </View>
+          <ScrollView
+            style={styles.invitationsScroll}
+            contentContainerStyle={styles.invitationsScrollContent}
+            nestedScrollEnabled
+            showsVerticalScrollIndicator
+          >
 
           {invitationsLoading ? (
             <ActivityIndicator style={styles.invitationModalStatus} color={Colors.accent} />
@@ -840,6 +896,7 @@ export default function MemberHomeScreen() {
               </View>
             ))
           )}
+          </ScrollView>
         </View>
       </View>
     </Modal>
@@ -948,7 +1005,7 @@ const styles = StyleSheet.create({
     rowGap: 8,
   },
   clubActions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 12 },
-  clubAdministration: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: 12, minHeight: 48, borderRadius: 8, backgroundColor: Colors.corporateBlue, flexGrow: 1 },
+  clubAdministration: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8, padding: 12, minHeight: 48, borderRadius: 8, backgroundColor: '#343A40', flexGrow: 1 },
   clubAdministrationText: { color: Colors.white, fontWeight: '600', flexShrink: 1 },
   clubMemberAction: { minHeight: 48, padding: 12, justifyContent: 'center' },
   clubMemberText: { color: Colors.primary, fontWeight: '600' },
@@ -995,6 +1052,13 @@ const styles = StyleSheet.create({
   emptyState: {
     alignItems: 'center',
     paddingVertical: 48,
+  },
+  clubPopupEmptyState: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 32,
   },
   emptyStateText: {
     fontSize: 18,
@@ -1080,13 +1144,40 @@ const styles = StyleSheet.create({
   accountScroll: { flex: 1, minHeight: 0 },
   accountFooter: { backgroundColor: Colors.white, borderTopWidth: 1, borderTopColor: Colors.cardBorder },
   accountContent: { paddingBottom: 24 },
+  dropdownHeaderBlock: {
+    backgroundColor: '#D9D9D9',
+    paddingHorizontal: 20,
+    paddingBottom: 8,
+  },
   dropdownHeader: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
-    paddingHorizontal: 20,
-    paddingVertical: 20,
-    backgroundColor: '#D9D9D9',
+    gap: 12,
+    paddingTop: 12,
+    paddingBottom: 8,
+  },
+  accountHeaderDivider: {
+    height: 1,
+    backgroundColor: 'rgba(38,53,45,0.16)',
+    marginTop: 10,
+  },
+  accountHeaderDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 8,
+  },
+  accountHeaderDate: {
+    fontSize: 10,
+    color: '#26352D',
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  accountHeaderLabel: {
+    fontSize: 10,
+    color: '#26352D',
+    fontWeight: '700',
+    letterSpacing: 1,
   },
   dropdownAvatarButton: { width: 148, height: 148, flexShrink: 0 },
   dropdownAvatar: {
@@ -1099,8 +1190,8 @@ const styles = StyleSheet.create({
   },
   dropdownAvatarText: { fontSize: 40, fontWeight: 'bold', color: Colors.white },
   dropdownUserInfo: { flex: 1, minWidth: 0, justifyContent: 'center' },
-  dropdownHello: { fontSize: 23, lineHeight: 29, fontWeight: '400', color: '#4A4A4A', textAlign: 'left' },
-  dropdownUserName: { fontSize: 30, lineHeight: 36, fontWeight: '700', color: '#000000', textAlign: 'left' },
+  dropdownHello: { fontSize: 25, lineHeight: 31, fontWeight: '400', color: '#4A4A4A', textAlign: 'left' },
+  dropdownUserName: { fontSize: 25, lineHeight: 31, fontWeight: '700', color: '#000000', textAlign: 'left' },
   dropdownUserRole: { fontSize: 15, color: '#4A4A4A', marginTop: 6, textAlign: 'left' },
   dropdownDivider: { height: 1, backgroundColor: Colors.cardBorder, marginHorizontal: 24 },
   dropdownItem: {
@@ -1222,6 +1313,153 @@ const styles = StyleSheet.create({
     justifyContent: 'center', paddingVertical: 14,
   },
   inviteButtonText: { color: Colors.primary, fontSize: 15, fontWeight: '400' },
+  clubPopupOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.58)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 20,
+    paddingVertical: 30,
+  },
+  clubPopupCard: {
+    width: '92%',
+    maxWidth: 560,
+    height: '75%',
+    minHeight: '55%',
+    maxHeight: '88%',
+    backgroundColor: '#FFF8E8',
+    borderRadius: 20,
+    borderWidth: 3,
+    borderColor: '#343A40',
+    padding: 10,
+    overflow: 'hidden',
+  },
+  clubPopupHeader: {
+    minHeight: 56,
+    backgroundColor: '#343A40',
+    borderRadius: 12,
+    paddingHorizontal: 16,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    marginBottom: 8,
+  },
+  clubPopupTitle: {
+    color: '#FFFFFF',
+    fontSize: 18,
+    fontWeight: '700',
+    flex: 1,
+  },
+  clubPopupClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#C96B45',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 12,
+  },
+  createGroupOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 28,
+  },
+  createGroupCard: {
+    width: '92%',
+    maxWidth: 560,
+    height: '75%',
+    minHeight: '55%',
+    maxHeight: '88%',
+    backgroundColor: '#FFF8E8',
+    borderColor: '#343A40',
+    borderWidth: 3,
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
+  createGroupHeader: {
+    minHeight: 58,
+    backgroundColor: '#343A40',
+    paddingLeft: 18,
+    paddingRight: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  createGroupTitle: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '700',
+    flex: 1,
+  },
+  createGroupClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#C96B45',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  createGroupScroll: { flex: 1 },
+  createGroupScrollContent: {
+    padding: 20,
+    paddingBottom: 24,
+  },
+  invitationsOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 28,
+  },
+  invitationsCard: {
+    width: '92%',
+    maxWidth: 560,
+    height: '75%',
+    minHeight: '55%',
+    maxHeight: '88%',
+    backgroundColor: '#FFF8E8',
+    borderColor: '#343A40',
+    borderWidth: 3,
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
+  invitationsHeader: {
+    minHeight: 58,
+    backgroundColor: '#343A40',
+    paddingLeft: 18,
+    paddingRight: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  joinPopupTitle: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '700',
+  },
+  invitationsSubtitle: {
+    color: '#F5EBDD',
+    fontSize: 12,
+    marginTop: 3,
+  },
+  invitationsClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#C96B45',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 12,
+  },
+  invitationsScroll: { flex: 1 },
+  invitationsScrollContent: {
+    padding: 18,
+    paddingBottom: 24,
+  },
   formOverlay: {
     backgroundColor: 'rgba(0, 0, 0, 0.55)', flex: 1, justifyContent: 'flex-end',
   },
@@ -1233,27 +1471,27 @@ const styles = StyleSheet.create({
   formHelp: { color: Colors.textSecondary, fontSize: 14, marginBottom: 20, marginTop: 6 },
   inputLabel: { color: Colors.textPrimary, fontSize: 14, fontWeight: '600', marginBottom: 6 },
   input: {
-    borderColor: Colors.cardBorder, borderRadius: 10, borderWidth: 1, color: Colors.textPrimary,
+    borderColor: '#C96B45', borderRadius: 10, borderWidth: 1, color: Colors.textPrimary,
     fontSize: 16, marginBottom: 12, paddingHorizontal: 14, paddingVertical: 13,
   },
   typeSelector: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 16 },
   typeButton: {
     width: '31%',
     alignItems: 'center',
-    borderColor: Colors.cardBorder, borderRadius: 18, borderWidth: 1,
+    borderColor: '#C96B45', borderRadius: 18, borderWidth: 1,
     paddingHorizontal: 12, paddingVertical: 8,
   },
-  typeButtonActive: { backgroundColor: Colors.clementine, borderColor: Colors.clementineDark },
-  typeButtonText: { color: Colors.textSecondary, fontSize: 13, fontWeight: '600' },
-  typeButtonTextActive: { color: Colors.primary },
+  typeButtonActive: { backgroundColor: '#E4C447', borderColor: '#343A40' },
+  typeButtonText: { color: '#343A40', fontSize: 13, fontWeight: '600' },
+  typeButtonTextActive: { color: '#343A40' },
   formActions: { flexDirection: 'row', gap: 12, marginTop: 8 },
   cancelButton: {
-    alignItems: 'center', borderColor: Colors.cardBorder, borderRadius: 10,
+    alignItems: 'center', borderColor: '#C96B45', borderRadius: 10,
     borderWidth: 1, flex: 1, paddingVertical: 14,
   },
   cancelButtonText: { color: Colors.textPrimary, fontSize: 16, fontWeight: '600' },
   submitButton: {
-    alignItems: 'center', backgroundColor: Colors.primary, borderRadius: 10,
+    alignItems: 'center', backgroundColor: '#343A40', borderRadius: 10,
     flex: 1, paddingVertical: 14,
   },
   submitButtonText: { color: Colors.white, fontSize: 16, fontWeight: '700' },

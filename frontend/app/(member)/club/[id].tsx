@@ -9,6 +9,7 @@ import { Colors } from '../../../constants/Colors';
 import ProfilePhotoFrame from '../../../components/ProfilePhotoFrame';
 import { Ionicons } from '@expo/vector-icons';
 import * as DocumentPicker from 'expo-document-picker';
+import * as ImagePicker from 'expo-image-picker';
 import * as FileSystem from 'expo-file-system/legacy';
 import axios from 'axios';
 
@@ -24,6 +25,7 @@ interface ClubDetails {
     bank_account_number: string;
     bank_account_holder?: string;
   };
+  membership?: { role?: string };
   current_contribution: {
     id: string;
     amount_due: number;
@@ -69,6 +71,7 @@ export default function ClubDetailScreen() {
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [uploading, setUploading] = useState(false);
+  const [uploadingClubPhoto, setUploadingClubPhoto] = useState(false);
   const [deletingProof, setDeletingProof] = useState(false);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
@@ -243,6 +246,55 @@ export default function ClubDetailScreen() {
     );
   }
 
+  const changeClubPhoto = async () => {
+    if (clubData?.membership?.role !== 'admin' || !token || !id || !API_URL || uploadingClubPhoto) return;
+
+    try {
+      const permission = await ImagePicker.requestMediaLibraryPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission required', 'Allow photo library access to choose a club photo.');
+        return;
+      }
+
+      const result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.3,
+        base64: true,
+      });
+
+      if (result.canceled) return;
+
+      const asset = result.assets?.[0];
+      if (!asset?.base64) {
+        Alert.alert('Photo unavailable', 'Please choose another image.');
+        return;
+      }
+      if (asset.base64.length > 1_350_000) {
+        Alert.alert('Photo too large', 'Please choose a smaller image.');
+        return;
+      }
+
+      setUploadingClubPhoto(true);
+      await axios.put(
+        `${API_URL}/api/groups/photo`,
+        { group_id: id, photo_data_url: `data:image/jpeg;base64,${asset.base64}` },
+        { headers: { Authorization: `Bearer ${token}` }, timeout: 20000 }
+      );
+
+      await fetchClubDetails(true);
+      Alert.alert('Club photo updated', 'The new photo is shared with all club members.');
+    } catch (error: any) {
+      Alert.alert(
+        'Could not update club photo',
+        error?.response?.data?.detail || error?.message || 'Please try again.'
+      );
+    } finally {
+      setUploadingClubPhoto(false);
+    }
+  };
+
   const getMonthName = (month: number) => {
     const months = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
     return months[month - 1];
@@ -250,32 +302,49 @@ export default function ClubDetailScreen() {
 
   return (
     <View style={styles.container}>
-      {/* Header */}
-      <View style={styles.header}>
-        <TouchableOpacity onPress={back} style={styles.backButton}>
-          <Ionicons name="arrow-back" size={24} color={Colors.white} />
-        </TouchableOpacity>
-                <View style={styles.clubIdentity}>
-          <ProfilePhotoFrame>
+      <View style={styles.clubHeader}>
+        <View style={styles.clubBackRow}>
+          <TouchableOpacity
+            onPress={back}
+            style={styles.clubBackButton}
+            accessibilityRole="button"
+            accessibilityLabel="Go back"
+          >
+            <Ionicons name="arrow-back" size={22} color={Colors.white} />
+          </TouchableOpacity>
+        </View>
+
+        <View style={styles.clubAvatarWrap}>
+          <ProfilePhotoFrame size={148}>
             {clubData.group.group_photo ? (
               <Image
                 source={{ uri: clubData.group.group_photo }}
-                style={styles.clubPhoto}
+                style={styles.clubAvatarImage}
                 resizeMode="cover"
               />
             ) : (
-              <View style={styles.clubPhotoFallback}>
-                <Text style={styles.clubInitial}>
-                  {clubData.group.name.trim().charAt(0).toUpperCase() || '?'}
-                </Text>
+              <View style={styles.clubAvatarFallback}>
+                <Ionicons name="person" size={44} color={Colors.white} />
               </View>
             )}
           </ProfilePhotoFrame>
-          <Text style={styles.headerTitle} numberOfLines={2}>
-            {clubData.group.name}
-          </Text>
+
+          {clubData.membership?.role === 'admin' && (
+            <TouchableOpacity
+              onPress={() => void changeClubPhoto()}
+              style={styles.clubPhotoAction}
+              accessibilityRole="button"
+              accessibilityLabel="Change club photo"
+              disabled={uploadingClubPhoto}
+            >
+              {uploadingClubPhoto
+                ? <ActivityIndicator size="small" color={Colors.white} />
+                : <Ionicons name="camera-outline" size={19} color={Colors.white} />}
+            </TouchableOpacity>
+          )}
         </View>
-        <View style={styles.headerSpacer} />
+
+        <Text style={styles.clubTitle}>{clubData.group.name}</Text>
       </View>
 
       <ScrollView>
@@ -423,10 +492,67 @@ const styles = StyleSheet.create({
   backButton: {
     width: 40,
   },
-  clubIdentity: { flex: 1, minWidth: 0, flexDirection: "row", alignItems: "center", justifyContent: "center", gap: 12 },
-  clubPhoto: { width: 112, height: 112, borderRadius: 56 },
-  clubPhotoFallback: { width: 112, height: 112, borderRadius: 56, backgroundColor: Colors.primary, alignItems: "center", justifyContent: "center" },
-  clubInitial: { color: Colors.white, fontSize: 24, fontWeight: "700" },
+  clubHeader: {
+    width: '100%',
+    alignItems: 'center',
+    backgroundColor: Colors.lightBackground,
+    paddingBottom: 18,
+  },
+  clubBackRow: {
+    width: '100%',
+    paddingHorizontal: 16,
+    paddingTop: 8,
+    alignItems: 'flex-start',
+  },
+  clubBackButton: {
+    width: 40,
+    height: 40,
+    borderRadius: 20,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.textPrimary,
+  },
+  clubAvatarWrap: {
+    position: 'relative',
+    width: 156,
+    height: 156,
+    marginTop: 8,
+  },
+  clubAvatarImage: {
+    width: 148,
+    height: 148,
+    borderRadius: 74,
+  },
+  clubAvatarFallback: {
+    width: 148,
+    height: 148,
+    borderRadius: 74,
+    backgroundColor: Colors.primary,
+    justifyContent: 'center',
+    alignItems: 'center',
+  },
+  clubPhotoAction: {
+    position: 'absolute',
+    right: 0,
+    bottom: 0,
+    width: 38,
+    height: 38,
+    borderRadius: 19,
+    alignItems: 'center',
+    justifyContent: 'center',
+    backgroundColor: Colors.textPrimary,
+    borderWidth: 2,
+    borderColor: Colors.lightBackground,
+  },
+  clubTitle: {
+    color: Colors.textPrimary,
+    fontSize: 21,
+    fontWeight: '500',
+    textAlign: 'center',
+    lineHeight: 28,
+    marginTop: 14,
+    paddingHorizontal: 20,
+  },
   headerTitle: {
     fontSize: 20,
     fontWeight: '400',

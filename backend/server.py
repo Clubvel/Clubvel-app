@@ -1128,6 +1128,7 @@ async def get_member_clubs(user_id: str, authorization: Optional[str] = Header(N
         "membership_status": membership["status"],
         "role": membership.get("role_in_group", "member"),
         "name": group["group_name"],
+        "group_photo": group.get("photo_data_url"),
         "monthly_contribution": group["monthly_contribution"],
         "group_type": group.get("group_type", "savings"),
         "contribution_mode": group.get("contribution_mode", "fixed_monthly"),
@@ -1632,6 +1633,7 @@ async def get_admin_dashboard(user_id: str, authorization: str | None = Header(N
     total_collected_this_month = 0.0
     late_members_count = 0
     urgent_alerts = []
+    urgent_alerts_by_group = {}
     clubs_data = []
     next_claim = None
     authoritative_details = []
@@ -1671,9 +1673,11 @@ async def get_admin_dashboard(user_id: str, authorization: str | None = Header(N
                         
                         # Get member user info for urgent alert
                         member_user = await db.users.find_one({"id": member['user_id']})
-                        if member_user and len(urgent_alerts) < 5:
+                        if member_user and urgent_alerts_by_group.get(group['id'], 0) < 5:
+                            urgent_alerts_by_group[group['id']] = urgent_alerts_by_group.get(group['id'], 0) + 1
                             days_late = (now - due_date).days
                             urgent_alerts.append({
+                                "group_id": group['id'],
                                 "contribution_id": contribution['id'],
                                 "user_id": member['user_id'],
                                 "member_name": member_user['full_name'],
@@ -2588,6 +2592,78 @@ async def get_club_home_context(group_id: str, authorization: Optional[str] = He
     }
 
 
+class SendGroupMessageRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=2000)
+
+
+@api_router.get("/groups/{group_id}/messages")
+async def get_group_messages(
+    group_id: str,
+    authorization: Optional[str] = Header(None),
+    before: Optional[datetime] = None,
+    limit: int = 50,
+):
+    actor = authenticated_user_id(authorization)
+    group = await db.groups.find_one({"id": group_id, "status": "active"})
+    if not group:
+        raise HTTPException(status_code=404, detail="Active club not found")
+    membership = await db.members.find_one({
+        "user_id": actor, "group_id": group_id, "status": "active"
+    })
+    if not membership:
+        raise HTTPException(status_code=403, detail="Active club membership required")
+
+    query = {"group_id": group_id}
+    if before is not None:
+        query["created_at"] = {"$lt": before}
+
+    safe_limit = max(1, min(limit, 100))
+    messages = await db.group_messages.find(
+        query, {"_id": 0}
+    ).sort("created_at", -1).limit(safe_limit).to_list(length=safe_limit)
+
+    return {"group_id": group_id, "messages": list(reversed(messages))}
+
+
+@api_router.post("/groups/{group_id}/messages")
+@limiter.limit("20/minute")
+async def send_group_message(
+    request: Request,
+    group_id: str,
+    payload: SendGroupMessageRequest,
+    authorization: Optional[str] = Header(None),
+):
+    actor = authenticated_user_id(authorization)
+    group = await db.groups.find_one({"id": group_id, "status": "active"})
+    if not group:
+        raise HTTPException(status_code=404, detail="Active club not found")
+    membership = await db.members.find_one({
+        "user_id": actor, "group_id": group_id, "status": "active"
+    })
+    if not membership:
+        raise HTTPException(status_code=403, detail="Active club membership required")
+
+    sender = await db.users.find_one({"id": actor})
+    if not sender or sender.get("status", "active") != "active":
+        raise HTTPException(status_code=403, detail="Active account required")
+
+    message_text = payload.text.strip()
+    if not message_text:
+        raise HTTPException(status_code=422, detail="Message cannot be empty")
+
+    message = {
+        "id": str(uuid.uuid4()),
+        "group_id": group_id,
+        "sender_user_id": actor,
+        "sender_name": sender.get("full_name") or "Member",
+        "sender_profile_photo": sender.get("profile_photo"),
+        "text": message_text,
+        "created_at": datetime.now(UTC),
+    }
+    await db.group_messages.insert_one(message)
+    return {"message": message}
+
+
 @api_router.get("/groups/{group_id}/directory")
 async def get_club_directory(group_id: str, authorization: Optional[str] = Header(None)):
     """Public-to-active-club-members identity and explicitly shared contact fields; no financial data."""
@@ -2666,6 +2742,7 @@ async def get_member_club_details(group_id: str, user_id: str, authorization: st
             "bank_account_number": decrypt_sensitive_field(group.get('bank_account_number')),  # Decrypted for display
             "bank_account_holder": group.get('bank_account_holder')
         },
+        "membership": {"role": membership.get("role_in_group")},
         "period": {"month": selected_month, "year": selected_year, "timezone": "Africa/Johannesburg"},
         "contributions": selected,
         "financial_summary": financial_totals(selected),

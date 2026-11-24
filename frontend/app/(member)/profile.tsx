@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { View, Text, StyleSheet, ScrollView, TouchableOpacity, Alert, Image, ActivityIndicator, Modal, Platform } from 'react-native';
 import { useRouter } from 'expo-router';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../../contexts/AuthContext';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
@@ -9,7 +10,6 @@ import axios from 'axios';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
 import EditProfile from '../../components/EditProfile';
-import ContactVisibilityPreference from '../../components/ContactVisibilityPreference';
 
 interface UserStats {
   clubs_count: number;
@@ -35,6 +35,7 @@ interface PayoutSchedule {
 export default function ProfileScreen() {
   const { user, token, logout, updateProfilePhoto } = useAuth();
   const router = useRouter();
+  const insets = useSafeAreaInsets();
   const [uploading, setUploading] = useState(false);
   const [photoExpanded, setPhotoExpanded] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -43,6 +44,7 @@ export default function ProfileScreen() {
   const [payoutSchedules, setPayoutSchedules] = useState<PayoutSchedule[]>([]);
   const [showClubsModal, setShowClubsModal] = useState(false);
   const [showPayoutModal, setShowPayoutModal] = useState(false);
+  const [manageProfileExpanded, setManageProfileExpanded] = useState(false);
 
   const API_URL = process.env.EXPO_PUBLIC_BACKEND_URL;
 
@@ -157,6 +159,47 @@ export default function ProfileScreen() {
     }
   };
 
+  const handleTakePhoto = async () => {
+    try {
+      const permission = await ImagePicker.requestCameraPermissionsAsync();
+      if (!permission.granted) {
+        Alert.alert('Permission Required', 'Please allow camera access to take a profile photo.');
+        return;
+      }
+
+      const result = await ImagePicker.launchCameraAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsEditing: true,
+        aspect: [1, 1],
+        quality: 0.5,
+        base64: true,
+      });
+
+      if (!result.canceled && result.assets[0].base64) {
+        setUploading(true);
+        try {
+          await updateProfilePhoto(`data:image/jpeg;base64,${result.assets[0].base64}`);
+          Alert.alert('Success', 'Profile photo updated successfully!');
+        } catch (error: any) {
+          Alert.alert('Error', error.message || 'Failed to update profile photo');
+        } finally {
+          setUploading(false);
+        }
+      }
+    } catch (error) {
+      console.error('Error taking photo:', error);
+      Alert.alert('Error', 'Failed to take photo');
+    }
+  };
+
+  const handlePhotoOptions = () => {
+    Alert.alert('Update Profile Photo', 'Choose how you would like to add your photo.', [
+      { text: 'Take Photo', onPress: handleTakePhoto },
+      { text: 'Choose from Gallery', onPress: handleChangePhoto },
+      { text: 'Cancel', style: 'cancel' },
+    ]);
+  };
+
   const handleRemovePhoto = () => {
     Alert.alert(
       "Remove profile photo?",
@@ -187,108 +230,136 @@ export default function ProfileScreen() {
     <View style={styles.container}>
       <ProfilePhotoViewer visible={photoExpanded} photoUri={user?.profile_photo} displayName={user?.full_name} onClose={() => setPhotoExpanded(false)} />
       {/* Profile Header */}
-      <View style={styles.header}>
+      <View style={[styles.header, { paddingTop: Math.max(insets.top, 16) }]}>
+        <View style={styles.headerTitleRow} />
         <View style={styles.profileHeaderRow}>
-          <TouchableOpacity style={styles.avatarContainer} onPress={() => user?.profile_photo ? setPhotoExpanded(true) : handleChangePhoto()} disabled={uploading}
-            accessibilityRole="button" accessibilityLabel={user?.profile_photo ? "View full-size profile photo" : "Add profile photo"}>
-            <ProfilePhotoFrame size={148}>
-              {user?.profile_photo ? (
-                <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
-              ) : (
-                <View style={styles.avatar}>
-                  <Ionicons name="person" size={32} color={Colors.white} />
-                </View>
-              )}
-            </ProfilePhotoFrame>
-            <View style={styles.editBadge}>
+          <View style={styles.avatarContainer}>
+            <TouchableOpacity
+              onPress={() => user?.profile_photo ? setPhotoExpanded(true) : handlePhotoOptions()}
+              disabled={uploading}
+              accessibilityRole="button"
+              accessibilityLabel={user?.profile_photo ? "View full-size profile photo" : "Add profile photo"}
+            >
+              <ProfilePhotoFrame size={148}>
+                {user?.profile_photo ? (
+                  <Image source={{ uri: user.profile_photo }} style={styles.avatarImage} resizeMode="cover" />
+                ) : (
+                  <View style={styles.avatar}>
+                    <Ionicons name="person" size={44} color={Colors.white} />
+                  </View>
+                )}
+              </ProfilePhotoFrame>
+            </TouchableOpacity>
+            <TouchableOpacity
+              style={styles.editBadge}
+              onPress={handlePhotoOptions}
+              disabled={uploading}
+              accessibilityRole="button"
+              accessibilityLabel="Take or choose a profile photo"
+            >
               {uploading ? <ActivityIndicator size="small" color={Colors.white} /> : <Ionicons name="camera" size={14} color={Colors.white} />}
-            </View>
-          </TouchableOpacity>
+            </TouchableOpacity>
+          </View>
           <View style={styles.profileHeaderInfo}>
+            <Text style={styles.greeting}>Hello</Text>
             <Text style={styles.name}>{user?.full_name}</Text>
           </View>
         </View>
-        {stats.date_joined && (
-          <Text style={styles.memberSince}>Joined {new Date(stats.date_joined).toLocaleDateString('en-ZA', { month: 'long', year: 'numeric' })}</Text>
-        )}
+        <View style={styles.headerDivider} />
+        <View style={styles.headerDateRow}>
+          <Text style={styles.headerDate}>{new Date().toLocaleDateString('en-ZA', { day: 'numeric', month: 'long', year: 'numeric' })}</Text>
+          <Text style={styles.headerClubsLabel}>MY PROFILE</Text>
+        </View>
       </View>
 
       <ScrollView style={styles.content}>
-        <ContactVisibilityPreference />
-        {/* Manage Profile Info */}
-        <View style={styles.profileSection}>
-          <Text style={styles.sectionTitle}>Manage Profile Info</Text>
-          <TouchableOpacity style={styles.menuItem} onPress={handleChangePhoto} disabled={uploading}>
-            <View style={styles.menuItemLeft}>
-              <Ionicons name="camera-outline" size={22} color={Colors.midnightNavy} />
-              <Text style={styles.menuItemText}>Change Photo</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.midnightNavy} />
-          </TouchableOpacity>
-          <View style={styles.divider} />
-          <TouchableOpacity style={styles.menuItem} onPress={handleRemovePhoto} disabled={!user?.profile_photo || uploading}>
-            <View style={styles.menuItemLeft}>
-              <Ionicons name="trash-outline" size={22} color={Colors.midnightNavy} />
-              <Text style={[styles.menuItemText, !user?.profile_photo && styles.disabledMenuText]}>Remove Photo</Text>
-            </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.midnightNavy} />
-          </TouchableOpacity>
-          <View style={styles.divider} />
-          <View style={styles.editProfileRow}>
-            <View style={styles.menuItemLeft}>
-              <Ionicons name="person-outline" size={22} color={Colors.midnightNavy} />
-              <Text style={styles.menuItemText}>Edit Profile</Text>
-            </View>
-            <EditProfile />
-          </View>
-        </View>
-
-        {/* Profile Options */}
         <View style={styles.menuSection}>
+          <TouchableOpacity
+            style={styles.menuItem}
+            onPress={() => setManageProfileExpanded(!manageProfileExpanded)}
+            accessibilityRole="button"
+            accessibilityLabel="Manage My Profile"
+            accessibilityState={{ expanded: manageProfileExpanded }}
+          >
+            <View style={styles.menuItemLeft}>
+              <Ionicons name="person-circle-outline" size={24} color="#343A40" />
+              <Text style={styles.menuItemText}>Manage My Profile</Text>
+            </View>
+            <Ionicons name={manageProfileExpanded ? "chevron-up" : "chevron-down"} size={18} color="#343A40" />
+          </TouchableOpacity>
+          {manageProfileExpanded && (
+            <>
+              <View style={styles.divider} />
+              <TouchableOpacity style={styles.menuItem} onPress={handleChangePhoto} disabled={uploading}>
+                <View style={styles.menuItemLeft}>
+                  <Ionicons name="camera-outline" size={22} color="#343A40" />
+                  <Text style={styles.menuItemText}>Change Photo</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#343A40" />
+              </TouchableOpacity>
+              <View style={styles.divider} />
+              <TouchableOpacity style={styles.menuItem} onPress={handleRemovePhoto} disabled={!user?.profile_photo || uploading}>
+                <View style={styles.menuItemLeft}>
+                  <Ionicons name="trash-outline" size={22} color="#343A40" />
+                  <Text style={[styles.menuItemText, !user?.profile_photo && styles.disabledMenuText]}>Remove Photo</Text>
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#343A40" />
+              </TouchableOpacity>
+              <View style={styles.divider} />
+              <View style={styles.menuItem}>
+                <View style={styles.menuItemLeft}>
+                  <Ionicons name="person-outline" size={22} color="#343A40" />
+                  <EditProfile />
+                </View>
+                <Ionicons name="chevron-forward" size={18} color="#343A40" />
+              </View>
+            </>
+          )}
+          <View style={styles.divider} />
           <TouchableOpacity style={styles.menuItem} onPress={() => setShowClubsModal(true)}>
             <View style={styles.menuItemLeft}>
-              <Ionicons name="people" size={22} color={Colors.midnightNavy} />
+              <Ionicons name="people" size={24} color={'#343A40'} />
               <Text style={styles.menuItemText}>My Clubs</Text>
             </View>
             <View style={styles.menuItemRight}>
               <Text style={styles.menuItemCount}>{clubs.length}</Text>
-              <Ionicons name="chevron-forward" size={20} color={Colors.midnightNavy} />
+              <Ionicons name="chevron-forward" size={18} color={'#343A40'} />
             </View>
           </TouchableOpacity>
           <View style={styles.divider} />
           <TouchableOpacity style={styles.menuItem} onPress={() => setShowPayoutModal(true)}>
             <View style={styles.menuItemLeft}>
-              <Ionicons name="calendar" size={22} color={Colors.midnightNavy} />
+              <Ionicons name="calendar" size={24} color={'#343A40'} />
               <Text style={styles.menuItemText}>Payout Schedule</Text>
             </View>
             <View style={styles.menuItemRight}>
               <Text style={styles.menuItemCount}>{payoutSchedules.length}</Text>
-              <Ionicons name="chevron-forward" size={20} color={Colors.midnightNavy} />
+              <Ionicons name="chevron-forward" size={18} color={'#343A40'} />
             </View>
           </TouchableOpacity>
           <View style={styles.divider} />
           <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(member)/notifications')}>
             <View style={styles.menuItemLeft}>
-              <Ionicons name="notifications" size={22} color={Colors.midnightNavy} />
+              <Ionicons name="notifications" size={24} color={'#343A40'} />
               <Text style={styles.menuItemText}>Notification Settings</Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.midnightNavy} />
+            <Ionicons name="chevron-forward" size={18} color={'#343A40'} />
           </TouchableOpacity>
           <View style={styles.divider} />
           <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(member)/privacy')}>
             <View style={styles.menuItemLeft}>
-              <Ionicons name="shield-checkmark" size={22} color={Colors.midnightNavy} />
+              <Ionicons name="shield-checkmark" size={24} color={'#343A40'} />
               <Text style={styles.menuItemText}>Privacy Policy</Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.midnightNavy} />
+            <Ionicons name="chevron-forward" size={18} color={'#343A40'} />
           </TouchableOpacity>
           <View style={styles.divider} />
           <TouchableOpacity style={styles.menuItem} onPress={() => router.push('/(member)/support')}>
             <View style={styles.menuItemLeft}>
-              <Ionicons name="help-circle" size={22} color={Colors.midnightNavy} />
+              <Ionicons name="help-circle" size={24} color={'#343A40'} />
               <Text style={styles.menuItemText}>Contact Us</Text>
             </View>
-            <Ionicons name="chevron-forward" size={20} color={Colors.midnightNavy} />
+            <Ionicons name="chevron-forward" size={18} color={'#343A40'} />
           </TouchableOpacity>
         </View>
 
@@ -309,11 +380,11 @@ export default function ProfileScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>My Clubs</Text>
-              <TouchableOpacity onPress={() => setShowClubsModal(false)}>
-                <Ionicons name="close" size={28} color={Colors.textPrimary} />
+              <TouchableOpacity onPress={() => setShowClubsModal(false)} style={styles.modalCloseButton} accessibilityRole="button" accessibilityLabel="Close My Clubs">
+                <Ionicons name="close" size={22} color={Colors.white} />
               </TouchableOpacity>
             </View>
-            <ScrollView style={styles.modalBody}>
+            <ScrollView style={styles.modalBody} contentContainerStyle={{ flexGrow: 1 }}>
               {clubs.length > 0 ? (
                 clubs.map((club, index) => (
                   <View key={index} style={styles.clubItem}>
@@ -349,11 +420,11 @@ export default function ProfileScreen() {
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Payout Schedule</Text>
-              <TouchableOpacity onPress={() => setShowPayoutModal(false)}>
-                <Ionicons name="close" size={28} color={Colors.textPrimary} />
+              <TouchableOpacity onPress={() => setShowPayoutModal(false)} style={styles.modalCloseButton} accessibilityRole="button" accessibilityLabel="Close Payout Schedule">
+                <Ionicons name="close" size={22} color={Colors.white} />
               </TouchableOpacity>
             </View>
-            <ScrollView style={styles.modalBody}>
+            <ScrollView style={styles.modalBody} contentContainerStyle={{ flexGrow: 1 }}>
               {payoutSchedules.length > 0 ? (
                 payoutSchedules.map((schedule, index) => (
                   <View key={index} style={styles.scheduleItem}>
@@ -391,24 +462,46 @@ const styles = StyleSheet.create({
     backgroundColor: Colors.white,
   },
   header: {
-    backgroundColor: Colors.lightGrey,
-    marginHorizontal: 16,
-    marginTop: 12,
-    marginBottom: 4,
-    padding: 16,
-    borderRadius: 12,
+    backgroundColor: '#D9D9D9',
+    paddingHorizontal: 20,
+    paddingBottom: 8,
   },
+  headerTitleRow: { minHeight: 44 },
   profileHeaderRow: {
     flexDirection: 'row',
     alignItems: 'center',
+    marginTop: 12,
+  },
+  headerDivider: {
+    height: 1,
+    backgroundColor: 'rgba(38,53,45,0.16)',
+    marginTop: 10,
+  },
+  headerDateRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingTop: 8,
+  },
+  headerDate: {
+    fontSize: 10,
+    color: '#26352D',
+    fontWeight: '700',
+    letterSpacing: 1,
+  },
+  headerClubsLabel: {
+    fontSize: 10,
+    color: '#26352D',
+    fontWeight: '700',
+    letterSpacing: 1,
   },
   profileHeaderInfo: {
     flex: 1,
-    marginLeft: 16,
+    marginLeft: 12,
     justifyContent: 'center',
   },
   photoActionText: {
-    color: Colors.midnightNavy,
+    color: '#343A40',
     fontSize: 14,
     fontWeight: '600',
     paddingVertical: 8,
@@ -442,16 +535,25 @@ const styles = StyleSheet.create({
     borderWidth: 2,
     borderColor: Colors.white,
   },
+  greeting: {
+    fontSize: 25,
+    lineHeight: 31,
+    fontWeight: '400',
+    color: '#4A4A4A',
+  },
   name: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Colors.midnightNavy,
-    marginBottom: 4,
+    fontSize: 25,
+    lineHeight: 31,
+    fontWeight: '700',
+    color: '#000000',
+    marginTop: 2,
   },
   memberSince: {
-    fontSize: 13,
-    color: Colors.midnightNavy,
-    marginTop: 12,
+    fontSize: 14,
+    color: '#343A40',
+    marginTop: 16,
+    textAlign: 'center',
+    alignSelf: 'stretch',
   },
   content: {
     flex: 1,
@@ -499,7 +601,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   sectionTitle: {
-    color: Colors.midnightNavy,
+    color: '#343A40',
     fontSize: 16,
     fontWeight: '700',
     paddingHorizontal: 16,
@@ -546,13 +648,14 @@ const styles = StyleSheet.create({
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    paddingVertical: 16,
-    paddingHorizontal: 16,
+    minHeight: 52,
+    paddingVertical: 12,
+    paddingHorizontal: 24,
   },
   menuItemLeft: {
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 16,
+    gap: 12,
   },
   menuItemRight: {
     flexDirection: 'row',
@@ -560,12 +663,13 @@ const styles = StyleSheet.create({
     gap: 12,
   },
   menuItemText: {
-    fontSize: 16,
-    color: Colors.midnightNavy,
+    fontSize: 17,
+    fontWeight: '600',
+    color: '#343A40',
   },
   menuItemCount: {
     fontSize: 14,
-    color: Colors.midnightNavy,
+    color: '#343A40',
     fontWeight: '500',
   },
   logoutText: {
@@ -585,7 +689,7 @@ const styles = StyleSheet.create({
   divider: {
     height: 1,
     backgroundColor: Colors.cardBorder,
-    marginHorizontal: 16,
+    marginHorizontal: 24,
   },
   adContainer: {
     paddingHorizontal: 24,
@@ -618,35 +722,61 @@ const styles = StyleSheet.create({
   // Modal styles
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0, 0, 0, 0.58)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 24,
   },
   modalContent: {
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    maxHeight: '70%',
-    paddingBottom: 50,
+    width: '92%',
+    maxWidth: 560,
+    height: '75%',
+    minHeight: '55%',
+    maxHeight: '88%',
+    backgroundColor: '#FFF8E8',
+    borderRadius: 18,
+    borderWidth: 3,
+    borderColor: '#343A40',
+    padding: 10,
+    overflow: 'hidden',
   },
   modalHeader: {
+    minHeight: 58,
+    backgroundColor: '#343A40',
+    borderRadius: 12,
+    paddingHorizontal: 16,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    padding: 20,
-    borderBottomWidth: 1,
-    borderBottomColor: Colors.cardBorder,
+    justifyContent: 'space-between',
+    marginBottom: 8,
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Colors.textPrimary,
+    flex: 1,
+    fontSize: 18,
+    fontWeight: '700',
+    color: '#FFFFFF',
+  },
+  modalCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#C96B45',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginLeft: 12,
   },
   modalBody: {
-    padding: 20,
+    flex: 1,
+    minHeight: 0,
+    paddingHorizontal: 10,
   },
   emptyState: {
+    flexGrow: 1,
+    justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 40,
+    paddingHorizontal: 20,
   },
   emptyStateText: {
     fontSize: 18,

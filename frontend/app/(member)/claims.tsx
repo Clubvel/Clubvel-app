@@ -353,7 +353,7 @@ export default function ClaimsScreen() {
               }}
               style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.18)' }}
             >
-              <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>Submit a Claim</Text>
+              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>Submit a Claim</Text>
               <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
             </TouchableOpacity>
             <TouchableOpacity
@@ -362,14 +362,13 @@ export default function ClaimsScreen() {
               onPress={() => {
                 if (payoutsOnly) {
                   setShowAllClaims(true);
-                } else {
-                  setMyClaimsExpanded(value => !value);
                 }
+                setMyClaimsExpanded(true);
                 setClaimsMenuExpanded(false);
               }}
               style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
             >
-              <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>
+              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>
                 {payoutsOnly ? 'Show all claims' : 'My Claims'}
               </Text>
               <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
@@ -387,11 +386,21 @@ export default function ClaimsScreen() {
         {payoutsOnly && <View>
           <Text style={styles.helperText}>Approved claims with a remaining balance in your active Clubvels. Figures reflect the latest claim records.</Text>
           {(phase === 'ready' || phase === 'empty') && <Text style={styles.meta}>Remaining total: R{remainingPayout.toLocaleString('en-ZA', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</Text>}
-          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Show all claims" onPress={() => setShowAllClaims(true)}><Text style={styles.retryText}>Show all claims</Text></TouchableOpacity>
+          <TouchableOpacity accessibilityRole="button" accessibilityLabel="Show all claims" onPress={() => { setShowAllClaims(true); setMyClaimsExpanded(true); }}><Text style={styles.retryText}>Show all claims</Text></TouchableOpacity>
         </View>}
 
-        {(payoutsOnly || myClaimsExpanded || showAllClaims) && (
-          <>
+        {myClaimsExpanded && (
+          <Modal visible transparent animationType="fade" onRequestClose={() => setMyClaimsExpanded(false)}>
+            <View style={styles.claimsPopupOverlay}>
+              <View style={styles.claimsPopupCard}>
+                <View style={styles.claimsPopupHeader}>
+                  <Text style={styles.claimsPopupTitle}>My Claims</Text>
+                  <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close My Claims" onPress={() => setMyClaimsExpanded(false)} style={styles.claimsPopupClose}>
+                    <Ionicons name="close" size={22} color={Colors.white} />
+                  </TouchableOpacity>
+                </View>
+                <ScrollView style={styles.claimsPopupScroll} contentContainerStyle={styles.claimsPopupContent} nestedScrollEnabled showsVerticalScrollIndicator>
+                  <View>
         {refreshing && phase !== 'loading' && (
           <Text accessibilityLiveRegion="polite" style={styles.helperText}>
             Updating claims…
@@ -485,14 +494,18 @@ export default function ClaimsScreen() {
             );
           })
         )}
-          </>
+                  </View>
+                </ScrollView>
+              </View>
+            </View>
+          </Modal>
         )}
 
       </ScrollView>
 
       <Modal
         visible={formOpen}
-        animationType="slide"
+        animationType="fade"
         transparent
         onRequestClose={closeForm}
       >
@@ -505,8 +518,9 @@ export default function ClaimsScreen() {
                 accessibilityLabel="Close claim form"
                 onPress={closeForm}
                 disabled={submitting}
+                style={styles.modalCloseButton}
               >
-                <Ionicons name="close" size={26} color={Colors.textPrimary} />
+                <Ionicons name="close" size={22} color={Colors.white} />
               </TouchableOpacity>
             </View>
 
@@ -632,7 +646,7 @@ const styles = StyleSheet.create({
     width: 148,
     height: 148,
     borderRadius: 74,
-    backgroundColor: '#343A40',
+    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
 },
@@ -698,6 +712,8 @@ const styles = StyleSheet.create({
     marginTop: 40,
   },
   empty: {
+    flexGrow: 1,
+    justifyContent: 'center',
     alignItems: 'center',
     paddingVertical: 54,
     paddingHorizontal: 24,
@@ -790,30 +806,104 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
     lineHeight: 18,
   },
-  modalBackdrop: {
+  claimsPopupOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0,0,0,0.38)',
-    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 28,
   },
-  modalCard: {
+  claimsPopupCard: {
+    width: '92%',
+    maxWidth: 560,
+    height: '75%',
+    minHeight: '55%',
     maxHeight: '88%',
-    backgroundColor: Colors.white,
-    borderTopLeftRadius: 22,
-    borderTopRightRadius: 22,
-    paddingHorizontal: 24,
-    paddingTop: 22,
-    paddingBottom: 30,
+    backgroundColor: '#FFF8E8',
+    borderColor: '#343A40',
+    borderWidth: 3,
+    borderRadius: 18,
+    overflow: 'hidden',
   },
-  modalHeader: {
+  claimsPopupHeader: {
+    minHeight: 58,
+    backgroundColor: '#343A40',
+    paddingLeft: 18,
+    paddingRight: 12,
     flexDirection: 'row',
     alignItems: 'center',
     justifyContent: 'space-between',
-    marginBottom: 22,
+  },
+  claimsPopupTitle: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '700',
+    flex: 1,
+  },
+  claimsPopupClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#C96B45',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  claimsPopupScroll: {
+    flex: 1,
+  },
+  claimsPopupContent: {
+    flexGrow: 1,
+    padding: 16,
+    paddingBottom: 22,
+  },
+  modalBackdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 28,
+  },
+  modalCard: {
+    width: '92%',
+    maxWidth: 560,
+    height: '75%',
+    minHeight: '55%',
+    maxHeight: '88%',
+    backgroundColor: '#FFF8E8',
+    borderColor: '#343A40',
+    borderWidth: 3,
+    borderRadius: 18,
+    paddingHorizontal: 20,
+    paddingTop: 0,
+    paddingBottom: 20,
+    overflow: 'hidden',
+  },
+  modalHeader: {
+    minHeight: 58,
+    backgroundColor: '#343A40',
+    marginHorizontal: -20,
+    marginBottom: 16,
+    paddingLeft: 18,
+    paddingRight: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
   },
   modalTitle: {
-    fontSize: 22,
+    fontSize: 17,
     fontWeight: '700',
-    color: Colors.textPrimary,
+    color: '#FFFFFF',
+    flex: 1,
+  },
+  modalCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#C96B45',
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   label: {
     fontSize: 14,

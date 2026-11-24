@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useRef, useState } from 'react';
 import { View, Text, StyleSheet, TextInput, TouchableOpacity, ScrollView, KeyboardAvoidingView, Platform, Alert, Modal, ActivityIndicator, Image } from 'react-native';
 import { useRouter } from 'expo-router';
 import { useAuth } from '../contexts/AuthContext';
@@ -35,6 +35,7 @@ export default function AuthScreen() {
   const [resetStep, setResetStep] = useState(1); // 1: enter phone, 2: enter OTP, 3: new password
   const [resetLoading, setResetLoading] = useState(false);
   
+  const authScrollRef = useRef<ScrollView>(null);
   const router = useRouter();
   const { login, register, verifyOTP, sendOTP } = useAuth();
 
@@ -412,10 +413,11 @@ export default function AuthScreen() {
       style={[styles.container, styles.authPage]}
       behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
     >
-      <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.scrollContent, { paddingTop: Math.max(insets.top, 16), paddingBottom: Math.max(insets.bottom, 16) + 24 }]}>
+      <ScrollView ref={authScrollRef} keyboardShouldPersistTaps="handled" contentContainerStyle={[styles.scrollContent, { paddingTop: Math.max(insets.top, 16), paddingBottom: Math.max(insets.bottom, 16) + 24 }]}>
         <View style={styles.header}>
-          <Image source={require('../assets/images/clubvel-midnight-symbol.png')} accessibilityLabel="Clubvel community logo" resizeMode="contain" style={styles.authLogo} />
+          <Image source={require('../assets/images/clubvel-terracotta-symbol.png')} accessibilityLabel="Clubvel community logo" resizeMode="contain" style={styles.authLogo} />
           <Text style={[styles.logo, { fontWeight: '400', fontSize: 26 }]}>clubvel</Text>
+          <Text style={styles.authTagline}>Save, Plan,{"\n"}Grow Together</Text>
         </View>
 
         <View style={styles.form}>
@@ -425,14 +427,14 @@ export default function AuthScreen() {
               
               <TextInput
                 style={[styles.input, styles.authInput]}
-                accessibilityLabel="Full name" placeholder="Full name" placeholderTextColor="#FCE5DC"
+                accessibilityLabel="Full name" placeholder="Full name" placeholderTextColor="#667085"
                 value={fullName}
                 onChangeText={setFullName}
               />
 
               <TextInput
                 style={[styles.input, styles.authInput]}
-                accessibilityLabel="Phone number" placeholder="Phone number" placeholderTextColor="#FCE5DC"
+                accessibilityLabel="Phone number" placeholder="Phone number" placeholderTextColor="#667085"
                 value={phoneNumber}
                 onChangeText={setPhoneNumber}
                 keyboardType="phone-pad"
@@ -441,10 +443,11 @@ export default function AuthScreen() {
               <View style={{ position: 'relative' }}>
                 <TextInput
                   style={[styles.input, styles.authInput]}
-                  accessibilityLabel="Password" placeholder="Password" placeholderTextColor="#FCE5DC"
+                  accessibilityLabel="Password" placeholder="Password" placeholderTextColor="#667085"
                   value={password}
                   onChangeText={setPassword}
                   secureTextEntry={!showPassword}
+                  onFocus={() => setTimeout(() => authScrollRef.current?.scrollToEnd({ animated: true }), 350)}
                 />
                 <TouchableOpacity
                   onPress={() => setShowPassword(!showPassword)}
@@ -454,7 +457,7 @@ export default function AuthScreen() {
                   <Ionicons
                     name={showPassword ? 'eye-off-outline' : 'eye-outline'}
                     size={24}
-                    color="#FFFFFF"
+                    color="#344054"
                   />
                 </TouchableOpacity>
               </View>
@@ -464,14 +467,14 @@ export default function AuthScreen() {
                 onPress={handleProceedToConsent}
                 disabled={loading}
               >
-                <Text style={[styles.buttonText, { color: Colors.primary, fontWeight: '500' }]}>
+                <Text style={[styles.buttonText, { color: '#344054', fontWeight: '500' }]}>
                   {loading ? 'Creating Account...' : 'Sign Up'}
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity onPress={() => setIsLogin(true)}>
                 <Text style={[styles.switchText, styles.authLink]}>
-                  Already a member? <Text style={{ color: Colors.corporateBlue }}>Sign In</Text>
+                  Already a member? <Text style={{ color: '#344054' }}>Sign In</Text>
                 </Text>
               </TouchableOpacity>
             </>
@@ -479,12 +482,9 @@ export default function AuthScreen() {
 
           {isLogin && (
             <>
-              <Text style={[styles.sectionTitle, styles.authTitle]}>Save, Plan, Grow Together</Text>
-              <Text style={styles.authSubtitle}>Sign in to continue</Text>
-              
               <TextInput
                 style={[styles.input, styles.authInput]}
-                accessibilityLabel="Phone number" placeholder="Phone number" placeholderTextColor="#FCE5DC"
+                accessibilityLabel="Phone number" placeholder="Phone number" placeholderTextColor="#667085"
                 value={phoneNumber}
                 onChangeText={setPhoneNumber}
                 keyboardType="phone-pad"
@@ -493,17 +493,18 @@ export default function AuthScreen() {
               <View style={{ position: 'relative' }}>
                 <TextInput
                 style={[styles.input, styles.authInput]}
-                accessibilityLabel="Password" placeholder="Password" placeholderTextColor="#FCE5DC"
+                accessibilityLabel="Password" placeholder="Password" placeholderTextColor="#667085"
                 value={password}
                 onChangeText={setPassword}
                 secureTextEntry={!showPassword}
+                  onFocus={() => setTimeout(() => authScrollRef.current?.scrollToEnd({ animated: true }), 350)}
               />
               <TouchableOpacity
               onPress={() => setShowPassword(!showPassword)}
               accessibilityRole="button" accessibilityLabel={showPassword ? 'Hide password' : 'Show password'}
                   style={{ position: 'absolute', right: 8, top: 5, width: 44, height: 44, alignItems: 'center', justifyContent: 'center' }}
               >
-              <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={24} color="#FFFFFF" />
+              <Ionicons name={showPassword ? 'eye-off-outline' : 'eye-outline'} size={24} color="#344054" />
               </TouchableOpacity>
             </View>
               <TouchableOpacity
@@ -511,17 +512,17 @@ export default function AuthScreen() {
                 accessibilityRole="button" accessibilityLabel="Sign In" onPress={handleLogin}
                 disabled={loading}
               >
-                <Text style={[styles.buttonText, { color: Colors.primary, fontWeight: '500' }]}>
+                <Text style={[styles.buttonText, { color: '#344054', fontWeight: '500' }]}>
                   {loading ? 'Signing In...' : 'Sign In'}
                 </Text>
               </TouchableOpacity>
 
               <TouchableOpacity onPress={() => setShowForgotPassword(true)}>
-                <Text style={[styles.forgotPasswordText, styles.authLink]}>Forgot Password?</Text>
+                <Text style={[styles.forgotPasswordText, styles.authLink, { marginBottom: 4 }]}>Forgot Password?</Text>
               </TouchableOpacity>
 
               <TouchableOpacity onPress={() => setIsLogin(false)}>
-                <Text style={[styles.switchText, styles.authLink]}>New to Clubvel? Sign Up</Text>
+                <Text style={[styles.switchText, styles.authLink, { color: '#06285B', fontWeight: '700', minHeight: 36, paddingVertical: 6 }]}>New to Clubvel? Sign Up</Text>
               </TouchableOpacity>
             </>
           )}
@@ -566,7 +567,7 @@ export default function AuthScreen() {
                     keyboardType="phone-pad"
                   />
                   <TouchableOpacity
-                    style={[styles.button, resetLoading && styles.buttonDisabled]}
+                    style={[styles.button, { backgroundColor: '#D96540' }, resetLoading && styles.buttonDisabled]}
                     onPress={handleSendResetOTP}
                     disabled={resetLoading}
                   >
@@ -681,13 +682,14 @@ export default function AuthScreen() {
 }
 
 const styles = StyleSheet.create({
-  authPage: { backgroundColor: '#D96540' },
-  authLogo: { width: 108, height: 108, marginBottom: 8 },
-  authTitle: { color: Colors.white, fontWeight: '400', fontSize: 27, marginBottom: 8 },
-  authSubtitle: { color: '#FCE5DC', fontSize: 16, marginBottom: 24 },
-  authInput: { backgroundColor: '#B94F32', borderColor: '#F0A18A', color: Colors.white, minHeight: 54, borderRadius: 18, paddingRight: 52 },
+  authPage: { backgroundColor: '#FFFFFF' },
+  authLogo: { width: 160, height: 160, marginBottom: 4 },
+  authTagline: { color: '#06285B', fontSize: 30, fontWeight: '700', marginTop: 14, textAlign: 'center', alignSelf: 'stretch', width: '100%' },
+  authTitle: { color: '#344054', fontWeight: '400', fontSize: 27, marginBottom: 8 },
+  authSubtitle: { color: '#344054', fontSize: 16, marginBottom: 24 },
+  authInput: { backgroundColor: '#FFFFFF', borderColor: '#EAECF0', color: '#344054', minHeight: 54, borderRadius: 18, paddingRight: 52 },
   authSignIn: { backgroundColor: Colors.signInAction, minHeight: 54, borderRadius: 18 },
-  authLink: { color: '#FFE4D8', fontWeight: '400', minHeight: 44, paddingVertical: 10 },
+  authLink: { color: '#344054', fontWeight: '400', minHeight: 44, paddingVertical: 10 },
   container: {
     flex: 1,
     backgroundColor: Colors.lightBackground,
@@ -696,21 +698,21 @@ const styles = StyleSheet.create({
     flexGrow: 1,
   },
   header: {
-    backgroundColor: Colors.darkGreen,
-    paddingTop: 60,
-    paddingBottom: 40,
+    backgroundColor: '#FFFFFF',
+    paddingTop: 28,
+    paddingBottom: 12,
     paddingHorizontal: 24,
     alignItems: 'center',
   },
   logo: {
     fontSize: 36,
     fontWeight: 'bold',
-    color: Colors.white,
+    color: '#344054',
     marginBottom: 8,
   },
   headerSubtitle: {
     fontSize: 14,
-    color: 'rgba(255, 255, 255, 0.8)',
+    color: '#344054',
   },
   form: {
     padding: 24,

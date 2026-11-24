@@ -2,7 +2,7 @@ import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import ProfilePhotoViewer from '../../components/ProfilePhotoViewer';
 import ProfilePhotoFrame from '../../components/ProfilePhotoFrame';
 import React, { useCallback, useRef, useState } from 'react';
-import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity, Image, Alert as NativeAlert } from 'react-native';
+import { View, Text, StyleSheet, ScrollView, RefreshControl, ActivityIndicator, TouchableOpacity, Image, Modal, Alert as NativeAlert } from 'react-native';
 import { useAuth } from '../../contexts/AuthContext';
 import { Colors } from '../../constants/Colors';
 import { Ionicons } from '@expo/vector-icons';
@@ -13,6 +13,14 @@ import { AdBanner } from '../../components/AdBanner';
 import ClubvelSpotlight from '../../components/ClubvelSpotlight';
 
 import HomeSponsoredCard from '../../components/HomeSponsoredCard';
+interface Club {
+  id: string;
+  name: string;
+  group_photo?: string | null;
+  membership_status?: string;
+  role?: string;
+}
+
 interface Alert {
   id: string;
   user_id: string;
@@ -32,7 +40,9 @@ export default function AlertsScreen() {
   const router = useRouter();
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [clubNames, setClubNames] = useState<Record<string, string>>({});
+  const [clubs, setClubs] = useState<Club[]>([]);
   const [myAlertsExpanded, setMyAlertsExpanded] = useState(false);
+  const [chatsExpanded, setChatsExpanded] = useState(false);
   const [alertsMenuExpanded, setAlertsMenuExpanded] = useState(false);
   const [expandedClubs, setExpandedClubs] = useState<Record<string, boolean>>({});
   const panelScroll = useRef<ScrollView>(null);
@@ -80,6 +90,7 @@ export default function AlertsScreen() {
             if (item?.id && item?.name) names[item.id] = item.name;
           }
           setClubNames(names);
+          setClubs((cr.data?.clubs || []).filter((item: Club) => item?.id && item?.name));
         }
       } catch { /* Keep previously loaded club names if this request fails. */ }
     } catch {
@@ -269,7 +280,7 @@ export default function AlertsScreen() {
                   {alertsMenuExpanded ? 'SELECT AN OPTION' : 'TAP TO VIEW'}
                 </Text>
                 <Text accessibilityRole="button" onPress={() => setAlertsMenuExpanded(value => !value)} style={{ color: '#26352D', fontSize: 14, fontWeight: '400', letterSpacing: 1 }}>
-                  {alertsMenuExpanded ? 'CLOSE MENU' : '1 OPTION'}
+                  {alertsMenuExpanded ? 'CLOSE MENU' : '2 OPTIONS'}
                 </Text>
               </View>
             </View>
@@ -280,12 +291,26 @@ export default function AlertsScreen() {
                   accessibilityRole="button"
                   accessibilityState={{ expanded: myAlertsExpanded }}
                   onPress={() => {
-                    setMyAlertsExpanded(value => !value);
+                    setMyAlertsExpanded(true);
+                    setChatsExpanded(false);
                     setAlertsMenuExpanded(false);
                   }}
                   style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
                 >
-                  <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>My Alerts</Text>
+                  <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>My Alerts</Text>
+                  <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
+                </TouchableOpacity>
+                <TouchableOpacity
+                  accessibilityRole="button"
+                  accessibilityState={{ expanded: chatsExpanded }}
+                  onPress={() => {
+                    setChatsExpanded(true);
+                    setMyAlertsExpanded(false);
+                    setAlertsMenuExpanded(false);
+                  }}
+                  style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderTopWidth: 1, borderTopColor: '#596168' }}
+                >
+                  <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>Chats</Text>
                   <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
                 </TouchableOpacity>
               </View>
@@ -297,7 +322,91 @@ export default function AlertsScreen() {
               <ClubvelSpotlight homeBackgroundColor="#343A40" />
             </View>
 
+            {chatsExpanded && (
+              <Modal visible transparent animationType="fade" onRequestClose={() => setChatsExpanded(false)}>
+                <View style={styles.destinationOverlay}>
+                  <View style={styles.destinationCard}>
+                    <View style={styles.destinationHeader}>
+                      <Text style={styles.destinationTitle}>Chats</Text>
+                      <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close Chats" onPress={() => setChatsExpanded(false)} style={styles.destinationClose}>
+                        <Ionicons name="close" size={22} color={Colors.white} />
+                      </TouchableOpacity>
+                    </View>
+                    <ScrollView style={styles.destinationScroll} contentContainerStyle={styles.destinationScrollContent} nestedScrollEnabled showsVerticalScrollIndicator>
+              <View style={{ paddingTop: 12 }}>
+                {clubs.map(club => (
+                  <TouchableOpacity
+                    key={club.id}
+                    accessibilityRole="button"
+                    onPress={() => {
+                      setChatsExpanded(false);
+                      router.push({
+                        pathname: '/(member)/chats/[id]',
+                        params: { id: club.id },
+                      });
+                    }}
+                    style={{
+                      minHeight: 82,
+                      backgroundColor: Colors.white,
+                      borderRadius: 10,
+                      marginBottom: 10,
+                      padding: 12,
+                      flexDirection: 'row',
+                      alignItems: 'center',
+                      gap: 13,
+                    }}
+                  >
+                    {club.group_photo ? (
+                      <Image
+                        source={{ uri: club.group_photo }}
+                        style={{ width: 54, height: 54, borderRadius: 27 }}
+                      />
+                    ) : (
+                      <View style={{
+                        width: 54, height: 54, borderRadius: 27,
+                        backgroundColor: Colors.primary,
+                        alignItems: 'center', justifyContent: 'center',
+                      }}>
+                        <Ionicons name="people-outline" size={25} color="#FFFFFF" />
+                      </View>
+                    )}
+                    <View style={{ flex: 1 }}>
+                      <Text style={{ color: '#343A40', fontSize: 16, fontWeight: '500' }}>
+                        {club.name}
+                      </Text>
+                      <Text style={{ color: '#858585', fontSize: 12, marginTop: 5 }}>
+                        Open group chat
+                      </Text>
+                    </View>
+                    <Ionicons name="chevron-forward" size={20} color="#858585" />
+                  </TouchableOpacity>
+                ))}
+                {clubs.length === 0 && (
+                  <View style={{ paddingVertical: 30, alignItems: 'center' }}>
+                    <Ionicons name="chatbubbles-outline" size={42} color="#858585" />
+                    <Text style={{ color: '#343A40', fontSize: 15, marginTop: 12 }}>
+                      No active clubs to chat in yet.
+                    </Text>
+                  </View>
+                )}
+              </View>
+                    </ScrollView>
+                  </View>
+                </View>
+              </Modal>
+            )}
+
             {myAlertsExpanded && (
+              <Modal visible transparent animationType="fade" onRequestClose={() => setMyAlertsExpanded(false)}>
+                <View style={styles.destinationOverlay}>
+                  <View style={styles.destinationCard}>
+                    <View style={styles.destinationHeader}>
+                      <Text style={styles.destinationTitle}>My Alerts</Text>
+                      <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close My Alerts" onPress={() => setMyAlertsExpanded(false)} style={styles.destinationClose}>
+                        <Ionicons name="close" size={22} color={Colors.white} />
+                      </TouchableOpacity>
+                    </View>
+                    <ScrollView style={styles.destinationScroll} contentContainerStyle={styles.destinationScrollContent} nestedScrollEnabled showsVerticalScrollIndicator>
               <View style={styles.alertsDropdown}>
                 {clubGroups.map(group => {
                   const expanded = !!expandedClubs[group.id];
@@ -329,6 +438,10 @@ export default function AlertsScreen() {
                   </View>
                 )}
               </View>
+                    </ScrollView>
+                  </View>
+                </View>
+              </Modal>
             )}
           </View>
         )}
@@ -382,7 +495,7 @@ const styles = StyleSheet.create({
     width: 148,
     height: 148,
     borderRadius: 74,
-    backgroundColor: '#343A40',
+    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
   },
@@ -402,6 +515,51 @@ const styles = StyleSheet.create({
     flex: 1, textAlign: 'center', color: '#343A40',
     fontSize: 18, fontWeight: '700',
   },
+  destinationOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 28,
+  },
+  destinationCard: {
+    width: '92%',
+    maxWidth: 560,
+    height: '75%',
+    minHeight: '55%',
+    maxHeight: '88%',
+    backgroundColor: '#FFF8E8',
+    borderColor: '#343A40',
+    borderWidth: 3,
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
+  destinationHeader: {
+    minHeight: 58,
+    backgroundColor: '#343A40',
+    paddingLeft: 18,
+    paddingRight: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  destinationTitle: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '700',
+    flex: 1,
+  },
+  destinationClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#C96B45',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  destinationScroll: { flex: 1 },
+  destinationScrollContent: { flexGrow: 1, paddingBottom: 18 },
   alertsDropdown: { paddingTop: 12 },
   clubGroup: {
     marginBottom: 12, borderRadius: 10, overflow: 'hidden',
@@ -466,8 +624,11 @@ const styles = StyleSheet.create({
     color: Colors.textSecondary,
   },
   emptyState: {
+    flexGrow: 1,
     alignItems: 'center',
-    paddingVertical: 64,
+    justifyContent: 'center',
+    paddingVertical: 32,
+    paddingHorizontal: 20,
   },
   emptyStateText: {
     fontSize: 18,

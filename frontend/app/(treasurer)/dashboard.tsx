@@ -19,6 +19,7 @@ import { useFocusEffect, useLocalSearchParams, useRouter } from 'expo-router';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
 interface LateMember {
+  group_id: string;
   contribution_id: string;
   user_id: string;
   member_name: string;
@@ -124,7 +125,7 @@ export default function AdminDashboardScreen() {
   const selectedSummary = needsFinancialRead ? financialRead?.summary : financialClub?.financial_summary;
   const dashboardData = selectedGroupId ? selectedClub && financialClub && accountDashboard ? {
     ...accountDashboard, clubs: [{ ...financialClub, name: selectedClub.name, financial_summary: selectedSummary,
-      period: needsFinancialRead ? { ...financialPeriod, timezone: 'Africa/Johannesburg' } : financialClub.period }], urgent_alerts: [], next_claim: null,
+      period: needsFinancialRead ? { ...financialPeriod, timezone: 'Africa/Johannesburg' } : financialClub.period }], urgent_alerts: accountDashboard.urgent_alerts.filter(alert => alert.group_id === selectedGroupId), next_claim: null,
     summary: { ...accountDashboard.summary, total_clubs: 1, total_members: financialClub.member_count,
       late_members_count: financialClub.late_count,
       confirmed_collected_current_period: selectedSummary?.collected ?? null },
@@ -428,7 +429,7 @@ export default function AdminDashboardScreen() {
       </View>
       )}
       {selectedClub && <View style={{ paddingHorizontal: 16 }}>
-        <ClubNavigationTiles items={(selectedClub.role === 'treasurer' ? [
+        <ClubNavigationTiles items={(['admin', 'treasurer'].includes(selectedClub.role ?? '') ? [
           { label: 'Members', icon: 'people' as const, route: '/(treasurer)/members', routeParams: { groupId: selectedClub.id } },
           { label: 'Contributions', icon: 'layers-outline' as const, route: '/(treasurer)/contributions', routeParams: { groupId: selectedClub.id } },
           { label: 'Confirm Payments', icon: 'document-text-outline' as const, route: '/(treasurer)/contributions', routeParams: { groupId: selectedClub.id } },
@@ -442,7 +443,7 @@ export default function AdminDashboardScreen() {
           if (latestSession.current !== sessionKey || latestAdministration.current.context !== administrationContext || latestAdministration.current.club?.id !== selectedGroupId) return;
           router.push({ pathname: item.route as '/(treasurer)/members', params: item.routeParams });
         } }))} />
-        {selectedClub.role === 'treasurer' ? <PendingConfirmations key={administrationContext} groupId={selectedClub.id} month={financialPeriod.month} year={financialPeriod.year} onReview={() => { if (latestAdministration.current.context === administrationContext && latestAdministration.current.club?.id === selectedGroupId) router.push({ pathname: '/(treasurer)/contributions', params: { groupId: selectedClub.id } }); }} /> : <>
+        {['admin', 'treasurer'].includes(selectedClub.role ?? '') ? <PendingConfirmations key={administrationContext} groupId={selectedClub.id} month={financialPeriod.month} year={financialPeriod.year} onReview={() => { if (latestAdministration.current.context === administrationContext && latestAdministration.current.club?.id === selectedGroupId) router.push({ pathname: '/(treasurer)/contributions', params: { groupId: selectedClub.id } }); }} /> : <>
           <ClubOverviewCard memberCount={financialClub?.member_count} collected={selectedSummary?.collected} expected={selectedSummary?.total_expected} period={`${(needsFinancialRead ? financialPeriod : financialClub?.period || financialPeriod).month}/${(needsFinancialRead ? financialPeriod : financialClub?.period || financialPeriod).year}`} />
           <ClubMemberDirectory key={administrationContext} groupId={selectedClub.id} compact onViewAll={() => { if (latestAdministration.current.context === administrationContext && latestAdministration.current.club?.id === selectedGroupId) router.push({ pathname: '/(treasurer)/members', params: { groupId: selectedClub.id } }); }} />
         </>}

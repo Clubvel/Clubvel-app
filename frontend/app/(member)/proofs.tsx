@@ -56,7 +56,7 @@ export default function ProofOfPaymentsScreen() {
   const router = useRouter();
   const params = useLocalSearchParams<{ group_id?: string; month?: string; year?: string; contribution_id?: string; scope?: string; from?: string }>();
   const clubScoped = params.scope === 'club';
-  const [expandedPaymentsMenu, setExpandedPaymentsMenu] = useState<'upload' | 'contributions' | 'proofs' | null>(clubScoped ? 'contributions' : null);
+  const [expandedPaymentsMenu, setExpandedPaymentsMenu] = useState<'upload' | 'contributions' | 'proofs' | null>(null);
   const panelScroll = useRef<ScrollView>(null);
   const routeKey = JSON.stringify([params.scope, params.group_id, params.month, params.year, params.contribution_id, params.from]);
   const [appliedRoute, setAppliedRoute] = useState(routeKey);
@@ -715,7 +715,7 @@ export default function ProofOfPaymentsScreen() {
               }}
               style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.18)' }}
             >
-              <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>Upload Proof of Payment</Text>
+              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>Upload Proof of Payment</Text>
               <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
             </TouchableOpacity>
             <TouchableOpacity
@@ -726,7 +726,7 @@ export default function ProofOfPaymentsScreen() {
               }}
               style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', borderBottomWidth: 1, borderBottomColor: 'rgba(255,255,255,0.18)' }}
             >
-              <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>My Contributions</Text>
+              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>My Contributions</Text>
               <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
             </TouchableOpacity>
             <TouchableOpacity
@@ -734,7 +734,7 @@ export default function ProofOfPaymentsScreen() {
               onPress={() => setExpandedPaymentsMenu('proofs')}
               style={{ minHeight: 49, paddingHorizontal: 20, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' }}
             >
-              <Text style={{ color: '#FFFFFF', fontSize: 15, fontWeight: '400' }}>My Proof of Payments</Text>
+              <Text style={{ color: '#FFFFFF', fontSize: 16, fontWeight: '700' }}>My Proof of Payments</Text>
               <Ionicons name="arrow-forward" size={18} color="#FFFFFF" />
             </TouchableOpacity>
           </View>
@@ -743,8 +743,18 @@ export default function ProofOfPaymentsScreen() {
         <HomeSponsoredCard />
         <ClubvelSpotlight homeBackgroundColor="#343A40" />
 
-        <View style={styles.section}>
-          {expandedPaymentsMenu === 'contributions' && <View>
+        {expandedPaymentsMenu === 'contributions' && <Modal visible transparent animationType="fade" onRequestClose={() => setExpandedPaymentsMenu(null)}>
+          <View style={styles.destinationOverlay}>
+            <View style={styles.destinationCard}>
+              <View style={styles.destinationHeader}>
+                <Text style={styles.destinationTitle}>My Contributions</Text>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close My Contributions" onPress={() => setExpandedPaymentsMenu(null)} style={styles.destinationClose}>
+                  <Ionicons name="close" size={22} color={Colors.white} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.destinationScroll} contentContainerStyle={styles.destinationScrollContent} nestedScrollEnabled showsVerticalScrollIndicator>
+                <View style={styles.section}>
+          <View>
           {!clubScoped && <View style={{ marginBottom: 14 }}>
             <Text style={{ fontWeight: '700', marginBottom: 8, color: Colors.primary }}>My Clubs</Text>
             {loadingClubs && clubs.length === 0 ? (
@@ -778,7 +788,12 @@ export default function ProofOfPaymentsScreen() {
               </TouchableOpacity>
             ))}
           </ScrollView>
-          {!proofsLoading && !proofsError && selectedRecords.length === 0 && <Text>No contribution recorded for this period.</Text>}
+          {!proofsLoading && !proofsError && selectedRecords.length === 0 && (
+            <View style={styles.contributionEmptyState}>
+              <Ionicons name="wallet-outline" size={48} color={Colors.textMuted} />
+              <Text style={styles.emptyStateText}>No contribution recorded for this period.</Text>
+            </View>
+          )}
           {contributionGroups.map(group => <View key={group.id} style={styles.clubSection}>
             <TouchableOpacity accessibilityRole="button" accessibilityLabel={`Toggle contributions ${group.name}`} accessibilityState={{ expanded: groupExpanded(group.id) }} style={styles.clubRibbon} onPress={() => {
               if (latestAction.current !== actionContext || !routeReady) return;
@@ -817,11 +832,25 @@ export default function ProofOfPaymentsScreen() {
               </View>}
             </View>}
           </View>)}
-          </View>}
-        </View>
+                </View>
+                </View>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>}
 
-        <View style={styles.section}>
-          {expandedPaymentsMenu === 'proofs' && <View>
+        {expandedPaymentsMenu === 'proofs' && <Modal visible transparent animationType="fade" onRequestClose={() => setExpandedPaymentsMenu(null)}>
+          <View style={styles.destinationOverlay}>
+            <View style={styles.destinationCard}>
+              <View style={styles.destinationHeader}>
+                <Text style={styles.destinationTitle}>My Proof of Payments</Text>
+                <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close My Proof of Payments" onPress={() => setExpandedPaymentsMenu(null)} style={styles.destinationClose}>
+                  <Ionicons name="close" size={22} color={Colors.white} />
+                </TouchableOpacity>
+              </View>
+              <ScrollView style={styles.destinationScroll} contentContainerStyle={styles.destinationScrollContent} nestedScrollEnabled showsVerticalScrollIndicator>
+                <View style={styles.section}>
+          <View>
         {/* Summary Card */}
         {loadedProofContext === requestContext && !proofsError && <>
         <View style={styles.summaryCard}>
@@ -941,8 +970,12 @@ export default function ProofOfPaymentsScreen() {
           )}
         </View>
 
-        </View>}
-        </View>
+                </View>
+                </View>
+              </ScrollView>
+            </View>
+          </View>
+        </Modal>}
 
       </ScrollView>
 
@@ -950,15 +983,15 @@ export default function ProofOfPaymentsScreen() {
       <Modal
         visible={showClubModal && clubsOwner === requestContext}
         transparent={true}
-        animationType="slide"
+        animationType="fade"
         onRequestClose={() => setShowClubModal(false)}
       >
         <View style={styles.modalOverlay}>
           <View style={styles.modalContent}>
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Select Group</Text>
-              <TouchableOpacity onPress={() => setShowClubModal(false)}>
-                <Ionicons name="close" size={24} color={Colors.textPrimary} />
+              <TouchableOpacity accessibilityRole="button" accessibilityLabel="Close Upload Proof of Payment" onPress={() => setShowClubModal(false)} style={styles.modalCloseButton}>
+                <Ionicons name="close" size={22} color={Colors.white} />
               </TouchableOpacity>
             </View>
             <Text style={styles.modalSubtitle}>Choose which Group to upload proof for</Text>
@@ -1018,13 +1051,16 @@ export default function ProofOfPaymentsScreen() {
             <View style={styles.modalHeader}>
               <Text style={styles.modalTitle}>Amount Paid</Text>
               <TouchableOpacity
+                accessibilityRole="button"
+                accessibilityLabel="Close Amount Paid"
+                style={styles.modalCloseButton}
                 onPress={() => {
                   ++operationTicket.current; uploadPending.current = false; setUploading(false);
                   setSelectedFlexibleClub(null);
                   setFlexibleAmount('');
                 }}
               >
-                <Ionicons name="close" size={24} color={Colors.textPrimary} />
+                <Ionicons name="close" size={22} color={Colors.white} />
               </TouchableOpacity>
             </View>
 
@@ -1126,6 +1162,56 @@ const styles = StyleSheet.create({
   contributionDetailsLabel: { color: Colors.primary, fontSize: 15, fontWeight: '500' },
   proofCategories: { flexDirection: 'row', flexWrap: 'wrap', gap: 20, paddingHorizontal: 20, paddingBottom: 12 },
 
+  destinationOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 28,
+  },
+  destinationCard: {
+    width: '92%',
+    maxWidth: 560,
+    height: '75%',
+    minHeight: '55%',
+    maxHeight: '88%',
+    backgroundColor: '#FFF8E8',
+    borderColor: '#343A40',
+    borderWidth: 3,
+    borderRadius: 18,
+    overflow: 'hidden',
+  },
+  destinationHeader: {
+    minHeight: 58,
+    backgroundColor: '#343A40',
+    paddingLeft: 18,
+    paddingRight: 12,
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+  },
+  destinationTitle: {
+    color: '#FFFFFF',
+    fontSize: 17,
+    fontWeight: '700',
+    flex: 1,
+  },
+  destinationClose: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#C96B45',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  destinationScroll: {
+    flex: 1,
+  },
+  destinationScrollContent: {
+    flexGrow: 1,
+    paddingBottom: 18,
+  },
   container: {
     flex: 1,
     backgroundColor: Colors.lightBackground,
@@ -1167,7 +1253,7 @@ const styles = StyleSheet.create({
     width: 148,
     height: 148,
     borderRadius: 74,
-    backgroundColor: '#343A40',
+    backgroundColor: Colors.primary,
     justifyContent: 'center',
     alignItems: 'center',
 },
@@ -1230,12 +1316,25 @@ const styles = StyleSheet.create({
     marginBottom: 12,
   },
   emptyState: {
+    flexGrow: 1,
+    justifyContent: 'center',
     backgroundColor: Colors.white,
     padding: 32,
     borderRadius: 12,
     borderWidth: 1,
     borderColor: Colors.cardBorder,
     alignItems: 'center',
+  },
+  contributionEmptyState: {
+    flexGrow: 1,
+    justifyContent: 'center',
+    alignItems: 'center',
+    backgroundColor: Colors.white,
+    borderRadius: 12,
+    borderWidth: 1,
+    borderColor: Colors.cardBorder,
+    padding: 32,
+    marginTop: 12,
   },
   emptyStateText: {
     fontSize: 16,
@@ -1363,29 +1462,42 @@ const styles = StyleSheet.create({
   },
   modalOverlay: {
     flex: 1,
-    backgroundColor: 'rgba(0, 0, 0, 0.5)',
-    justifyContent: 'flex-end',
+    backgroundColor: 'rgba(0,0,0,0.62)',
+    justifyContent: 'center',
+    alignItems: 'center',
+    paddingHorizontal: 18,
+    paddingVertical: 28,
   },
   modalContent: {
-    backgroundColor: Colors.white,
-    marginBottom: 16,
-    borderTopLeftRadius: 24,
-    borderTopRightRadius: 24,
-    paddingTop: 20,
-    paddingBottom: 40,
-    maxHeight: '70%',
+    width: '92%',
+    maxWidth: 560,
+    height: '75%',
+    minHeight: '55%',
+    maxHeight: '88%',
+    backgroundColor: '#FFF8E8',
+    borderColor: '#343A40',
+    borderWidth: 3,
+    borderRadius: 18,
+    paddingTop: 0,
+    paddingBottom: 20,
+    overflow: 'hidden',
   },
   modalHeader: {
+    minHeight: 58,
+    backgroundColor: '#343A40',
+    marginHorizontal: 0,
+    marginBottom: 16,
+    paddingLeft: 18,
+    paddingRight: 12,
     flexDirection: 'row',
-    justifyContent: 'space-between',
     alignItems: 'center',
-    paddingHorizontal: 24,
-    marginBottom: 8,
+    justifyContent: 'space-between',
   },
   modalTitle: {
-    fontSize: 20,
-    fontWeight: 'bold',
-    color: Colors.textPrimary,
+    fontSize: 17,
+    fontWeight: '700',
+    color: '#FFFFFF',
+    flex: 1,
   },
   modalSubtitle: {
     fontSize: 14,
@@ -1416,8 +1528,8 @@ const styles = StyleSheet.create({
     color: Colors.textPrimary,
   },
   continueButton: {
-    marginHorizontal: 24,
-    backgroundColor: Colors.primary,
+    marginHorizontal: 18,
+    backgroundColor: '#343A40',
     paddingVertical: 16,
     borderRadius: 12,
     alignItems: 'center',
@@ -1428,13 +1540,24 @@ const styles = StyleSheet.create({
     fontSize: 16,
     fontWeight: '600',
   },
+  modalCloseButton: {
+    width: 36,
+    height: 36,
+    borderRadius: 18,
+    backgroundColor: '#C96B45',
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
   clubList: {
-    paddingHorizontal: 24,
+    paddingHorizontal: 18,
+    flexGrow: 0,
   },
   clubItem: {
     flexDirection: 'row',
     alignItems: 'center',
-    backgroundColor: Colors.lightBackground,
+    backgroundColor: '#FFFFFF',
+    borderWidth: 1,
+    borderColor: '#F0D7B5',
     padding: 16,
     borderRadius: 12,
     marginBottom: 12,
@@ -1443,7 +1566,7 @@ const styles = StyleSheet.create({
     width: 48,
     height: 48,
     borderRadius: 24,
-    backgroundColor: Colors.white,
+    backgroundColor: '#FFF0E0',
     justifyContent: 'center',
     alignItems: 'center',
     marginRight: 12,
@@ -1459,7 +1582,7 @@ const styles = StyleSheet.create({
   },
   clubAmount: {
     fontSize: 14,
-    color: Colors.gold,
+    color: '#C65D00',
     fontWeight: '500',
   },
   noClubsContainer: {

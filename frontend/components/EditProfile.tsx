@@ -68,8 +68,8 @@ export default function EditProfile() {
 }
 
 const styles = StyleSheet.create({
-  edit: { paddingHorizontal: 0, paddingVertical: 12 },
-  editText: { color: Colors.midnightNavy, fontSize: 16, fontWeight: '600' },
+  edit: { paddingHorizontal: 0, paddingVertical: 0 },
+  editText: { color: Colors.midnightNavy, fontSize: 17, fontWeight: '600' },
   overlay: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(0,0,0,0.5)' },
   panel: { backgroundColor: Colors.white, padding: 24, maxHeight: '85%', borderTopLeftRadius: 24, borderTopRightRadius: 24 },
   title: { fontSize: 24, fontWeight: 'bold', color: Colors.textPrimary, marginBottom: 16 },
