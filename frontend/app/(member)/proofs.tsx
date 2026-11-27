@@ -66,6 +66,7 @@ export default function ProofOfPaymentsScreen() {
   const [showClubModal, setShowClubModal] = useState(false);
   const [clubsOwner, setClubsOwner] = useState<string | null>(null);
   const [clubs, setClubs] = useState<Club[]>([]);
+  const [clubsError, setClubsError] = useState(false);
   const flexibleOwner = useRef<string | null>(null);
   const [selectedFlexibleClub, setSelectedFlexibleClub] = useState<Club | null>(null);
   const [flexibleAmount, setFlexibleAmount] = useState('');
@@ -76,6 +77,7 @@ export default function ProofOfPaymentsScreen() {
   const currentRecords = routeReady && loadedProofContext === `${user?.id}:${token}` ? records.filter(record => !clubScoped || record.group_id === params.group_id) : [];
   const selectedRecords = currentRecords.filter(record => (!selectedGroup || record.group_id === selectedGroup) && (!clubScoped || record.group_id === params.group_id) && !invalidPeriod && record.month === period.month && record.year === period.year);
   const currentProofs = routeReady && loadedProofContext === `${user?.id}:${token}` ? proofs.filter(proof => (!selectedGroup || proof.groupId === selectedGroup) && (!clubScoped || proof.groupId === params.group_id) && !invalidPeriod && proof.month === new Date(period.year, period.month - 1, 1).toLocaleDateString("en-US", { month: "long", year: "numeric" })) : [];
+  const showNoClubWelcome = !clubScoped && !invalidPeriod && loadedProofContext === requestContext && !proofsError && records.length === 0 && clubsOwner === requestContext && !loadingClubs && !clubsError && clubs.length === 0;
   const [proofFilter, setProofFilter] = useState<'all' | 'confirmed' | 'proof_uploaded' | 'proof_declined' | 'other'>('all');
   const confirmedProofs = currentProofs.filter(p => ['confirmed', 'paid'].includes(p.status));
   const pendingProofs = currentProofs.filter(p => p.status === 'proof_uploaded');
@@ -297,6 +299,7 @@ export default function ProofOfPaymentsScreen() {
     clubDiscovery.current = { context, ticket };
     setClubsOwner(context);
     setClubs([]);
+    setClubsError(false);
     setLoadingClubs(true);
     try {
       const response = await axios.get(`${API_URL}/api/member/dashboard/${user?.id}`, {
@@ -316,11 +319,16 @@ export default function ProofOfPaymentsScreen() {
       if (!screenActive.current || latestContext.current !== context || discoverySequence.current !== ticket) return;
       console.error('Error fetching clubs:', error);
       setClubs([]);
+      setClubsError(true);
     } finally {
       if (clubDiscovery.current?.ticket === ticket) clubDiscovery.current = null;
       if (screenActive.current && latestContext.current === context && discoverySequence.current === ticket) setLoadingClubs(false);
     }
   };
+
+  useFocusEffect(useCallback(() => {
+    void fetchClubs();
+  }, [requestContext]));
 
   const handleUploadPress = async () => {
     if (proofReadFailed.current || proofsError || latestAction.current !== actionContext || !screenActive.current || !routeReady || uploadPending.current) return;
@@ -629,7 +637,26 @@ export default function ProofOfPaymentsScreen() {
       
       </View>
 
-          {clubScoped && <TouchableOpacity style={{ backgroundColor: Colors.primary, paddingHorizontal: 24, paddingBottom: 12 }} accessibilityLabel="Back to Club Home" onPress={() => router.replace({ pathname: '/club/[id]', params: { id: params.group_id || '', month: String(period.month), year: String(period.year), contribution_id: selectedContributionId, from: params.from || 'member' } })}><Text style={styles.headerSubtitle}>Back to Club Home</Text></TouchableOpacity>}
+          {showNoClubWelcome ? (
+          <>
+            <View style={styles.gettingStartedCard}>
+              <View style={styles.gettingStartedIcon}>
+                <Ionicons name="people-outline" size={30} color="#26352D" />
+              </View>
+              <Text style={styles.gettingStartedTitle}>Your savings journey starts here</Text>
+              <Text style={styles.gettingStartedBody}>
+                Once you join a stokvel or create your own, your contributions, payment activity and proof of payments will appear here.
+              </Text>
+              <TouchableOpacity style={styles.gettingStartedButton} onPress={() => router.push('/(member)/home')} accessibilityRole="button">
+                <Text style={styles.gettingStartedButtonText}>Explore Clubs & Stokvels</Text>
+                <Ionicons name="arrow-forward" size={18} color="#26352D" />
+              </TouchableOpacity>
+            </View>
+            <AdBanner size="banner" />
+          </>
+        ) : (
+          <>
+        {clubScoped && <TouchableOpacity style={{ backgroundColor: Colors.primary, paddingHorizontal: 24, paddingBottom: 12 }} accessibilityLabel="Back to Club Home" onPress={() => router.replace({ pathname: '/club/[id]', params: { id: params.group_id || '', month: String(period.month), year: String(period.year), contribution_id: selectedContributionId, from: params.from || 'member' } })}><Text style={styles.headerSubtitle}>Back to Club Home</Text></TouchableOpacity>}
       <ScrollView style={styles.content} refreshControl={<RefreshControl refreshing={proofsLoading} onRefresh={() => void fetchProofs()} />}>
         {invalidPeriod && <Text>Invalid contribution period. Return to Club Home and select a valid period.</Text>}
         {clubScoped && <TouchableOpacity accessibilityLabel="Record current-period contribution" onPress={async () => {
@@ -846,6 +873,8 @@ export default function ProofOfPaymentsScreen() {
         
         {/* Ad Banner */}
         <AdBanner size="banner" />
+          </>
+        )}
       </ScrollView>
 
       {/* Club Selection Modal */}
@@ -1028,6 +1057,54 @@ const styles = StyleSheet.create({
   contributionDetailsLabel: { color: Colors.primary, fontSize: 15, fontWeight: '500' },
   proofCategories: { flexDirection: 'row', flexWrap: 'wrap', gap: 20, paddingHorizontal: 20, paddingBottom: 12 },
 
+  gettingStartedCard: {
+    marginHorizontal: 24,
+    marginTop: 24,
+    padding: 24,
+    borderRadius: 18,
+    borderWidth: 1,
+    borderColor: '#E5E7EB',
+    backgroundColor: '#FFFFFF',
+    alignItems: 'flex-start',
+  },
+  gettingStartedIcon: {
+    width: 56,
+    height: 56,
+    borderRadius: 28,
+    backgroundColor: '#E4C447',
+    alignItems: 'center',
+    justifyContent: 'center',
+    marginBottom: 18,
+  },
+  gettingStartedTitle: {
+    color: '#26352D',
+    fontSize: 21,
+    lineHeight: 27,
+    fontWeight: '700',
+    marginBottom: 10,
+  },
+  gettingStartedBody: {
+    color: '#60656B',
+    fontSize: 14,
+    lineHeight: 21,
+    marginBottom: 22,
+  },
+  gettingStartedButton: {
+    minHeight: 48,
+    paddingHorizontal: 16,
+    borderRadius: 12,
+    backgroundColor: '#E4C447',
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'center',
+    gap: 10,
+    alignSelf: 'stretch',
+  },
+  gettingStartedButtonText: {
+    color: '#26352D',
+    fontSize: 14,
+    fontWeight: '700',
+  },
   container: {
     flex: 1,
     backgroundColor: Colors.lightBackground,
